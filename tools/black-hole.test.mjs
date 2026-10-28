@@ -53,7 +53,7 @@ test('dark paint leaves the shadow to the background; light paint fills it with 
   assert.equal(f.arcs.length,1);assert.equal(f.fills.length,1)
   const [disc]=f.arcs
   assert.equal(disc.x,160);assert.equal(disc.y,100)
-  assert.ok(Math.abs(disc.r-44)<1e-6,`horizon radius ${disc.r} should be SHADOW_SHARE*min(w,h)/2`)
+  assert.ok(Math.abs(disc.r-34)<1e-6,`horizon radius ${disc.r} should be SHADOW_SHARE*min(w,h)/2`)
   r.setMode('dark')
   assert.equal(f.arcs.length,1);assert.equal(f.fills.length,1)
   r.dispose()

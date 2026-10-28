@@ -19,7 +19,11 @@ var UniverseBlackHole = (function () {
   var DISTANCE = 60
   var INNER = 6, OUTER = 16
   var B_CRIT = 3 * Math.sqrt(3)
-  var SHADOW_SHARE = 0.44
+  /* 2026-10-29（用户 m00684：「稍微缩小一点新会话页面的黑洞……在完全展示吸积盘的前提下
+     最大就行」）：0.44 → 0.34。视野越窄黑洞越大：0.44 时吸积盘外缘（OUTER=16M）在屏幕上
+     的直径约为短边的 1.18 倍，新会话页里左右两侧的盘就会被窗口切掉；0.34 落到约 0.91 倍，
+     四边各留约 4.5% 的余量，是把整只盘放进画面还能取到的最大值。 */
+  var SHADOW_SHARE = 0.34
   var HORIZON_INK = '#101725'
   var TAN_HALF = B_CRIT / DISTANCE / SHADOW_SHARE
   var RING_WIDTH = 0.32
