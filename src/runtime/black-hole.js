@@ -19,10 +19,6 @@ var UniverseBlackHole = (function () {
   var DISTANCE = 60
   var INNER = 6, OUTER = 16
   var B_CRIT = 3 * Math.sqrt(3)
-  /* 2026-10-29（用户 m00684：「稍微缩小一点新会话页面的黑洞……在完全展示吸积盘的前提下
-     最大就行」）：0.44 → 0.34。视野越窄黑洞越大：0.44 时吸积盘外缘（OUTER=16M）在屏幕上
-     的直径约为短边的 1.18 倍，新会话页里左右两侧的盘就会被窗口切掉；0.34 落到约 0.91 倍，
-     四边各留约 4.5% 的余量，是把整只盘放进画面还能取到的最大值。 */
   var SHADOW_SHARE = 0.34
   var HORIZON_INK = '#101725'
   var TAN_HALF = B_CRIT / DISTANCE / SHADOW_SHARE
@@ -129,7 +125,7 @@ var UniverseBlackHole = (function () {
     }
   }
   function create(canvas, input) {
-    var config = options(input), ctx = canvas.getContext('2d', { alpha: true })
+    var config = options(input), ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) throw Error('Canvas 2D unavailable')
     var disposed = false, raf = 0, buildTimer = 0, generation = 0, elapsed = 0, previous = 0, lastDraw = -Infinity
     var visible = true, frames = 0, totalPaint = 0, maxPaint = 0, buildCpu = 0, w = 0, h = 0, cols = 0, rows = 0, grid = [], cw = 8, ch = 12, ready = false, mode = 'dark'
@@ -138,12 +134,8 @@ var UniverseBlackHole = (function () {
       if (disposed || !w || !h || !ready) return
       var start = performance.now(), light = mode === 'light'
       var horizon = SHADOW_SHARE * Math.min(w, h) / 2, cx = w / 2, cy = h / 2
-      /* 2026-10-29（用户 m00567：「左栏和整个区域要是无界的，看起来要是都一样的」）：
-         画布改成透明（alpha: true + clearRect），底色交给 body 的 --cp-void。不透明
-         清屏色会让画布成为一块与左栏必然有色差的方块：无论填画布色还是官方纱，都得
-         和另一个合成色对齐，两次实测各差一档。透明之后星点直接叠在整窗统一的那层底
-         上，左栏与主区之间没有可漂移的色差，也没有画布边缘。 */
-      ctx.clearRect(0, 0, w, h)
+      ctx.fillStyle = light ? '#edf0f4' : '#030509'
+      ctx.fillRect(0, 0, w, h)
       if (light) {
         ctx.beginPath()
         ctx.arc(cx, cy, horizon, 0, Math.PI * 2)
@@ -278,34 +270,73 @@ var UniverseBlackHole = (function () {
   }
   var DARK = ['#2a1a12', '#3d2719', '#4f321d', '#623f22', '#774c27', '#8d5a2e', '#a46a36', '#bb7c40', '#d0904b', '#e3a65c', '#f2bd75', '#ffe0a8']
   var LIGHT = ['#b3a291', '#a8917b', '#9c8063', '#906e4d', '#855e38', '#784d28', '#6b3e1d', '#5f3219', '#532715', '#471f12', '#3c180f', '#30110b']
-  /* 黑洞铺满整个窗口（用户 m00706：「现在这样，但现在这个大小我更想它全区域显示了」）。
-     取景曾限定在「对话区列左缘 → frame 右缘」，把左栏排除在画布外；那样左栏必须自带
-     一块漆才能遮住画布，而左栏的漆与主区永远差一层。现在画布 fixed;inset:0 覆盖视口，
-     左栏本身透明（见 theme.css 的 shell 段），黑洞连续地穿过左栏、对话区和右栏。
+  /* 黑洞只存在于「对话区 + 右栏」这一块视图里，左栏是一张独立的纸。
+     以前画布 'position: fixed; inset: 0' 铺满整个视口：黑洞连左栏一起画，只靠左栏自己的漆
+     把它盖住；那条漆一旦被清掉，洞就漏进左栏。现在取景由两个元素共同决定：
 
-     尺寸取 window.innerWidth/innerHeight；canvas 自身的 ResizeObserver（见 create）负责
-     重新装机和重算网格，窗口变化由 window 的 resize 事件驱动。
-     这里刻意不再量任何容器 rect：取景回到视口，任何一列变宽变窄都不影响画布。 */
+       column  '[data-slot=main]' 所在的那一列（会话正文、输入卡都在这列里）。左边界取它的
+               左边缘，所以左栏不进入取景。
+       frame   '[data-slot=root]' 的唯一子元素；右栏是 column 的兄弟，和它同包在 frame 里。
+               右边界取 frame 的右边缘，所以右栏在取景内，不会被在右栏边缘切一刀。
+
+     真机 DOM 已核对（2026-10-29，DSH Web 1256px 视口）：frame 与 column 之间还隔着两层
+     无属性 div，所以 '[data-slot=root] > *:has(> [data-slot=main])' 匹配不到任何节点；当前
+     结构是 '[data-slot=root] > * > div:has(> [data-slot=main])'（column，实测 x=280、宽 976）
+     外面包着 '[data-slot=root] > *'（frame，实测 x=0、宽 1256）。
+
+     画布仍是 fixed，rect 由容器量；z-index 保持 -1，veil 由 body::after 那一层负责，画布
+     不需要再叠。右栏收起/展开只改 frame 里那两列的宽度，column 的 ResizeObserver 会触发
+     重算，黑洞跟着重新取景。 */
   function mount() {
     if (typeof document === 'undefined' || !document.body) return
     var canvas = document.createElement('canvas')
     canvas.setAttribute('aria-hidden', 'true')
     canvas.dataset.uniBlackHole = ''
-    canvas.style.cssText = 'position:fixed;inset:0;z-index:-1;pointer-events:none;'
+    canvas.style.cssText = 'position:fixed;z-index:-1;pointer-events:none;'
     document.body.prepend(canvas)
-    var renderer
+    var renderer, column = null, frame = null
     try { renderer = create(canvas); document.body.setAttribute('data-uni-black-hole', '') }
     catch (error) { canvas.remove(); console.warn('Universe ASCII black hole fallback:', error.message); return }
-    function place() {
-      canvas.style.width = (window.innerWidth || 0) + 'px'
-      canvas.style.height = (window.innerHeight || 0) + 'px'
+    function findColumn() {
+      return document.querySelector("[data-slot='root'] > * > div:has(> [data-slot='main'])") ||
+        document.querySelector("[data-slot='main']")
     }
-    window.addEventListener('resize', place)
-    place()
+    function findFrame() {
+      return document.querySelector("[data-slot='root'] > *") || column
+    }
+    function follow() {
+      var nextColumn = findColumn()
+      var nextFrame = nextColumn ? findFrame() : null
+      if (nextColumn === column && nextFrame === frame) return
+      if (column) observer.unobserve(column)
+      if (frame) observer.unobserve(frame)
+      column = nextColumn
+      frame = nextFrame
+      /* 还没挂出主区时按视口占位，下一轮页面切换会再进来一次。 */
+      if (column) observer.observe(column)
+      if (frame) observer.observe(frame)
+      place()
+    }
+    function place() {
+      var area = column
+        ? column.getBoundingClientRect()
+        : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
+      var edge = frame ? frame.getBoundingClientRect() : area
+      var right = Math.max(area.left + area.width, edge.left + edge.width)
+      canvas.style.left = area.left + 'px'
+      canvas.style.top = edge.top + 'px'
+      canvas.style.width = Math.max(0, right - area.left) + 'px'
+      canvas.style.height = edge.height + 'px'
+    }
+    var observer = new ResizeObserver(place)
+    var shell = new MutationObserver(follow)
+    shell.observe(document.body, { childList: true, subtree: true })
+    follow()
     return function () {
-      renderer.dispose()
-      window.removeEventListener('resize', place)
-      canvas.remove()
+      renderer.dispose(); shell.disconnect()
+      if (column) observer.unobserve(column)
+      if (frame) observer.unobserve(frame)
+      observer.disconnect(); canvas.remove()
       document.body.removeAttribute('data-uni-black-hole')
     }
   }

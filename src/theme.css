@@ -298,25 +298,34 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
     在当前真实结构下匹配 0 个节点（frame 与 column 之间还隔着两层无属性 div），补漆选择器
     原来也据此写错，一并按真实链条改正。
 
-   左栏透明（2026-10-29 终版）。用户三句话把一个方向说死了：m00567「我是让左栏跟黑洞
-   独立，黑洞不在左栏显示。但左栏和整个区域要是无界的，看起来要是都一样的」，紧接
-   m00648「我的意思是让左边栏透明！！！」。所以左栏不刷任何颜色，而是把自己（连同外层
-   容器与官方那层 `--dsw-specific-sidebar-fill`）清成 transparent，透出整窗同一个底。
+   左栏那条只补漆、不加任何别的东西，但补的是**画布的清屏色** `--cp-void`，
+   不是 `--dsw-specific-sidebar-fill`。2026-10-29 用户：「新会话页下，主区域跟
+   左边栏的配色不同导致割裂感」。原因是后者在暗档是 α0.35 的纱，补在 body 底色
+   （也是 α0.35）与 `body::after`（同样 α0.35）之外，三层同色叠出 ≈0.73 的灰雾
+   （`#0d1117` 附近），而主区是画布不透明的 `#030509`；两者明度接近，但一灰一冷，
+   交界就是一条硬线。换成画布色之后，左栏与画布外围同色，交界只剩画布左缘那条
+   星点渐隐（见下一条规则）。
 
-   这条路能成的关键是画布也不再不透明（src/runtime/black-hole.js 的 `clearRect`）：
-   画布一旦是不透明清屏色，主区就是「画布 + 外壳纱」的合成色，左栏透出的底怎么都差
-   一档 —— 前两次失败都是在猜这个合成值。画布透明之后，主区透出的同样是那一层底，
-   两区逐像素相等，不需要任何颜色匹配，也不改整窗原有的明度（不再把 body 刷成画布色，
-   那会把整个窗口压黑一档）。
-
-   `--cp-void` 仍由绘制方发布（src/runtime/black-hole.js 的 `applyMode()`），留给画布与
-   将来需要精确对齐的场合；本表不消费它。 */
+   `--cp-void` 不在这张表里定义：它的真源是绘制方 —— src/runtime/black-hole.js
+   的 `draw()` 每帧 `fillStyle` 用的就是同一对值，由 `applyMode()` 按模式发布到
+   `documentElement` 上。这样亮暗切换与画布同步，本表也不产生第二个颜色源；兜底写
+   `--dsw-alias-bg-base`，变量缺失时退回官方底纱而不是透明。 */
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
-body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'],
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
-  background-color: transparent !important;
-  background-image: none !important;
-  backdrop-filter: none !important;
+  background-color: var(--cp-void, var(--dsw-alias-bg-base)) !important;
+  /* 只有画布色还不够（2026-10-29 重启后用户回报「还是割裂」）：主区是「画布不透明清屏
+     色」再叠 body::after 那层纱，左栏若只铺画布色就少了这一层，比主区暗一档。这里补同一
+     层同值的纱，两区底色逐像素相等，交界只剩画布左缘那条渐隐。 */
+  background-image: linear-gradient(var(--dsw-alias-bg-base), var(--dsw-alias-bg-base)) !important;
+}
+
+/* 画布左缘 72px 星点渐隐（2026-10-29，同上）。取景从对话区左缘开始，星点在
+   x=280 处突然出现；给画布一条横向 alpha 斜坡之后，左栏与主区之间既没有色差也
+   没有「截断线」。mask 是合成层属性，不改 canvas 的绘制，也不增加每帧的 JS；
+   终点用 `currentColor`（继承来的实色文字色）而不是字面黑，免得本表自造颜色。 */
+canvas[data-uni-black-hole] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, currentColor 72px);
+  mask-image: linear-gradient(to right, transparent 0, currentColor 72px);
 }
 body::after {
   content: '';

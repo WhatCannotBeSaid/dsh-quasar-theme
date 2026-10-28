@@ -277,17 +277,29 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
    * 摆位（mount() 里量 `[data-slot='root'] > *:has(> [data-slot='main'])`），这枚检查钉住
    * 两件事：漆层里那条给左栏补漆的规则用的是「只补漆」的形状，客户端里画布不再是铺满视口。 */
   const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  /* 2026-10-29 终版（用户 m00648：「我的意思是让左边栏透明！！！」）：左栏不刷颜色，而是
-   * 清成 transparent 透出整窗同一个底；画布也透明（见 rt.blackhole），主区透出的是同一层，
-   * 于是两区逐像素相等。这里钉住「左栏不自刷、且是透明而不是某一种颜色」，另外钉住不许再
-   * 出现把整窗刷成画布色的那条规则（那会把窗口整体压黑一档，不是用户要的「透明」）。 */
-  if (/body\[data-uni-black-hole\]:has\(\[data-black-hole-state='ready'\]\)\s*\{[^}]*background-color:/.test(sheet)) {
-    return 'the page must not repaint its own floor; the sidebar only has to be transparent'
+  const block = sheet.match(/body\[data-uni-black-hole\]:has\(\[data-black-hole-state='ready'\]\)[^{}]*\[data-slot='sidebar'\][^{}]*\{([^}]*)\}/)?.[0]
+  if (!block) return 'no sidebar repaint rule on the black-hole page'
+  /* 2026-10-29（用户点名「主区域跟左边栏的配色不同导致割裂感」）：补漆改吃画布
+   * 清屏色 `--cp-void`（由 src/runtime/black-hole.js 按模式发布），不再用官方那层
+   * 纱 —— 那层纱叠在 body 底色与 body::after 之上合成 ≈0.73 的灰雾，与画布外围的
+   * 纯 #030509 并排成一条硬边。兜底仍是官方令牌，变量缺失时不会变透明。 */
+  if (!/background-color:\s*var\(--cp-void,\s*var\(--dsw-alias-bg-base\)\)\s*!important/.test(block)) {
+    return 'the sidebar repaint does not follow the canvas clear colour (--cp-void)'
   }
-  if (!/\[data-slot='sidebar'\][^{}]*\{[^}]*background-color:\s*transparent\s*!important/.test(sheet)) {
-    return 'the sidebar is still painted, so it cannot share the floor with the main column'
+  if (/::(before|after)|backdrop-filter|filter:|content:/.test(block)) {
+    return 'the sidebar rule must stay a plain fill layer (no pseudo-element, no blur)'
   }
-  return /data-uni-black-hole/.test(sheet) || 'the canvas is not scoped to the black-hole page'
+  /* 主区是「画布色 + body::after 那层纱」；左栏少这层纱就会比主区暗一档（2026-10-29
+   * 重启后用户回报「还是割裂」）。只允许这一层同值的纱，其它 background-image 拒绝。 */
+  if (!/background-image:\s*linear-gradient\(var\(--dsw-alias-bg-base\),\s*var\(--dsw-alias-bg-base\)\)\s*!important/.test(block)) {
+    return 'the sidebar repaint must carry the same veil layer body::after paints'
+  }
+  /* 左栏与画布同色之后，星点若在 x=侧栏宽度处硬切，边界会从「色差」变成「截断线」；
+   * 画布左缘那条 alpha 斜坡是这套割裂修复的另一半。 */
+  if (!/canvas\[data-uni-black-hole\][^{]*\{[^}]*mask-image/.test(sheet)) {
+    return 'the canvas has no left-edge fade, so the star field is cut off at the sidebar edge'
+  }
+  return /data-uni-black-hole/.test(sheet) || 'the repaint is not scoped to the black-hole page'
 })
 checks.group('runtime')
 /* 2026-10-29：build 的 whitespace pass 会剥掉行首缩进，旧锚点 '\n  }' 在产物里从不命中，
@@ -303,20 +315,16 @@ function functionSource(source, name) {
   }
   return ''
 }
-checks.check('rt.blackhole', 'the ASCII canvas covers the whole viewport', () => {
+checks.check('rt.blackhole', 'the ASCII canvas is positioned from a container rect, not the viewport', () => {
   const mount = functionSource(client, 'mount')
   if (!mount) return 'mount() is missing from the bundled runtime'
-  /* 2026-10-29：取景回到视口（用户 m00706「我更想它全区域显示了」）。画布必须 fixed;inset:0
-   * 并按 innerWidth/innerHeight 定尺寸；任何回到容器 rect 的写法都算回退。 */
-  if (!/position:fixed;inset:0/.test(mount)) return 'mount() no longer covers the viewport'
-  if (!/innerWidth/.test(mount) || !/innerHeight/.test(mount)) return 'mount() does not size the canvas to the viewport'
-  if (/getBoundingClientRect/.test(mount)) return 'mount() measures a container again instead of the viewport'
-  /* 画布必须透明（alpha:true + clearRect）：左栏透明、黑洞要连续穿过左栏，靠的就是这层。 */
-  const draw = functionSource(client, 'draw')
-  if (!draw) return 'draw() is missing from the bundled runtime'
-  if (/\{\s*alpha:\s*false\s*\}/.test(client)) return 'the canvas context is still opaque'
-  if (!/clearRect/.test(draw)) return 'draw() still paints an opaque floor instead of clearing it'
-  return /addEventListener\('resize', place\)/.test(mount) || 'mount() does not follow window resizes'
+  if (/position:fixed;inset:0|inset:\s*0;width:100%;height:100%/.test(mount)) {
+    return 'mount() still stretches the canvas over the viewport'
+  }
+  const hasFrame = /\[data-slot='root'\] > \* > div:has\(> \[data-slot='main'\]\)|\[data-slot='root'\] > \*:has\(> \[data-slot='main'\]\)/.test(mount)
+  if (!hasFrame) return 'mount() does not measure the main+rightbar frame'
+  if (!/getBoundingClientRect/.test(mount)) return 'mount() never measures the frame'
+  return /ResizeObserver/.test(mount) || 'mount() does not re-frame when the container resizes'
 })
 checks.group('paint-layer')
 
