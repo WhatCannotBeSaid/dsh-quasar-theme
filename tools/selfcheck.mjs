@@ -288,8 +288,21 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
   return /data-uni-black-hole/.test(sheet) || 'the repaint is not scoped to the black-hole page'
 })
 checks.group('runtime')
+/* 2026-10-29：build 的 whitespace pass 会剥掉行首缩进，旧锚点 '\n  }' 在产物里从不命中，
+ * 匹配一路吃到文件末尾，反而被后面 runtime 里的 inset:0 假阳性绊倒。改成按花括号配对截取
+ * 函数体（strip 后的产物里没有字符串携带未转义的花括号）。 */
+function functionSource(source, name) {
+  const start = source.indexOf('function ' + name + '(')
+  if (start < 0) return ''
+  let depth = 0
+  for (let index = source.indexOf('{', start); index >= 0 && index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1
+    else if (source[index] === '}' && (depth -= 1) === 0) return source.slice(start, index + 1)
+  }
+  return ''
+}
 checks.check('rt.blackhole', 'the ASCII canvas is positioned from a container rect, not the viewport', () => {
-  const mount = client.match(/function mount\(\)[\s\S]*?\n  \}/)?.[0] ?? ''
+  const mount = functionSource(client, 'mount')
   if (!mount) return 'mount() is missing from the bundled runtime'
   if (/position:fixed;inset:0|inset:\s*0;width:100%;height:100%/.test(mount)) {
     return 'mount() still stretches the canvas over the viewport'
@@ -353,7 +366,10 @@ checks.check('css.8', 'theme.css invents no colour of its own', () => {
   return literals.length === 0 || `literal colours: ${literals.join(', ')}`
 })
 checks.check('css.9', 'the shell rescue empties rather than recolours', () => {
-  const block = css.match(/\[data-slot='main'\][\s\S]*?\}/)?.[0] ?? ''
+  /* 2026-10-29：先把注释剥掉再取块。原先直接在当前 sheet 上取第一个
+   * `[data-slot='main']` 到下一个 `}`，而这张表在正文规则之前有好几段散文提到该选择器，
+   * 取到的块从注释开始、跨过侧栏补漆规则才结束，于是「补漆」被误判成「壳层重新上色」。 */
+  const block = css.replace(/\/\*[\s\S]*?\*\//g, '').match(/\[data-slot='main'\][\s\S]*?\}/)?.[0] ?? ''
   return /background-color:\s*transparent\s*!important/.test(block) ||
   'shell rescue does not empty the wrappers'
 })

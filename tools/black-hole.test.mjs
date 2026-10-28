@@ -87,6 +87,47 @@ test('mount sizes the canvas to the main+rightbar frame and leaves the sidebar o
   assert.equal(canvas.removed,true);assert.equal(attrs['data-uni-black-hole'],undefined)
 })
 
+test('mount leaves the sidebar outside the canvas: left edge from the column, right edge from the frame',()=>{
+  /* 2026-10-29（用户点名「黑洞限制在对话区和右侧栏内，左栏独立开」）：真机结构里
+     column（[data-slot='root'] > * > div:has(> [data-slot='main'])）与 frame
+     （[data-slot='root'] > *）不是同一个元素。左边界只认 column 左边，左栏在它左边，
+     因此不进取景；右边界认 frame 右边，右栏是 column 的兄弟、和它同包在 frame 里，
+     所以右栏展开时也不会把黑洞在右栏边缘切掉。 */
+  function mountWith(columnRect, frameRect) {
+    const attrs={},style={}
+    const column={getBoundingClientRect:()=>columnRect}
+    const frame={getBoundingClientRect:()=>frameRect}
+    const canvas={dataset:{},width:0,height:0,style,setAttribute(){},remove(){},
+      getBoundingClientRect:()=>({width:Number.parseFloat(style.width)||0,height:Number.parseFloat(style.height)||0}),
+      getContext:()=>({setTransform(){},fillRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
+    const doc={hidden:false,documentElement:{},
+      body:{prepend(){},setAttribute:(k,v)=>{attrs[k]=v},removeAttribute:k=>{delete attrs[k]}},
+      createElement:()=>canvas,addEventListener(){},removeEventListener(){},
+      querySelector:s=>s==="[data-slot='root'] > * > div:has(> [data-slot='main'])"?column
+        :s==="[data-slot='root'] > *"?frame:null}
+    const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
+      window:{devicePixelRatio:1,innerWidth:frameRect.width,innerHeight:frameRect.height,
+        matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
+      ResizeObserver:class{observe(){}unobserve(){}disconnect(){}},
+      IntersectionObserver:class{observe(){}disconnect(){}},MutationObserver:class{observe(){}disconnect(){}},
+      getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:()=>0,clearTimeout(){},
+      requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
+    vm.runInContext(source,context)
+    const dispose=context.UniverseBlackHole.mount()
+    const box={left:style.left,top:style.top,width:style.width,height:style.height}
+    dispose()
+    return box
+  }
+  /* 真机 1256px 视口：左栏 0..280，对话区 280..1256，右栏收起。 */
+  assert.deepEqual(
+    mountWith({left:280,top:0,width:976,height:821},{left:0,top:0,width:1256,height:821}),
+    {left:'280px',top:'0px',width:'976px',height:'821px'})
+  /* 右栏展开：对话区被压到 280..880，右栏 880..1256，取景仍要盖到 frame 右边。 */
+  assert.deepEqual(
+    mountWith({left:280,top:0,width:600,height:821},{left:0,top:0,width:1256,height:821}),
+    {left:'280px',top:'0px',width:'976px',height:'821px'})
+})
+
 test('Canvas draws glyphs only; pause, reduced motion, hide, rebuild and disposal cancel owned work',()=>{
   const f=fixture(),r=f.api.create(f.canvas)
   assert.equal(r.stats().ready,false);f.drain();assert.equal(r.stats().ready,true)

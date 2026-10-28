@@ -189,7 +189,7 @@ var UniverseBlackHole = (function () {
     function resize() {
       var rect = canvas.getBoundingClientRect(), nw = rect.width || 0, nh = rect.height || 0
       /* 空容器的 rect 不会是负数，但会以 0 出现（挂载瞬间、容器被隐藏）：0 下没有任何格子可
-         画，`Math.floor(w / cw)` 会算出 0 列，`new Array(0)` 之后的行循环写 `next[-1]` 直接抛
+         画，'Math.floor(w / cw)' 会算出 0 列，'new Array(0)' 之后的行循环写 'next[-1]' 直接抛
          「Invalid array length」，create() 整个挂不上。方框为 0 时先停在这里，等容器的
          ResizeObserver 再来一次。 */
       if (!(nw > 0) || !(nh > 0)) { w = 0; h = 0; ready = false; stop(); return }
@@ -259,18 +259,23 @@ var UniverseBlackHole = (function () {
   }
   var DARK = ['#2a1a12', '#3d2719', '#4f321d', '#623f22', '#774c27', '#8d5a2e', '#a46a36', '#bb7c40', '#d0904b', '#e3a65c', '#f2bd75', '#ffe0a8']
   var LIGHT = ['#b3a291', '#a8917b', '#9c8063', '#906e4d', '#855e38', '#784d28', '#6b3e1d', '#5f3219', '#532715', '#471f12', '#3c180f', '#30110b']
-  /* 黑洞只存在于「主区 + 右栏」这一块视图里，左栏是一张独立的纸。
-     以前画布 `position: fixed; inset: 0` 铺满整个视口：黑洞连左栏一起画，左栏靠自己的漆
-     把它盖住；一旦某条规则把左栏的漆清掉，洞就漏进左栏。现在改由容器决定取景：
+  /* 黑洞只存在于「对话区 + 右栏」这一块视图里，左栏是一张独立的纸。
+     以前画布 'position: fixed; inset: 0' 铺满整个视口：黑洞连左栏一起画，只靠左栏自己的漆
+     把它盖住；那条漆一旦被清掉，洞就漏进左栏。现在取景由两个元素共同决定：
 
-       [data-slot='main']   是主区那一列（会话正文、输入卡都在这列里），右栏是它的兄弟，
-                            两者一起被 `[data-slot='root'] > *` 的 frame 包住。所以取 frame，
-                            不是取 main —— 只取 main 的话黑洞会在右栏边缘被切一刀。
+       column  '[data-slot=main]' 所在的那一列（会话正文、输入卡都在这列里）。左边界取它的
+               左边缘，所以左栏不进入取景。
+       frame   '[data-slot=root]' 的唯一子元素；右栏是 column 的兄弟，和它同包在 frame 里。
+               右边界取 frame 的右边缘，所以右栏在取景内，不会被在右栏边缘切一刀。
 
-     画布按容器定位（仍是 fixed，只是 rect 由容器量），后面 CSS 按 z-index 直接排在
-     `[data-slot='main']` 之上、frame 自身背景之下：容器自己那层 `--dsw-alias-bg-base`
-     是面，漆是透明的，画布夹在中间不需要负 z-index，也就不再有「谁的漆盖住谁」的问题。
-     这也顺带把「右栏收起」算对了：右栏收起时容器变窄，黑洞跟着重新取景、重新居中。 */
+     真机 DOM 已核对（2026-10-29，DSH Web 1256px 视口）：frame 与 column 之间还隔着两层
+     无属性 div，所以 '[data-slot=root] > *:has(> [data-slot=main])' 匹配不到任何节点；当前
+     结构是 '[data-slot=root] > * > div:has(> [data-slot=main])'（column，实测 x=280、宽 976）
+     外面包着 '[data-slot=root] > *'（frame，实测 x=0、宽 1256）。
+
+     画布仍是 fixed，rect 由容器量；z-index 保持 -1，veil 由 body::after 那一层负责，画布
+     不需要再叠。右栏收起/展开只改 frame 里那两列的宽度，column 的 ResizeObserver 会触发
+     重算，黑洞跟着重新取景。 */
   function mount() {
     if (typeof document === 'undefined' || !document.body) return
     var canvas = document.createElement('canvas')
@@ -278,25 +283,39 @@ var UniverseBlackHole = (function () {
     canvas.dataset.uniBlackHole = ''
     canvas.style.cssText = 'position:fixed;z-index:-1;pointer-events:none;'
     document.body.prepend(canvas)
-    var renderer, host = null
+    var renderer, column = null, frame = null
     try { renderer = create(canvas); document.body.setAttribute('data-uni-black-hole', '') }
     catch (error) { canvas.remove(); console.warn('Universe ASCII black hole fallback:', error.message); return }
+    function findColumn() {
+      return document.querySelector("[data-slot='root'] > * > div:has(> [data-slot='main'])") ||
+        document.querySelector("[data-slot='main']")
+    }
+    function findFrame() {
+      return document.querySelector("[data-slot='root'] > *") || column
+    }
     function follow() {
-      var next = document.querySelector("[data-slot='root'] > * > div:has(> [data-slot='main'])")
-      if (!next) next = document.querySelector("[data-slot='main']")
-      if (next === host) return
-      if (host) observer.unobserve(host)
-      host = next
-      /* 还没挂出主区时容器就是视口，下一轮页面切换会再进来一次。 */
-      if (host) observer.observe(host)
+      var nextColumn = findColumn()
+      var nextFrame = nextColumn ? findFrame() : null
+      if (nextColumn === column && nextFrame === frame) return
+      if (column) observer.unobserve(column)
+      if (frame) observer.unobserve(frame)
+      column = nextColumn
+      frame = nextFrame
+      /* 还没挂出主区时按视口占位，下一轮页面切换会再进来一次。 */
+      if (column) observer.observe(column)
+      if (frame) observer.observe(frame)
       place()
     }
     function place() {
-      var rect = host ? host.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
-      canvas.style.left = rect.left + 'px'
-      canvas.style.top = rect.top + 'px'
-      canvas.style.width = rect.width + 'px'
-      canvas.style.height = rect.height + 'px'
+      var area = column
+        ? column.getBoundingClientRect()
+        : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
+      var edge = frame ? frame.getBoundingClientRect() : area
+      var right = Math.max(area.left + area.width, edge.left + edge.width)
+      canvas.style.left = area.left + 'px'
+      canvas.style.top = edge.top + 'px'
+      canvas.style.width = Math.max(0, right - area.left) + 'px'
+      canvas.style.height = edge.height + 'px'
     }
     var observer = new ResizeObserver(place)
     var shell = new MutationObserver(follow)
@@ -304,7 +323,8 @@ var UniverseBlackHole = (function () {
     follow()
     return function () {
       renderer.dispose(); shell.disconnect()
-      if (host) observer.unobserve(host)
+      if (column) observer.unobserve(column)
+      if (frame) observer.unobserve(frame)
       observer.disconnect(); canvas.remove()
       document.body.removeAttribute('data-uni-black-hole')
     }

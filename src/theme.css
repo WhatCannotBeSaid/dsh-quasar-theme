@@ -290,15 +290,19 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
    混成层、每帧重新合成整条时间轴。所以画布仍旧排在所有漆之下（负 z-index），外壳的漆
    继续当它的纸——暗档就是旧观感，亮档就是上一轮调好的 0.28 veil。
 
-   容器取 frame（`[data-slot='root'] > *:has(> [data-slot='main'])`）：主区是它里面的那一列，
-   右栏是主区的兄弟，一起包在 frame 里。只取 `[data-slot='main']` 会把黑洞在右栏边缘切一刀。
-   取不到 frame 时退回 `[data-slot='main']`（JS 里同样退一层）。
+    容器取两个元素：column 是 `[data-slot='root'] > * > div:has(> [data-slot='main'])`（主区那
+    一列，真机 1256px 视口下实测 x=280、宽 976），frame 是 `[data-slot='root'] > *`（实测
+    x=0、宽 1256）。左边界取 column 左边，左栏因此不进入取景；右边界取 frame 右边，右栏是
+    column 的兄弟、和它同包在 frame 里，所以不会被在右栏边缘切一刀。取不到 column 时按视口
+    占位（JS 里同样退一层）。2026-10-29 核对：`[data-slot='root'] > *:has(> [data-slot='main'])`
+    在当前真实结构下匹配 0 个节点（frame 与 column 之间还隔着两层无属性 div），补漆选择器
+    原来也据此写错，一并按真实链条改正。
 
    左栏那条只补漆、不加任何别的东西：`--dsw-specific-sidebar-fill` 按档发布成
    `--dsw-alias-bg-base`（亮 `#eff2f5d6` / 暗 `#11172059`），和页面同色同 α，
    所以左栏是「不透明纸面」，不是又叠一层纱——壁纸已经在本页被撤掉了。 */
-body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > *:has(> [data-slot='main']) [data-slot='sidebar'],
-body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > *:has(> [data-slot='main']) [data-slot='sidebar'] > div {
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
   background-color: var(--dsw-specific-sidebar-fill) !important;
 }
 body::after {
