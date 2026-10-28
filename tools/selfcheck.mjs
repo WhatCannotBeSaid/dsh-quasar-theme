@@ -303,22 +303,20 @@ function functionSource(source, name) {
   }
   return ''
 }
-checks.check('rt.blackhole', 'the ASCII canvas is positioned from a container rect, not the viewport', () => {
+checks.check('rt.blackhole', 'the ASCII canvas covers the whole viewport', () => {
   const mount = functionSource(client, 'mount')
   if (!mount) return 'mount() is missing from the bundled runtime'
-  if (/position:fixed;inset:0|inset:\s*0;width:100%;height:100%/.test(mount)) {
-    return 'mount() still stretches the canvas over the viewport'
-  }
-  const hasFrame = /\[data-slot='root'\] > \* > div:has\(> \[data-slot='main'\]\)|\[data-slot='root'\] > \*:has\(> \[data-slot='main'\]\)/.test(mount)
-  if (!hasFrame) return 'mount() does not measure the main+rightbar frame'
-  if (!/getBoundingClientRect/.test(mount)) return 'mount() never measures the frame'
-  /* 2026-10-29：画布必须透明（alpha:true + clearRect），否则它是一块与左栏必然有色差的
-   * 不透明方块，「整窗一个底」这条就成不了。 */
+  /* 2026-10-29：取景回到视口（用户 m00706「我更想它全区域显示了」）。画布必须 fixed;inset:0
+   * 并按 innerWidth/innerHeight 定尺寸；任何回到容器 rect 的写法都算回退。 */
+  if (!/position:fixed;inset:0/.test(mount)) return 'mount() no longer covers the viewport'
+  if (!/innerWidth/.test(mount) || !/innerHeight/.test(mount)) return 'mount() does not size the canvas to the viewport'
+  if (/getBoundingClientRect/.test(mount)) return 'mount() measures a container again instead of the viewport'
+  /* 画布必须透明（alpha:true + clearRect）：左栏透明、黑洞要连续穿过左栏，靠的就是这层。 */
   const draw = functionSource(client, 'draw')
   if (!draw) return 'draw() is missing from the bundled runtime'
   if (/\{\s*alpha:\s*false\s*\}/.test(client)) return 'the canvas context is still opaque'
   if (!/clearRect/.test(draw)) return 'draw() still paints an opaque floor instead of clearing it'
-  return /ResizeObserver/.test(mount) || 'mount() does not re-frame when the container resizes'
+  return /addEventListener\('resize', place\)/.test(mount) || 'mount() does not follow window resizes'
 })
 checks.group('paint-layer')
 
