@@ -15,7 +15,7 @@ function fixture() {
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:fn=>{timers.set(++id,fn);return id},clearTimeout:n=>timers.delete(n),
     requestAnimationFrame:fn=>{frames.set(++id,fn);return id},cancelAnimationFrame:n=>frames.delete(n)})
   vm.runInContext(source,context)
-  const ctx={setTransform(){},fillRect(){},fillText(glyph){painted.push(glyph)},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1)}}
+  const ctx={setTransform(){},fillRect(){},clearRect(){},fillText(glyph){painted.push(glyph)},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1)}}
   const canvas={dataset:{},width:0,height:0,getContext:()=>ctx,getBoundingClientRect:()=>({width:320,height:200})}
   function drain(){let count=0;while(timers.size){assert.ok(count++<1000);const tasks=[...timers.values()];timers.clear();tasks.forEach(fn=>fn())}}
   function frame(t){const tasks=[...frames.values()];frames.clear();tasks.forEach(fn=>fn(t))}
@@ -68,7 +68,7 @@ test('mount sizes the canvas to the main+rightbar frame and leaves the sidebar o
   const style={}
   const canvas={dataset:{},style,setAttribute(){},remove(){this.removed=true},
     getBoundingClientRect:()=>({width:Number.parseFloat(style.width)||0,height:Number.parseFloat(style.height)||0}),
-    getContext:()=>({setTransform(){},fillRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
+    getContext:()=>({setTransform(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
   const doc={hidden:false,documentElement:{},body,createElement:()=>canvas,addEventListener(){},removeEventListener(){},
     querySelector:s=>s.includes("[data-slot='root']")?frame:null}
   const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
@@ -99,7 +99,7 @@ test('mount leaves the sidebar outside the canvas: left edge from the column, ri
     const frame={getBoundingClientRect:()=>frameRect}
     const canvas={dataset:{},width:0,height:0,style,setAttribute(){},remove(){},
       getBoundingClientRect:()=>({width:Number.parseFloat(style.width)||0,height:Number.parseFloat(style.height)||0}),
-      getContext:()=>({setTransform(){},fillRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
+      getContext:()=>({setTransform(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
     const doc={hidden:false,documentElement:{},
       body:{prepend(){},setAttribute:(k,v)=>{attrs[k]=v},removeAttribute:k=>{delete attrs[k]}},
       createElement:()=>canvas,addEventListener(){},removeEventListener(){},
@@ -137,7 +137,7 @@ test('mount publishes the canvas clear colour the sidebar is painted with',()=>{
     const frame={getBoundingClientRect:()=>({left:280,top:0,width:976,height:900})}
     const canvas={dataset:{},style:{},setAttribute(){},remove(){},
       getBoundingClientRect:()=>({width:976,height:900}),
-      getContext:()=>({setTransform(){},fillRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
+      getContext:()=>({setTransform(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
     const doc={hidden:false,documentElement:{style:rootStyle},
       body:{prepend(){},setAttribute(){},removeAttribute(){}},
       createElement:()=>canvas,addEventListener(){},removeEventListener(){},

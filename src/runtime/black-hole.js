@@ -125,7 +125,7 @@ var UniverseBlackHole = (function () {
     }
   }
   function create(canvas, input) {
-    var config = options(input), ctx = canvas.getContext('2d', { alpha: false })
+    var config = options(input), ctx = canvas.getContext('2d', { alpha: true })
     if (!ctx) throw Error('Canvas 2D unavailable')
     var disposed = false, raf = 0, buildTimer = 0, generation = 0, elapsed = 0, previous = 0, lastDraw = -Infinity
     var visible = true, frames = 0, totalPaint = 0, maxPaint = 0, buildCpu = 0, w = 0, h = 0, cols = 0, rows = 0, grid = [], cw = 8, ch = 12, ready = false, mode = 'dark'
@@ -134,8 +134,10 @@ var UniverseBlackHole = (function () {
       if (disposed || !w || !h || !ready) return
       var start = performance.now(), light = mode === 'light'
       var horizon = SHADOW_SHARE * Math.min(w, h) / 2, cx = w / 2, cy = h / 2
-      ctx.fillStyle = light ? '#edf0f4' : '#030509'
-      ctx.fillRect(0, 0, w, h)
+            /* 画布透明（2026-10-29 终版）：左栏透明、透出 body 那层底，主区也必须透出同一层，
+         否则画布的不透明清屏色与左栏的底色永远差一档 —— 前面几次「割裂」都是这么来的。
+         底色交给 body，画布每帧只清上一帧。 */
+      ctx.clearRect(0, 0, w, h)
       if (light) {
         ctx.beginPath()
         ctx.arc(cx, cy, horizon, 0, Math.PI * 2)
