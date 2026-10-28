@@ -277,12 +277,12 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
    * 摆位（mount() 里量 `[data-slot='root'] > *:has(> [data-slot='main'])`），这枚检查钉住
    * 两件事：漆层里那条给左栏补漆的规则用的是「只补漆」的形状，客户端里画布不再是铺满视口。 */
   const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  /* 2026-10-29 终版（用户 m00567：「我是让左栏跟黑洞独立，黑洞不在左栏显示。但左栏和
-   * 整个区域要是无界的，看起来要是都一样的」）：不再给左栏挑一个与主区相等的颜色，
-   * 改成整窗一个底 —— body 刷成 `--cp-void`，左栏（含外层容器与官方填色）清成
-   * transparent，画布透明只画星点。这枚检查钉住前两条的形状；第三条在 rt.blackhole。 */
-  if (!/body\[data-uni-black-hole\]:has\(\[data-black-hole-state='ready'\]\)\s*\{[^}]*background-color:\s*var\(--cp-void/.test(sheet)) {
-    return 'the page does not paint its floor with the canvas clear colour (--cp-void)'
+  /* 2026-10-29 终版（用户 m00648：「我的意思是让左边栏透明！！！」）：左栏不刷颜色，而是
+   * 清成 transparent 透出整窗同一个底；画布也透明（见 rt.blackhole），主区透出的是同一层，
+   * 于是两区逐像素相等。这里钉住「左栏不自刷、且是透明而不是某一种颜色」，另外钉住不许再
+   * 出现把整窗刷成画布色的那条规则（那会把窗口整体压黑一档，不是用户要的「透明」）。 */
+  if (/body\[data-uni-black-hole\]:has\(\[data-black-hole-state='ready'\]\)\s*\{[^}]*background-color:/.test(sheet)) {
+    return 'the page must not repaint its own floor; the sidebar only has to be transparent'
   }
   if (!/\[data-slot='sidebar'\][^{}]*\{[^}]*background-color:\s*transparent\s*!important/.test(sheet)) {
     return 'the sidebar is still painted, so it cannot share the floor with the main column'

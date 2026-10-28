@@ -298,31 +298,25 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
     在当前真实结构下匹配 0 个节点（frame 与 column 之间还隔着两层无属性 div），补漆选择器
     原来也据此写错，一并按真实链条改正。
 
-   整窗一个底（2026-10-29 终版）。用户 m00567 的原话是「我是让左栏跟黑洞独立，黑洞不在
-   左栏显示。但左栏和整个区域要是无界的，看起来要是都一样的」—— 不是「给左栏选一个跟
-   主区相等的颜色」，而是两区必须同源。所以这里不再给左栏补任何漆，而是反过来：把
-   左栏的官方填色也清掉，body 刷成 `--cp-void`，画布改成透明只画星点（见
-   src/runtime/black-hole.js 的 `clearRect`）。清完之后整窗只剩这一层底，左栏、主区、
-   右栏逐像素相等，「无界」不需要任何颜色匹配。
+   左栏透明（2026-10-29 终版）。用户三句话把一个方向说死了：m00567「我是让左栏跟黑洞
+   独立，黑洞不在左栏显示。但左栏和整个区域要是无界的，看起来要是都一样的」，紧接
+   m00648「我的意思是让左边栏透明！！！」。所以左栏不刷任何颜色，而是把自己（连同外层
+   容器与官方那层 `--dsw-specific-sidebar-fill`）清成 transparent，透出整窗同一个底。
 
-   这条路能成的关键是画布不再不透明：前两次失败都是想在「画布 + 外壳纱」的合成色上
-   用一个单值对齐，而合成结果没有对应的令牌，猜一次差一次。
+   这条路能成的关键是画布也不再不透明（src/runtime/black-hole.js 的 `clearRect`）：
+   画布一旦是不透明清屏色，主区就是「画布 + 外壳纱」的合成色，左栏透出的底怎么都差
+   一档 —— 前两次失败都是在猜这个合成值。画布透明之后，主区透出的同样是那一层底，
+   两区逐像素相等，不需要任何颜色匹配，也不改整窗原有的明度（不再把 body 刷成画布色，
+   那会把整个窗口压黑一档）。
 
-   `--cp-void` 由绘制方发布：src/runtime/black-hole.js 的 `applyMode()` 按当前档把值写到
-   `documentElement` 上，值取画布那一对清屏色（暗 `#030509` / 亮 `#edf0f4`）。画布本身
-   已经不填它，但整窗底色用它，所以两处仍然同源、同档漂移。 */
-body[data-uni-black-hole]:has([data-black-hole-state='ready']) {
-  background-color: var(--cp-void, var(--dsw-alias-bg-base)) !important;
-}
-
-/* 左栏不再自刷，改成清空它自己和外层容器的填色（2026-10-29，同上）。官方的
-   `--dsw-specific-sidebar-fill` 在暗档是 α0.35 的纱，叠在 body 底与 `body::after` 之上
-   会把左栏抬成另一档灰；清成 transparent 之后它与主区读同一个底。 */
+   `--cp-void` 仍由绘制方发布（src/runtime/black-hole.js 的 `applyMode()`），留给画布与
+   将来需要精确对齐的场合；本表不消费它。 */
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'],
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
   background-color: transparent !important;
   background-image: none !important;
+  backdrop-filter: none !important;
 }
 body::after {
   content: '';
