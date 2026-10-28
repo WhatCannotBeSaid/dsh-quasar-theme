@@ -298,26 +298,18 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
     在当前真实结构下匹配 0 个节点（frame 与 column 之间还隔着两层无属性 div），补漆选择器
     原来也据此写错，一并按真实链条改正。
 
-   左栏那条只补漆、不加任何别的东西，但补的是**画布的清屏色** `--cp-void`，
-   不是 `--dsw-specific-sidebar-fill`。2026-10-29 用户：「新会话页下，主区域跟
-   左边栏的配色不同导致割裂感」。原因是后者在暗档是 α0.35 的纱，补在 body 底色
-   （也是 α0.35）与 `body::after`（同样 α0.35）之外，三层同色叠出 ≈0.73 的灰雾
-   （`#0d1117` 附近），而主区是画布不透明的 `#030509`；两者明度接近，但一灰一冷，
-   交界就是一条硬线。换成画布色之后，左栏与画布外围同色，交界只剩画布左缘那条
-   星点渐隐（见下一条规则）。
+   左栏不刷任何漆（2026-10-29 终版）。前后试过两种补色，都被用户当场否掉：
+   ① 官方侧栏纱 —— 它在暗档是 α0.35 的纱，叠在 body 底色与 `body::after` 之外合成
+   ≈0.73 的灰雾，与主区并排成一条硬边；② 画布清屏色 `--cp-void`（`#030509`）——
+   比主区暗约 8 阶，重启后用户回报「还是不行」。根因是同一个：左栏只要自己上色，
+   就得猜一个与主区相等的值，而主区是「外壳纱 + 画布」的合成结果，不存在单一等值色。
 
-   `--cp-void` 不在这张表里定义：它的真源是绘制方 —— src/runtime/black-hole.js
-   的 `draw()` 每帧 `fillStyle` 用的就是同一对值，由 `applyMode()` 按模式发布到
-   `documentElement` 上。这样亮暗切换与画布同步，本表也不产生第二个颜色源；兜底写
-   `--dsw-alias-bg-base`，变量缺失时退回官方底纱而不是透明。 */
-body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
-body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
-  background-color: var(--cp-void, var(--dsw-alias-bg-base)) !important;
-  /* 只有画布色还不够（2026-10-29 重启后用户回报「还是割裂」）：主区是「画布不透明清屏
-     色」再叠 body::after 那层纱，左栏若只铺画布色就少了这一层，比主区暗一档。这里补同一
-     层同值的纱，两区底色逐像素相等，交界只剩画布左缘那条渐隐。 */
-  background-image: linear-gradient(var(--dsw-alias-bg-base), var(--dsw-alias-bg-base)) !important;
-}
+   所以整条规则删除：左栏不再设 background，直接透出 `body` 与 `body::after`，与主区
+   共用同一层。两区底色由同一个绘制源给出，逐像素相等，不需要任何颜色匹配，也不会
+   随亮暗档漂移。
+
+   `--cp-void` 仍由绘制方发布：src/runtime/black-hole.js 的 `draw()` 每帧 `fillStyle`
+   用的就是同一对值，由 `applyMode()` 同步到 `documentElement`；本表不再消费它。 */
 
 /* 画布左缘 72px 星点渐隐（2026-10-29，同上）。取景从对话区左缘开始，星点在
    x=280 处突然出现；给画布一条横向 alpha 斜坡之后，左栏与主区之间既没有色差也
