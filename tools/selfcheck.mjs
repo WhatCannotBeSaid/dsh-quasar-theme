@@ -279,11 +279,20 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
   const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
   const block = sheet.match(/body\[data-uni-black-hole\]:has\(\[data-black-hole-state='ready'\]\)[^{}]*\[data-slot='sidebar'\][^{}]*\{([^}]*)\}/)?.[0]
   if (!block) return 'no sidebar repaint rule on the black-hole page'
-  if (!/background-color:\s*var\(--dsw-specific-sidebar-fill\)\s*!important/.test(block)) {
-    return 'the sidebar repaint does not use the per-mode sidebar-fill token'
+  /* 2026-10-29（用户点名「主区域跟左边栏的配色不同导致割裂感」）：补漆改吃画布
+   * 清屏色 `--cp-void`（由 src/runtime/black-hole.js 按模式发布），不再用官方那层
+   * 纱 —— 那层纱叠在 body 底色与 body::after 之上合成 ≈0.73 的灰雾，与画布外围的
+   * 纯 #030509 并排成一条硬边。兜底仍是官方令牌，变量缺失时不会变透明。 */
+  if (!/background-color:\s*var\(--cp-void,\s*var\(--dsw-alias-bg-base\)\)\s*!important/.test(block)) {
+    return 'the sidebar repaint does not follow the canvas clear colour (--cp-void)'
   }
   if (/background-image|::(before|after)|backdrop-filter|filter:|content:/.test(block)) {
     return 'the sidebar rule paints more than a fill; it must not add a veil or a pseudo-element'
+  }
+  /* 左栏与画布同色之后，星点若在 x=侧栏宽度处硬切，边界会从「色差」变成「截断线」；
+   * 画布左缘那条 alpha 斜坡是这套割裂修复的另一半。 */
+  if (!/canvas\[data-uni-black-hole\][^{]*\{[^}]*mask-image/.test(sheet)) {
+    return 'the canvas has no left-edge fade, so the star field is cut off at the sidebar edge'
   }
   return /data-uni-black-hole/.test(sheet) || 'the repaint is not scoped to the black-hole page'
 })

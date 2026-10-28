@@ -128,6 +128,39 @@ test('mount leaves the sidebar outside the canvas: left edge from the column, ri
     {left:'280px',top:'0px',width:'976px',height:'821px'})
 })
 
+test('mount publishes the canvas clear colour the sidebar is painted with',()=>{
+  /* 2026-10-29：theme.css 把左栏漆成 `--cp-void`（画布清屏色），值由这里按模式发布到
+     documentElement 上；缺了这一步自检照样绿，但左栏会退回官方底纱，割裂感原样回来。 */
+  function mountWith(scheme) {
+    const props={}
+    const rootStyle={setProperty:(k,v)=>{props[k]=v},removeProperty:k=>{delete props[k]}}
+    const frame={getBoundingClientRect:()=>({left:280,top:0,width:976,height:900})}
+    const canvas={dataset:{},style:{},setAttribute(){},remove(){},
+      getBoundingClientRect:()=>({width:976,height:900}),
+      getContext:()=>({setTransform(){},fillRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
+    const doc={hidden:false,documentElement:{style:rootStyle},
+      body:{prepend(){},setAttribute(){},removeAttribute(){}},
+      createElement:()=>canvas,addEventListener(){},removeEventListener(){},
+      querySelector:s=>s.includes("[data-slot='root']")?frame:null}
+    const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
+      window:{devicePixelRatio:1,innerWidth:1256,innerHeight:900,
+        matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
+      ResizeObserver:class{observe(){}unobserve(){}disconnect(){}},
+      IntersectionObserver:class{observe(){}disconnect(){}},MutationObserver:class{observe(){}disconnect(){}},
+      getComputedStyle:()=>({colorScheme:scheme}),setTimeout:()=>0,clearTimeout(){},
+      requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
+    vm.runInContext(source,context)
+    return {props,dispose:context.UniverseBlackHole.mount()}
+  }
+  const dark=mountWith('dark')
+  assert.equal(dark.props['--cp-void'],'#030509')
+  dark.dispose()
+  assert.equal(dark.props['--cp-void'],undefined)
+  const light=mountWith('light')
+  assert.equal(light.props['--cp-void'],'#edf0f4')
+  light.dispose()
+})
+
 test('Canvas draws glyphs only; pause, reduced motion, hide, rebuild and disposal cancel owned work',()=>{
   const f=fixture(),r=f.api.create(f.canvas)
   assert.equal(r.stats().ready,false);f.drain();assert.equal(r.stats().ready,true)

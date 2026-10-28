@@ -298,12 +298,30 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
     在当前真实结构下匹配 0 个节点（frame 与 column 之间还隔着两层无属性 div），补漆选择器
     原来也据此写错，一并按真实链条改正。
 
-   左栏那条只补漆、不加任何别的东西：`--dsw-specific-sidebar-fill` 按档发布成
-   `--dsw-alias-bg-base`（亮 `#eff2f5d6` / 暗 `#11172059`），和页面同色同 α，
-   所以左栏是「不透明纸面」，不是又叠一层纱——壁纸已经在本页被撤掉了。 */
+   左栏那条只补漆、不加任何别的东西，但补的是**画布的清屏色** `--cp-void`，
+   不是 `--dsw-specific-sidebar-fill`。2026-10-29 用户：「新会话页下，主区域跟
+   左边栏的配色不同导致割裂感」。原因是后者在暗档是 α0.35 的纱，补在 body 底色
+   （也是 α0.35）与 `body::after`（同样 α0.35）之外，三层同色叠出 ≈0.73 的灰雾
+   （`#0d1117` 附近），而主区是画布不透明的 `#030509`；两者明度接近，但一灰一冷，
+   交界就是一条硬线。换成画布色之后，左栏与画布外围同色，交界只剩画布左缘那条
+   星点渐隐（见下一条规则）。
+
+   `--cp-void` 不在这张表里定义：它的真源是绘制方 —— src/runtime/black-hole.js
+   的 `draw()` 每帧 `fillStyle` 用的就是同一对值，由 `applyMode()` 按模式发布到
+   `documentElement` 上。这样亮暗切换与画布同步，本表也不产生第二个颜色源；兜底写
+   `--dsw-alias-bg-base`，变量缺失时退回官方底纱而不是透明。 */
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
-  background-color: var(--dsw-specific-sidebar-fill) !important;
+  background-color: var(--cp-void, var(--dsw-alias-bg-base)) !important;
+}
+
+/* 画布左缘 72px 星点渐隐（2026-10-29，同上）。取景从对话区左缘开始，星点在
+   x=280 处突然出现；给画布一条横向 alpha 斜坡之后，左栏与主区之间既没有色差也
+   没有「截断线」。mask 是合成层属性，不改 canvas 的绘制，也不增加每帧的 JS；
+   终点用 `currentColor`（继承来的实色文字色）而不是字面黑，免得本表自造颜色。 */
+canvas[data-uni-black-hole] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, currentColor 72px);
+  mask-image: linear-gradient(to right, transparent 0, currentColor 72px);
 }
 body::after {
   content: '';

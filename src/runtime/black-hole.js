@@ -227,9 +227,18 @@ var UniverseBlackHole = (function () {
     }
     var observer = new ResizeObserver(resize); observer.observe(canvas)
     var intersection = new IntersectionObserver(function (entries) { visible = entries[0].isIntersecting; sync() }); intersection.observe(canvas)
+    /* theme.css paints the left column with this colour instead of a second veil, so
+       the sidebar and the canvas share one source of truth. It is published here, not
+       declared in the sheet, because the clear colour below is what the sidebar has to
+       match -- and this file already owns that pair. */
+    function publishVoid() {
+      var root = document.documentElement
+      if (!root || !root.style || typeof root.style.setProperty !== 'function') return
+      root.style.setProperty('--cp-void', mode === 'light' ? '#edf0f4' : '#030509')
+    }
     function applyMode() {
       var host = document.body || document.documentElement, scheme = getComputedStyle(host).colorScheme
-      mode = scheme.includes('light') && !scheme.includes('dark') ? 'light' : 'dark'; sync()
+      mode = scheme.includes('light') && !scheme.includes('dark') ? 'light' : 'dark'; publishVoid(); sync()
     }
     var theme = new MutationObserver(applyMode)
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-ds-dark-theme'] })
@@ -243,7 +252,7 @@ var UniverseBlackHole = (function () {
         config = options(Object.assign({}, config, next))
         if (config.angle !== old.angle || config.cellWidth !== old.cellWidth || config.maxCells !== old.maxCells) { ready = false; resize() } else sync()
       },
-      setMode: function (next) { mode = next === 'light' ? 'light' : 'dark'; sync() },
+      setMode: function (next) { mode = next === 'light' ? 'light' : 'dark'; publishVoid(); sync() },
       stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config) } },
       dispose: function () {
         if (disposed) return
@@ -254,6 +263,8 @@ var UniverseBlackHole = (function () {
         motion.removeEventListener('change', sync)
         grid = []
         canvas.dataset.blackHoleState = 'disposed'
+        var root = document.documentElement
+        if (root && root.style && typeof root.style.removeProperty === 'function') root.style.removeProperty('--cp-void')
       }
     }
   }
