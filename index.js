@@ -1,5 +1,5 @@
 /**
- * EVA-Inspired-Theme — installed (bundle) HOST half.
+ * dsh-universe-theme — installed (bundle) HOST half.
  *
  * One job, and the file says what it is.
  *
@@ -62,7 +62,7 @@
 
 'use strict'
 
-const PLUGIN_ID = 'eva-inspired-theme'
+const PLUGIN_ID = 'dsh-universe-theme'
 
 /**
  * Mount the plugin.

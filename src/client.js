@@ -59,7 +59,8 @@
           var blobUrl = URL.createObjectURL(new Blob([bytes], { type: meta.split(';')[0] }))
           if (created) created.push(blobUrl)
           return 'url("' + blobUrl + '")'
-        } catch (err) {
+        }
+        catch (err) {
           return whole
         }
       })
@@ -165,7 +166,7 @@
        case renders nothing at all, exactly as the official control does.
        ------------------------------------------------------------------------ */
 
-    function EvaModelSeat(props) {
+    function UniModelSeat(props) {
       /* Two components, not one, for a hooks reason: a component that returns before
          some of its hooks changes the hook count between renders, which React rejects.
          The outer one decides whether the seat exists at all; every hook lives in the
@@ -174,10 +175,10 @@
       try { react = require('react') } catch (err) { react = null }
       if (react === null) return null
       if (props.available === false) return null
-      return react.createElement(EvaModelSeatHost, props)
+      return react.createElement(UniModelSeatHost, props)
     }
 
-    function EvaModelSeatHost(props) {
+    function UniModelSeatHost(props) {
       var react = require('react')
       var hostRef = react.useRef(null)
       var pairRef = react.useRef(null)
@@ -187,7 +188,7 @@
       react.useEffect(function () {
         var node = hostRef.current
         if (!node) return undefined
-        var made = EvaModelEffortPicker.createPair({
+        var made = UniModelEffortPicker.createPair({
           directory: props.directory,
           load: props.load,
           select: props.select,
@@ -217,8 +218,8 @@
       })
 
       return react.createElement('div', {
-        'data-eva-mep-seat': '',
-        className: 'eva-mep-seat',
+        'data-uni-mep-seat': '',
+        className: 'uni-mep-seat',
         ref: hostRef
       })
     }
@@ -262,7 +263,7 @@
                 }
               }
             }
-          }, EvaModelSeat)
+          }, UniModelSeat)
         })
       })
     }
@@ -279,7 +280,7 @@
       ctx.effect(() => {
         var dispose = theme.overrideTokens(PLUGIN_ID, TOKENS)
         return () => { if (typeof dispose === 'function') dispose() }
-      }, 'evangelion: token layer')
+      }, 'universe: token layer')
 
       /* ---- Selected-title rainbow: no client code here (round 20, 2026-10-07)
          The marquee that used to live at this spot is gone. Its replacement is a
@@ -324,7 +325,7 @@
          exist as backdrop pixels; with the region equal to the box the rim can only
          sample what is inside it and the edge goes flat.
 
-         The sheet names this filter (url(#eva-lg-input)) and carries a blur-only
+         The sheet names this filter (url(#uni-lg-input)) and carries a blur-only
          fallback line before it; an engine that cannot parse url() drops that
          declaration and keeps the frost. selfcheck glass.1 pins that the two halves
          name the same ids.
@@ -332,7 +333,44 @@
          The definitions live in a 0x0 <svg> at the end of the body: they are referenced
          by id, never rendered, and never measured. Turning the theme off removes the
          svg and both observers with it, so the surfaces go back to plain shells. */
-      ctx.effect(() => mountLiquidGlass(), 'evangelion: liquid glass')
+      /* Two page backgrounds, one owner (2026-11-05). The new-session page keeps
+         the black hole -- one large object, centred, behind the hero copy. A
+         conversation page gets the sparse ASCII sky instead, mounted INSIDE
+         [data-conversation-content] at the one layer that survives what the shell
+         does to that element while a session streams. watchPageMode reports both
+         the page and whether the column was rebuilt after a session switch, so
+         each change tears the previous canvas down before the next one starts and
+         there is never a page with both or neither. */
+      ctx.effect(() => {
+        if (typeof document === 'undefined') return undefined
+
+        var homeDispose = null
+        var chatDispose = null
+
+        function release(dispose) {
+          if (typeof dispose === 'function') dispose()
+        }
+
+        var stopWatch = UniverseDeepSpace.watchPageMode(function (home) {
+          release(chatDispose)
+          release(homeDispose)
+          chatDispose = null
+          homeDispose = null
+          var dispose = home ? UniverseBlackHole.mount() : UniverseDeepSpace.mount()
+          if (typeof dispose !== 'function') return
+          if (home) homeDispose = dispose
+          else chatDispose = dispose
+        })
+
+        return function () {
+          if (typeof stopWatch === 'function') stopWatch()
+          release(chatDispose)
+          release(homeDispose)
+          chatDispose = null
+          homeDispose = null
+        }
+      }, 'universe: page backgrounds')
+      ctx.effect(() => mountLiquidGlass(), 'universe: liquid glass')
 
       ctx.effect(() => {
         if (typeof document === 'undefined') return
@@ -352,7 +390,7 @@
            disposer gives them back; without this a reload of the module would leave
            the bitmaps reachable for the life of the document. */
         var blobUrls = []
-        tag.textContent = shortenDataUrls(WALLPAPER_DECLARATIONS, blobUrls) + '\n' + CSS + '\n' + BOOT_CSS + '\n' + PICKER_CSS
+        tag.textContent = shortenDataUrls(WALLPAPER_DECLARATIONS, blobUrls) + '\n' + CSS + '\n' + BOOT_CSS + '\n' + PICKER_CSS + '\n' + BRAND_LOGO_CSS
         document.head.appendChild(tag)
 
         /* prefers-reduced-motion cannot be honoured from the stylesheet: the paint
@@ -363,7 +401,7 @@
            attribute away with it. */
         var motion = window.matchMedia('(prefers-reduced-motion: reduce)')
         var applyMotionPref = function () {
-          if (document.body) document.body.dataset.evaMotion = motion.matches ? 'reduced' : 'full'
+          if (document.body) document.body.dataset.uniMotion = motion.matches ? 'reduced' : 'full'
         }
         applyMotionPref()
         motion.addEventListener('change', applyMotionPref)
@@ -379,16 +417,16 @@
             }
           }
           motion.removeEventListener('change', applyMotionPref)
-          if (document.body) document.body.removeAttribute('data-eva-motion')
+          if (document.body) document.body.removeAttribute('data-uni-motion')
         }
-      }, 'evangelion: paint layer')
+      }, 'universe: paint layer')
 
-      /* Boot mask -- 「闸门开启」. One page load plays it once (the in-page
-         window.__evaBootMark guard), then it deletes itself. The disposer returned
+      /* Boot mask -- 「星野展开」. One page load plays it once (the in-page
+         window.__uniBootMark guard), then it deletes itself. The disposer returned
          by mountBootScreen IS destroyBoot, so turning the theme off mid-play takes
          the mask away with the stylesheet. It waits for the paint layer's tag, so it
          must be registered after it. */
-      ctx.effect(() => mountBootScreen(), 'evangelion: boot screen')
+      ctx.effect(() => mountBootScreen(), 'universe: boot screen')
 
       /* The vendored session-status rail (2026-10-09). The user's own plugin, folded
          in byte for byte, registering its own disposer through ctx.effect — one call,
@@ -410,6 +448,18 @@
          ctx.inject + slots.inject rather than ctx.effect, so it adds no effect to the
          eight cli.11d counts. See mountModelSeat above for why it shadows at -1. */
       mountModelSeat(ctx)
+
+      /* The brand mark (2026-10-27): 「黑白动态黑洞品牌 Logo，替换左栏顶部 WHALE-01 左边的
+         品牌Logo」. One registration on the official sidebar.brand.mark single slot at
+         priority −1, so this theme's mark wins over the shipped whale — the same
+         shadowing mountModelSeat above uses, and by the same door: ctx.inject for the one
+         service it touches, slots.inject for the declaration, slots.register for the entry.
+         Silent like the seat (no ctx.effect of its own), and the slot reclaims the entry on
+         unload, so turning the theme off brings the whale straight back with no residue.
+         See src/runtime/brand-logo.js for the box and src/brand-logo.css for the mask:
+         the artwork itself is the PNG data URL in --cp-brand-mark, painted with the row's
+         own foreground colour so the one asset serves both modes. */
+      UniverseBrandLogo.mount(ctx)
 
       /* Brand row, three zones -- the user's own mapping (2026-10-08, round 25, D68):
          the avatar Logo opens Plugins, WHALE-01 stays New session, SYSTEM opens
@@ -536,7 +586,8 @@
                   target: focus, region: editable ? 'editable' : 'page', modal: modal, source: 'menu',
                 })
                 return
-              } catch (error) { /* fall through to the chord below */ }
+              }
+              catch (error) { /* fall through to the chord below */ }
             }
           }
           if (typeof KeyboardEvent !== 'function') return
@@ -575,7 +626,7 @@
 
         document.addEventListener('click', onCapture, true)
         return () => { document.removeEventListener('click', onCapture, true) }
-      }), 'evangelion: brand row zones')
+      }), 'universe: brand row zones')
 
       /* ---- Workspace pins: hold chosen Workspaces at the top of the list
          (round 39, 2026-10-09)
@@ -612,7 +663,7 @@
          the result optimistically, so the row lands where it belongs before the round
          trip finishes. Only moves that actually change the order are sent, so a settled
          list stays silent -- which matters, because each one is a durable write. */
-      ctx.effect(() => deferEffect(() => mountWorkspacePins(ctx)), 'evangelion: workspace pins')
+      ctx.effect(() => deferEffect(() => mountWorkspacePins(ctx)), 'universe: workspace pins')
 
       /* ------------------------------------------------------------------------
          Round 63 (2026-10-20) -- the four OFFICIAL composer panels centre on their
@@ -637,8 +688,8 @@
              primitive, whose portaled list is likewise 'position: fixed' with an
              inline 'left'.
 
-         The theme's own panels are centred by CSS instead: '.eva-mep-pop' carries
-         'left: 50%' plus 'transform: translateX(calc(-50% + var(--eva-mep-shift)))',
+         The theme's own panels are centred by CSS instead: '.uni-mep-pop' carries
+         'left: 50%' plus 'transform: translateX(calc(-50% + var(--uni-mep-shift)))',
          and the controller measures the real panel and appends the edge correction
          afterwards. That asymmetry is the entire visual gap the user reported.
 
@@ -670,7 +721,7 @@
          At or below 560px, where the composer row wraps and the pill row runs close to
          the card's edges, that clamp is the branch that actually runs. */
 
-      ctx.effect(() => deferEffect(() => mountCentredPanels()), 'evangelion: centred panels')
+      ctx.effect(() => deferEffect(() => mountCentredPanels()), 'universe: centred panels')
 
       /* Read-only surface for troubleshooting and for the delivery docs. */
       exports.manifest = MANIFEST

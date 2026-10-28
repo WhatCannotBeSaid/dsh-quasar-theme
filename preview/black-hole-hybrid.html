@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Universe · 黑洞混合渲染样张</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #03050a; overflow: hidden; }
+  canvas { position: fixed; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; }
+</style>
+<!--
+  Static, single-frame preview of the hybrid black hole.
+  Continuous layers: shadow edge, photon ring, restrained bloom.
+  ASCII layer: the traced accretion disk (near band in front of the shadow).
+  No labels, no animation, no camera motion, no settings.
+  Preview only: this file is not wired into the theme.
+-->
+<canvas aria-hidden="true"></canvas>
+<script src="../src/runtime/black-hole.js"></script>
+<script src="./black-hole-hybrid.js"></script>
+<script>
+  (function () {
+    try {
+      var renderer = window.UniverseBlackHoleHybrid.create(document.querySelector('canvas'))
+      window.blackHoleHybrid = renderer
+      window.addEventListener('pagehide', function () { renderer.dispose() }, { once: true })
+    } catch (error) {
+      document.body.dataset.hybridError = error.message
+    }
+  })()
+</script>
+</html>

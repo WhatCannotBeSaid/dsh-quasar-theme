@@ -1,0 +1,15 @@
+/* The mark is the artwork's alpha used as a mask; the ink is the row's own foreground
+ * colour, so one asset serves both modes and the theme keeps owning the colour. */
+.uni-blist {
+  display: block;
+  flex: none;
+  background-color: currentColor;
+  -webkit-mask-image: var(--cp-brand-mark);
+  mask-image: var(--cp-brand-mark);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}

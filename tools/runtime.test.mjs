@@ -5,14 +5,17 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { effortFixture } from './effort-fixture.mjs'
+import { CLIENT_FILES } from './build-contract.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const read = path => readFileSync(join(root, path), 'utf8')
 // Execute production closures, not reimplementations. Moving a closure requires an
 // explicit fixture update; missing boundaries fail rather than silently testing a fake.
+// Files in a dependency order, not alphabetically: the brand mark's geometry half is a
+// bare `var` the component half reads at its own script's evaluation, exactly as the
+// factory concatenates them (CLIENT_FILES in tools/build-contract.mjs is the contract).
 function clientSource() {
-  return ['src/client.js', ...['glass', 'pins', 'panels'].map(n => `src/runtime/${n}.js`)]
-    .filter(p => existsSync(join(root, p))).map(read).join('\n')
+  return CLIENT_FILES.map(read).join('\n')
 }
 function between(source, start, end) {
   const a = source.indexOf(start)
@@ -24,7 +27,7 @@ function mountEffect(label, bindings) {
   const effects = new Map()
   const context = { get: () => ({}), inject() {}, effect(fn, name) { effects.set(name, fn) } }
   const exports = vm.runInNewContext(`(function () { var module = {exports:{}}; var exports = module.exports; ${clientSource()} })()`, {
-    PLUGIN_ID: 'eva-inspired-theme', TOKENS: {}, MANIFEST: {},
+    PLUGIN_ID: 'dsh-universe-theme', TOKENS: {}, MANIFEST: {},
     applySessionEvaStatus() {}, ...bindings,
   })
   exports.apply(context)
@@ -35,9 +38,9 @@ test('S10: built artifact registers one loader with unchanged public exports', (
   const registrations=[]
   vm.runInNewContext(read('client.js'), {window:{__ModuleLoader__:{load:value=>registrations.push(value)}}})
   assert.equal(registrations.length,1)
-  assert.equal(registrations[0].id,'eva-inspired-theme')
+  assert.equal(registrations[0].id,'dsh-universe-theme')
   const exported=registrations[0].factory(name=>{throw Error('unexpected eager require: '+name)})
-  assert.equal(exported.name,'eva-inspired-theme')
+  assert.equal(exported.name,'dsh-universe-theme')
   assert.equal(typeof exported.apply,'function')
   assert.deepEqual(Array.from(exported.inject),['theme','remote','locale','uiSession','sessions','workspaces'])
 })
@@ -99,7 +102,7 @@ function panelFixture(useFrame = true) {
   const window = { innerWidth: 600, getComputedStyle: () => ({position:'fixed'}),
     addEventListener: (n, fn) => listeners.set(n, fn), removeEventListener: n => listeners.delete(n) }
   if (useFrame) { window.requestAnimationFrame = frames.setTimeout; window.cancelAnimationFrame = frames.clearTimeout }
-  const dispose = mountEffect('evangelion: centred panels', { document, window, MutationObserver: Observer,
+  const dispose = mountEffect('universe: centred panels', { document, window, MutationObserver: Observer,
     setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
     requestAnimationFrame: useFrame ? frames.setTimeout : undefined,
     cancelAnimationFrame: useFrame ? frames.clearTimeout : undefined })
@@ -116,7 +119,7 @@ test('S4: direct panel attributes schedule correction; disposal restores owned l
   assert.equal(f.panel.style.left, '40px')
   f.dispose()
   assert.equal(f.panel.style.left, '105px')
-  assert.equal(f.panel.hasAttribute('data-eva-panel-centred'), false)
+  assert.equal(f.panel.hasAttribute('data-uni-panel-centred'), false)
   assert.equal(f.observers.every(o => o.targets.size === 0), true)
 })
 
@@ -127,7 +130,7 @@ for (const frame of [true, false]) test(`S4: disposal cancels queued ${frame ? '
   f.dispose()
   f.frames.fire(); f.clock.fire()
   assert.equal(f.panel.style.left, '177px')
-  assert.equal(f.panel.hasAttribute('data-eva-panel-centred'), false)
+  assert.equal(f.panel.hasAttribute('data-uni-panel-centred'), false)
   assert.equal(f.frames.timers.size + f.clock.timers.size, 0)
 })
 
@@ -151,7 +154,7 @@ test('S5: keyboard group action retains raw provider ID', () => {
   const code = between(source.slice(source.indexOf('  function createModelSelect(')), '    function onKey(event)', '    searchInput.addEventListener')
   for (const id of ['a.b', 'a/b', '中文', 'a_b', 'x'.repeat(500)]) {
     let toggled
-    const node = { getAttribute: () => 'slug-collision', evaGroupId: id }
+    const node = { getAttribute: () => 'slug-collision', uniGroupId: id }
     vm.runInNewContext(`${code}; onKey({key:'ArrowLeft', target:node, preventDefault(){}})`, {
       node, toggleGroup(value) { toggled = value },
     })
@@ -231,7 +234,7 @@ function bootFixture({ session = new Map(), local = new Map(), search = '' } = {
     removeItem: k => { map.delete(k) },
   })
   const context = {
-    PLUGIN_ID: 'eva-inspired-theme',
+    PLUGIN_ID: 'dsh-universe-theme',
     document: {
       body,
       querySelector: sel => (sel.indexOf('style[data-plugin-css=') === 0 ? makeEl() : null),
@@ -252,13 +255,13 @@ function bootFixture({ session = new Map(), local = new Map(), search = '' } = {
   }
   const mount = vm.runInNewContext(
     `${read('src/boot-screen.js')}\nmountBootScreen`, context)
-  const masks = () => body.children.filter(c => c.attrs['data-eva-boot'] !== undefined).length
+  const masks = () => body.children.filter(c => c.attrs['data-uni-boot'] !== undefined).length
   return { mount, masks, session, local }
 }
 
 test('S11: the boot mask plays once per run and replays only after DSH restarts', () => {
-  const seenKey = 'eva-inspired-theme/boot/seen'
-  const mark = 'eva-boot/@BUILD@'
+  const seenKey = 'dsh-universe-theme/boot/seen'
+  const mark = 'uni-boot/@BUILD@'
 
   const first = bootFixture()
   first.mount()

@@ -1,4 +1,4 @@
-/* EVA-Inspired-Theme — paint layer.
+/* dsh-universe-theme — paint layer.
  *
  * What a token cannot carry
  * -------------------------
@@ -89,7 +89,7 @@ body {
      「6px都够了，不能超过6px，越低越好」。所以暗档 = 4px 模糊 + 亮度压到 38%，亮档随后跟上（见本段末）。
 
      为什么不能只靠模糊：暗档那张画（out/wallpaper-src/wallhaven-og33jl.png，1600x900 按
-     cover 缩放，fill #1a1325 alpha 0.35，取字形大小 13px 的方块均值当文字真正压住的底色，
+     cover 缩放，fill #111720 alpha 0.35，取字形大小 13px 的方块均值当文字真正压住的底色，
      逐像素取最坏值）的瓶颈是**高频**——0.2% 的像素是发亮的眼睛与红色划痕，峰值相对亮度
      0.42，是画面中位数的 54 倍。半径一过 6px 整幅就糊成雾，而 6px 本身只把最坏值从 0px 的
      1.60 / 1.30 / 1.08 抬到 2.10 / 1.70 / 1.41，仍然读不清。
@@ -155,7 +155,7 @@ body {
   /* 2026-10-07 液态玻璃：「为输入框添加液态玻璃效果」。模糊半径是**材质参数**，
      不是颜色，所以它留在这一层。折射那半边不在这里：位移图必须现画（一张固定尺寸的
      图被 feImage 铺到滤镜区域上，挡板深度会随元素比例漂移），而且画的是**滤镜区域**的
-     尺寸（盒外扩一个挡板）——所以由 src/client.js 挂在 url(#eva-lg-*) 上，本表只写 id
+     尺寸（盒外扩一个挡板）——所以由 src/client.js 挂在 url(#uni-lg-*) 上，本表只写 id
      与兜底。4px 是实测值：14px 会把折射赖以可见的高频细节先糊掉，2px 又压不住小字。 */
   --cp-glass-composer: 4px;
   /* 2026-10-07：`--cp-glass-menu` 已删除。命令框不再由本表给材质——用户要求
@@ -167,7 +167,7 @@ body {
      「One veil, four regions」一节。 */
   /* 右栏六张入口卡片的**背景**模糊（2026-10-07 第二十四轮）。取值与输入卡同一个实测值
      4px，理由相同：14px 会把折射赖以可见的高频细节先糊掉，2px 压不住小字。折射那半边
-     不在本表里（见 src/client.js 的 eva-lg-guide target）。 */
+     不在本表里（见 src/client.js 的 uni-lg-guide target）。 */
   --cp-glass-guide: 4px;
 }
 body[data-ds-dark-theme] {
@@ -245,6 +245,61 @@ body::before {
      on its own — that is what keeps the blur a one-line change, not a restructure. */
   filter: var(--cp-filter);
   pointer-events: none;
+}
+/* ASCII renderer owns only the background. Keep the existing readability veil.
+   Until the cell geometry is ready, retain the existing static fallback. */
+body[data-uni-black-hole]:has([data-black-hole-state='ready'])::before {
+  background-image: none;
+}
+/* 2026-10-28：亮档 veil 从 α0.84 降到 α0.235，暗档原样。
+   第一次修这条时把整层撤掉了（`background-image: none`），结果真机上黑洞确实清楚了，
+   可输入卡的玻璃只剩 20% 的背板：卡片后面是纯黑的影子，占位字符压在中灰上，用户报告
+   「输入框中的文字都看不见了」。所以 veil 不是要撤，是要**降到够用**：
+   `body::after` 与画布同为 z-index:-1、树序在后，它对画布是一层白纸；
+   0.84 把画布压到 16%（洞被冲成灰雾），0.235 留 76.5% 强度（洞是深石板色，
+   卡片背后也够亮），这一档是按输入卡 ≈80% 白纸面反推的：卡片背后 0.2×画布，
+   画布亮度 240 时卡片落到 210 左右，深色小字对比度回到 4 以上。
+   只改 opacity、不写颜色：selfcheck 的 css.8 禁止 theme.css 出现字面色值；
+   底色仍由令牌层的 `--dsw-alias-bg-base` 决定，暗档那条 `body[data-ds-dark-theme]` 不落进
+   本选择器，星野页（无 `data-uni-black-hole`）也不落进。 */
+body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready'])::after {
+  opacity: 0.28;
+}
+/* 亮档输入卡在这一页改成纸面。
+   卡片自己的填充是官方令牌的半透明面，背后若是深色影子，卡内小字立刻失去对比
+   （2026-10-28 真机报告：「输入框中的文字都看不见了」）。veil 是**整页**那层，
+   而卡片缺的是**局部**背板：这里把卡片底面换成与 veil 同源的纸色令牌，影子透上来
+   16%，卡内约 84% 纸白，深色占位字回到 4:1 上下；卡片以外一个像素不改，黑洞照旧。
+   用令牌不写字面色值（css.8）。暗档不落进本选择器：暗档卡片本来就压在近黑上，
+   半透明面正是它要的材质。 */
+body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-composer-card] {
+  background-color: var(--dsw-alias-bg-base);
+}
+[data-uni-black-hole][data-black-hole-state='building'] {
+  visibility: hidden;
+}
+/* 2026-10-28：黑洞只画在「主区 + 右栏」，左栏恢复成一张纸。
+   原因：画布以前是 `position: fixed; inset: 0` 铺满视口，黑洞连左栏一起画，
+   左栏只是靠自己的漆把它盖住；上面的壳层清空段把左栏漆成透明之后，洞就漏进来了。
+   现在画布由 `src/runtime/black-hole.js` 的 mount() 按容器 rect 摆位、按容器尺寸取景，
+   这里只管接住它、并把左栏漆回去。
+
+   为什么不是把画布改到 z-index: 1 再给主区垫纸：画布的底是**不透明**清屏色（暗 `#030509`
+   / 亮 `#edf0f4`），垫纸就会被它整块盖掉，主区立刻变成纯黑块；改垫 `transparent` 又要求
+   画布自己带 opacity（`getContext('2d', {alpha: false})` 不支持透明），而 opacity 会触发
+   混成层、每帧重新合成整条时间轴。所以画布仍旧排在所有漆之下（负 z-index），外壳的漆
+   继续当它的纸——暗档就是旧观感，亮档就是上一轮调好的 0.28 veil。
+
+   容器取 frame（`[data-slot='root'] > *:has(> [data-slot='main'])`）：主区是它里面的那一列，
+   右栏是主区的兄弟，一起包在 frame 里。只取 `[data-slot='main']` 会把黑洞在右栏边缘切一刀。
+   取不到 frame 时退回 `[data-slot='main']`（JS 里同样退一层）。
+
+   左栏那条只补漆、不加任何别的东西：`--dsw-specific-sidebar-fill` 按档发布成
+   `--dsw-alias-bg-base`（亮 `#eff2f5d6` / 暗 `#11172059`），和页面同色同 α，
+   所以左栏是「不透明纸面」，不是又叠一层纱——壁纸已经在本页被撤掉了。 */
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > *:has(> [data-slot='main']) [data-slot='sidebar'],
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > *:has(> [data-slot='main']) [data-slot='sidebar'] > div {
+  background-color: var(--dsw-specific-sidebar-fill) !important;
 }
 body::after {
   content: '';
@@ -388,7 +443,7 @@ div[data-windows-menu] {
  * （css.8）：它只加 filter，颜色仍然全部由令牌层决定。
  *
  * 2026-10-07 液态玻璃（用户点名：「为输入框添加液态玻璃效果」）：毛玻璃只是奶白，
- * 液态玻璃是**折射**——`url(#eva-lg-input)` 在卡片边缘把身后的画面弯折，中间保持
+ * 液态玻璃是**折射**——`url(#uni-lg-input)` 在卡片边缘把身后的画面弯折，中间保持
  * 清晰，于是壁纸的高频细节重新可见，而小字仍然被 4px 模糊压平。写法是两层：先写
  * 只有模糊的那条，再写带 url() 的那条；不认 url() 的引擎会在解析期丢掉整条声明，
  * 退回上一行（本机实测 `-webkit-backdrop-filter: url(...)` 就是这条路）。
@@ -425,19 +480,19 @@ div[data-windows-menu] {
   -webkit-backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
   /* ----------------------------------------------------------------------
-   * C1（2026-10-11，用户点名「玻璃去掉 url(#eva-lg-input)」）：位移折射不再挂在输入卡上。
+   * C1（2026-10-11，用户点名「玻璃去掉 url(#uni-lg-input)」）：位移折射不再挂在输入卡上。
    *
-   * 本块末尾原来还有两行 `url(#eva-lg-input) …`，把 SVG 位移串在 blur 之前；位移贴图由
-   * src/client.js 逐元素测量后画进 svg#eva-lg-defs。同页消融（同一静止重页、20 s 一相、
+   * 本块末尾原来还有两行 `url(#uni-lg-input) …`，把 SVG 位移串在 blur 之前；位移贴图由
+   * src/client.js 逐元素测量后画进 svg#uni-lg-defs。同页消融（同一静止重页、20 s 一相、
    * 两次原样对照差 0.6%）：
    *     原样（url + blur）330 → 只留 blur 232 → 连 backdrop-filter 一起关 183（ms/s 渲染器）
    * 即 SVG 位移一项 ≈ +98 ms/s，占该页主题开销约三成。去掉后玻璃只剩 blur + saturate，
    * 磨砂与着色不变；代价是失去折射位移，这是用户点名要付的代价。
    *
    * 回退（只改 CSS，不碰 JS）：把下面两行重新加回本块末尾即可 ——
-   *     -webkit-backdrop-filter: url(#eva-lg-input) blur(var(--cp-glass-composer)) saturate(135%);
-   *     backdrop-filter: url(#eva-lg-input) blur(var(--cp-glass-composer)) saturate(135%);
-   * `#eva-lg-input` 的滤镜定义仍由 src/client.js 照常构建（tools/selfcheck.mjs 的 glass.1
+   *     -webkit-backdrop-filter: url(#uni-lg-input) blur(var(--cp-glass-composer)) saturate(135%);
+   *     backdrop-filter: url(#uni-lg-input) blur(var(--cp-glass-composer)) saturate(135%);
+   * `#uni-lg-input` 的滤镜定义仍由 src/client.js 照常构建（tools/selfcheck.mjs 的 glass.1
    * 钉住「client 半仍造这枚滤镜」），所以 JS 端从未被拆掉。
    * 连门禁一起回退：glass.1 的 named 期望数 1 → 2、glass.2 的 rules 期望数 1 → 2。
    * 改动前的逐字原样见 src/theme.css.bak-20261011-1530-c1c2。
@@ -459,7 +514,7 @@ div[data-windows-menu] {
  * 从 −0.035 回到 +0.007（噪声级），边界明暗落差 0.097/0.097/0.132/0.102 →
  * 0.068/0.068/0.114/0.060（左/右/上/下），即这一圈里 elevation 占 0.018–0.042。
  * 其余两项是**非**因：把 `saturate(135%)` 换成 100%，四边落差一字不变（色度差只有
- * ±1/255，环是明暗不是色相）；把 `url(#eva-lg-input)` 换成纯 blur，落差同样不变。
+ * ±1/255，环是明暗不是色相）；把 `url(#uni-lg-input)` 换成纯 blur，落差同样不变。
  * 剩下的 0.060–0.114 是卡片自身填充（`--dsw-specific-input-major`）的边界 —— 那是
  * 「输入卡这块面板」本身，按用户约束（结构、交互、配色不变）不动。
  *
@@ -495,11 +550,12 @@ div[data-windows-menu] {
  * 处置：三条一并撤掉，四个区域只留 `body::after` 那一层底纱 —— 也就是用户在
  * 2026-10-07 点名要回来的「65% 透出」。①②在上面的清空段里补掉，③由本节删除。
  * 现在本表不再声明 `--cp-side-scrim`，`body[data-ds-dark-theme]` 里那条 `transparent`
- * 覆写也一并删除：底纱的 α 与底色全部由令牌层按档发布（亮 `#e2e1ed` / 暗 `#1a1325`）。
+ * 覆写也一并删除：底纱的 α 与底色全部由令牌层按档发布（亮 `#eff2f5` / 暗 `#111720`，第五轮 2026-10-25 换族；第六轮纸白曾短暂上线，2026-10-27 已整体回退，
+ * 黑洞画布清屏色 `src/runtime/black-hole.js` 同值）。
  *
  * 2026-10-08（第二十五轮，用户口径更正）：亮暗**不再要求共用同一套方案**，两者各自独立
  * 演进，不再朝「亮暗统一」对齐；唯一仍需共同坚守的是**无边界（borderless）理念本身** ——
- * 两档都必须继续保持。用户同时把**暗色冻结**为当前实现（α0.35 / `#1a132559`）：此后任何
+ * 两档都必须继续保持。用户同时把**暗色冻结**为当前实现（α0.35 / `#11172059`，2026-10-25 第五轮换色后仍冻结在 α0.35）：此后任何
  * 调整都不得触及暗色，亮色的改动不受该冻结影响。机器化守卫见 tools/selfcheck.mjs 的 dark.1。
  *
  * 亮档可读性（2026-10-08 第二十五轮，真机实测）：撤掉 ③ 之后亮档回到 veil-budget 记下的
@@ -520,7 +576,7 @@ div[data-windows-menu] {
  * 0.5341，仍在亮档下限 0.50 之上）。veil-budget 的解析解（worst-case art 全窗 p05）是 0.82，
  * 但它只覆盖三档 label 墨色，所以本轮取真机阈值 0.84。四区仍然只共享这一层纱，
  * 所以无边界不变。范围外缺口（不在本主题 55 令牌内，未改）：官方蓝 `#345EBA` 系任何 α 都
- * 过不了 4.5（0.88 时 3.68）；品牌/链接 `#9a4900` 与 state-error/success/warn 三色到 0.90 仍 <4.0。
+ * 过不了 4.5（0.88 时 3.68）；品牌/链接与 state-error/success/warn 三色到 0.90 仍 <4.0（第五轮后品牌改青 `#006874`，这条旧测量不再逐值成立，见 build/veil-budget.json 的记录与缺口说明）。
  *
  * 2026-10-08（第二十九轮，用户点名）：main 底部的 `[data-composer-seat]` 已清掉 ——
  * 它是同一令牌的**第三次绘制**。官方 ConversationRoot.module.css:448-452 给座位铺
@@ -549,8 +605,8 @@ div[data-windows-menu] {
  *     height: 24px;
  *     background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
  *     pointer-events: none;
- * 而 `--dsw-specific-sidebar-fill` 本表按档发布成 `--dsw-alias-bg-base`（亮 `#e2e1edb3` /
- * 暗 `#1a132559`，与 `body::after` 那层纱同一个值）⇒ 这 24px 在已有的一层纱上**再铺一层**，
+ * 而 `--dsw-specific-sidebar-fill` 本表按档发布成 `--dsw-alias-bg-base`（亮 `#eff2f5d6` /
+ * 暗 `#11172059`，与 `body::after` 那层纱同一个值）⇒ 这 24px 在已有的一层纱上**再铺一层**，
  * 把列表最后一条会话行压成一条更亮的平色带（用户截图里那一条）。
  *
  * 处置照抄上游对同一情形的答案：**隐藏**。同文件 :339-343 上游自己写着
@@ -611,10 +667,10 @@ div[data-windows-menu] {
  *     background: var(--dsw-menu-surface-fill);
  *     backdrop-filter: var(--dsw-menu-backdrop-filter);
  * ⇒ 两个面本来就用**同一对令牌**，唯一让命令框偏离任务框的是本表此前叠上去的
- * `url(#eva-lg-menu)` 折射与 40px/135% 覆盖。
+ * `url(#uni-lg-menu)` 折射与 40px/135% 覆盖。
  *
- * 该覆盖已整条撤销（连同 `--cp-glass-menu` 与 src/client.js 的 `eva-lg-menu` target，
- * selfcheck 的 url(#eva-lg-*) 计数随之 2 → 1）：命令框不再被本表改材质，逐项与任务框
+ * 该覆盖已整条撤销（连同 `--cp-glass-menu` 与 src/client.js 的 `uni-lg-menu` target，
+ * selfcheck 的 url(#uni-lg-*) 计数随之 2 → 1）：命令框不再被本表改材质，逐项与任务框
  * 一致 —— 填充 `--dsw-menu-surface-fill`（α0.30 仍由 D47/D50 钉在令牌层）、
  * 模糊与饱和度 `--dsw-menu-backdrop-filter`（EVA 令牌 = blur(20px) saturate(130%)）、
  * 无折射。
@@ -733,7 +789,7 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
  *     而菜单那对令牌（`--dsw-specific-menu` + `--dsw-menu-backdrop-filter`）是给菜单
  *     用的另一套材质，本节不是菜单。
  *   · 模糊 `var(--cp-glass-guide)` = 4px，与输入卡同一个实测值（见 `body{}` 注释）。
- *   · 折射 `url(#eva-lg-guide)`，位移图由 src/client.js 按元素实测尺寸现画；
+ *   · 折射 `url(#uni-lg-guide)`，位移图由 src/client.js 按元素实测尺寸现画；
  *     bezel/scale 与输入卡同组 14/14 —— 一套材质只有一组参数。
  *
  * skin 挂 `::before`，与输入卡、设置面板同型：卡片本体只清空、不挂 filter，因为它可能
@@ -763,8 +819,8 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
   background: var(--dsw-specific-input-major);
   -webkit-backdrop-filter: blur(var(--cp-glass-guide)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-guide)) saturate(135%);
-  -webkit-backdrop-filter: url(#eva-lg-guide) blur(var(--cp-glass-guide)) saturate(135%);
-  backdrop-filter: url(#eva-lg-guide) blur(var(--cp-glass-guide)) saturate(135%);
+  -webkit-backdrop-filter: url(#uni-lg-guide) blur(var(--cp-glass-guide)) saturate(135%);
+  backdrop-filter: url(#uni-lg-guide) blur(var(--cp-glass-guide)) saturate(135%);
 }
 
 /* --------------------------------------------------------------------------
@@ -773,7 +829,7 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
  * 这里原本是一条 `[data-window-drag='true'] + button { background-color:
  * var(--dsw-specific-input-major); backdrop-filter: blur(var(--cp-glass))
  * saturate(135%) }` —— 2026-10-06 用户点名「新会话的同理」加的那层毛玻璃。
- * 真机复核（一次性只读探针 `eva-newchat-probe.py`）：它挂的按钮
+ * 真机复核（一次性只读探针 `uni-newchat-probe.py`）：它挂的按钮
  * `_2H3hWW_newSession`（ks=Control+Alt+N）rect [0,0,0,0]、display=none ——
  * 本主题自己的「隐藏重复的新会话按钮」规则把它藏了 —— 而计算值仍算出
  * `bdf=blur(14px) saturate(1.35)`，即那条 blur 从不落到任何一个像素上。
@@ -913,7 +969,7 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
  * ② 每个会话行常驻两层透明背景层，都不显示、不参与布局；
  * ③ 扫描 380ms 只跑一次，不进循环（用户明确不要持续闪烁）；
  * ④ 本层不能写 @media，所以 reduced-motion 由 `src/client.js` 把
- *    `matchMedia('(prefers-reduced-motion: reduce)')` 的结果写到 `body[data-eva-motion]`，
+ *    `matchMedia('(prefers-reduced-motion: reduce)')` 的结果写到 `body[data-uni-motion]`，
  *    本节的最后一条规则据此关掉扫描。第十九轮的跑马灯曾据此不启动；D43 的静态彩虹
  *    不是动效，与 reduced-motion 无关（第二十一轮 D44 已把它整条撤除，本表不再给选中
  *    标题上任何颜色或动效）。
@@ -925,7 +981,7 @@ body [data-row-key^='session:'][aria-selected] {
 body [data-row-key^='session:'][aria-selected='true'] {
   background-color: transparent;
 }
-body[data-eva-motion='reduced'] [data-row-key^='session:'][aria-selected] {
+body[data-uni-motion='reduced'] [data-row-key^='session:'][aria-selected] {
   transition: none;
 }
 /* ---------------------------------------------------------------------------
@@ -963,8 +1019,8 @@ body[data-eva-motion='reduced'] [data-row-key^='session:'][aria-selected] {
  *
  * 用户原话：「改为在会话被选中后，其标题文字以跑马灯形式持续、无限循环滚动」，
  * 并要求「切换选中项时，原选中项停止滚动并恢复为普通静态标题」。
- * 当时的形状是本表的 `body [data-eva-marquee] { text-overflow: clip; }` 与
- * `body [data-eva-marquee]::after { content: attr(data-eva-marquee); margin-left: 32px; }`，
+ * 当时的形状是本表的 `body [data-uni-marquee] { text-overflow: clip; }` 与
+ * `body [data-uni-marquee]::after { content: attr(data-uni-marquee); margin-left: 32px; }`，
  * 驱动是 `src/client.js` 的 MARQUEE_SPEED = 42 px/s、MARQUEE_GAP = 32、逐帧负
  * `text-indent`、订阅 `aria-selected` 的 MutationObserver，以及 reduced-motion 下
  * 完全不启动。真机读数与像素扫描见 `docs/render-report.md` §36，决策见
@@ -980,7 +1036,7 @@ body[data-eva-motion='reduced'] [data-row-key^='session:'][aria-selected] {
 /* --------------------------------------------------------------------------
  * WHALE-01 SYSTEM —— 顶栏标识
  *
- * 规范：`WHALE-01_SYSTEM_EVA_Logo_Design_Spec.md`（§4–§18）。
+ * 规范：`WHALE-01_SYSTEM_Logo_Design_Spec.md`（§4–§18）。
  *
  * 为什么只能走 CSS：官方顶栏是**两条 svg**——一枚 24×18 的鲸鱼 path，加一条
  * 156×24 的 logotype path。`deepseek` 与 `HARNESS` 是**矢量字形**，DOM 里没有
@@ -996,9 +1052,11 @@ body[data-eva-motion='reduced'] [data-row-key^='session:'][aria-selected] {
  * 冷白在亮档会消失。这里保留规范的比例与结构，把颜色交给令牌。
  * ------------------------------------------------------------------------ */
 [data-slot='sidebar.brand.mark'] {
-  /* 官方用内联 `display: contents` 让这个槽不生成盒子；要画图必须先把它变成盒子。
+  /* 官方用内联 `display: contents` 让这个槽不生成盒子；要摆图形必须先把它变成盒子。
      `!important` 在这里是必要的：内联样式只对非 important 声明占先。 */
-  display: block !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
   /* 2026-10-09（第三十四轮，D78）用户点名：头像与 `WHALE-01` 的间距偏大，且这一处
@@ -1021,16 +1079,13 @@ body[data-eva-motion='reduced'] [data-row-key^='session:'][aria-selected] {
      （relative 不改行盒），横向间距与点击分区都不受影响。 */
   position: relative;
   top: -1px;
-  background-image: var(--cp-brand-mark);
-  /* Keep the 36px layout/click box so the text does not move. The supplied square
-     SVG has transparent space above its subject: a 28px canvas aligned to the top
-     gives roughly 21px of visible artwork beside the 16px wordmark. Preserve ratio. */
-  background-size: 28px auto;
-  background-repeat: no-repeat;
-  background-position: center top;
-}
-[data-slot='sidebar.brand.mark'] > svg {
-  display: none;
+  /* 2026-10-27（第二版）：槽里换用户给的墨笔黑洞位图。`BlackHoleLogo`
+     （src/runtime/brand-logo.js，注册在 `sidebar.brand.mark` 的 priority −1）只给 28px 的
+     方盒子，图本身是 `--cp-brand-mark` 里的 PNG，由 src/brand-logo.css 当遮罩、用
+     `currentColor` 上色 —— 也就是这一行的前景色（label-primary）。盒子负责居中：
+     36px 盒子 − 28px 图形 = 每边 4px。
+     官方鲸鱼不再隐藏 —— 原来那条 `> svg { display: none }` 已在 2026-10-27 撤销：槽里已经
+     是本主题的组件，留着这条只会在日后回退到贴图方案时把两样一起藏掉。 */
 }
 [data-slot='sidebar.brand.name'] {
   display: flex !important;
@@ -1166,8 +1221,8 @@ body[data-eva-motion='reduced'] [data-row-key^='session:'][aria-selected] {
  * 行盒 y 4–44（改动前 0–40）、`mark` 盒 y 7–43（前 3–39）；三件套墨迹中心 亮档
  * 25.0 / 24.25 / 24.5、暗档 26.25 / 24.25 / 24.5 —— 三者仍共用一条中线（散差 ≤ 0.75px，
  * logo 是图形，取暗/取亮会让它的墨迹中心偏 0.5px 上下），且这条线正是会话头标题那条线
- * （同一横带内实测 24.25–24.5）。探针：`_work/eva-verify-d71.py`（回读下发产物）、
- * `_work/eva-brand-shift-ab.py`（四档 A/B）；对比图 `_work/d71-before-after.png`。
+ * （同一横带内实测 24.25–24.5）。探针：`_work/uni-verify-d71.py`（回读下发产物）、
+ * `_work/uni-brand-shift-ab.py`（四档 A/B）；对比图 `_work/d71-before-after.png`。
  *
  * 边界：不动 `--dsh-windows-titlebar-height`（带仍 40px）、不动行宽 / 左边界 / 点击与
  * 拖拽语义、不动字标与芯片的字体字号内边距、**不动会话头那一行**（用户点名的是这三者，
@@ -1302,12 +1357,12 @@ html[data-windows-titlebar] [data-window-drag='true']:has([data-conversation-hea
    上一条的「只让开三键」照旧生效（声明被丢 ≠ 规则被丢）。参数里不再嵌 env()/calc，
    2026-10-08 真机读数显示：嵌了 env() 兜底的那一版整条被丢，right 落回兜底值 1783。 */
 html[data-windows-titlebar]:not(:has([data-rightbar-collapsed])) [data-window-drag='true']:has([data-conversation-header-leading]) {
-  right: max(anchor(--eva-rightbar left), 138px);
+  right: max(anchor(--uni-rightbar left), 138px);
 }
 
 /* 右栏列作锚点（幂等，面板开关都挂着）。 */
 html[data-windows-titlebar] [data-rightbar-col] {
-  anchor-name: --eva-rightbar;
+  anchor-name: --uni-rightbar;
 }
 
 /* 会话头里的控件保持可点：从窗口拖拽区里排除。 */
@@ -1545,7 +1600,7 @@ html[data-windows-titlebar] body:not([data-ds-dark-theme]) {
  *      `display: contents` **故意不写 `!important`**：官方窄轨规则
  *      `:global([data-windows-titlebar]) .collapsed .footArea { display: none }`
  *      （SidebarRoot.module.css:82-85，特异性 0-3-0）必须继续压过本表这条（0-1-3），
- *      这样侧栏收起时底部区照旧整体隐藏。级联测试（`_work/eva-collapse-cascade.py`，
+ *      这样侧栏收起时底部区照旧整体隐藏。级联测试（`_work/uni-collapse-cascade.py`，
  *      同结构 + 官方同形选择器）：展开态本表胜出 → `display: contents`；收起态官方胜出
  *      → `display: none`。真机实测（1600×1000 亮档）：卡片 [12,930,256,64]（贴侧栏底
  *      994）、设置行 [14,90,252,42]、导航 y 200→136、会话区 y 444→380，x 与宽度逐像素
@@ -1899,17 +1954,27 @@ span:has(> [data-slot='conversation.hero.brand.mark']) + span > span {
  * 正确性只能靠字体真的在包里 —— 它就在同一份字节里（data URL，不发请求），font.2 钉住
  * 文件、字节数与 bundle 里的 @font-face 三者一致。font-display: block 同理：真出现回退
  * 时 block 至少不会先画一帧 1.7 倍宽的兜底字再跳。
- * 回滚 = 删本条 container-type ＋ ::before 里那五行以外的一切（规则回到第三十四轮） */
+ * 回滚 = 删本条 container-type ＋ ::before 里那五行以外的一切（规则回到第三十四轮）
+ * ——本节这两条已于 2026-10-28（D104）按用户要求删掉，见下一条注释。 */
+/* D104（2026-10-28，用户点名）：去掉这行大字，新会话页只留输入框。
+ * 用户逐字：「去掉 dsh-universe-theme 新会话页面的文字，只保留输入框。」
+ * 范围经确认为「只删那行大字」：composer 卡、选择工作区、预设/模式两个下拉一个字节不动
+ * （宿主 HeroShell 在未选工作区时会把输入框置为 disabled 并提示「选择工作区」，删掉
+ * 那个入口等于让新会话页无法开始对话，故不在本轮范围）。
+ *
+ * 做法：把第三十四/三十五轮那两条（conversation 容器的 `container-type: inline-size`
+ * 与注入德语的 `::before`）整块换成**一条**：标题行自己 `display: none`。
+ * 为什么不能只删 `::before`：mark 槽与标题组两个子 span 已由上面两条规则藏掉，行里
+ * 什么都不剩，但空 flex 行仍会占住 HeroShell 的间距（`gap` 与行高），页面会留下一段
+ * 空白；显式藏掉整行，输入框才会顶到原来的行位置。
+ * 上面那两条 span 规则保留，作为第二道保险：宿主若改动标题行结构使本节整行选择器
+ * 失配，它们仍能藏住 logo 与三件文案，页面退化为「无大字」而不是「官方文案回来」。
+ *
+ * 代价：德语那句与 Great Vibes 的花体排版在新会话页不再出现；字体文件、@font-face
+ * 与 font.1/font.2 门禁原样保留（本轮只删文字展示，不做资源清理，回滚还需它）。
+ * 回滚 = 把本条换回 container-type ＋ ::before 两条规则（见上一节注释）。 */
 [data-phase='hero'] div:has(> span > [data-slot='conversation.hero.brand.mark']) {
-  container-type: inline-size;
-}
-[data-phase='hero'] div:has(> span > [data-slot='conversation.hero.brand.mark']) > span:has(> span)::before {
-  content: 'Wovon man nicht sprechen kann, darüber muss man schweigen';
-  font-family: 'Great Vibes', cursive;
-  font-weight: 400;
-  font-size: min(44px, 5.3cqw);
-  line-height: 1.25;
-  white-space: nowrap;
+  display: none !important;
 }
 /* 第三十六轮（D76，2026-10-08，用户点名）：用户逐字「仅修复一个 BUG：光标没有跟文字齐平——
  * 光标比文字矮」＋「改动范围最小化：只修该对齐问题，不得顺带调整光标形状、高度以外的尺寸、
@@ -2058,9 +2123,9 @@ body [data-composer-placeholder] {
  * `pinnedSessionIds` 只管会话，行菜单 `workspaceMenuItems` 是硬编码两行（重命名 / 删除）
  * 而不是槽 —— 所以入口只能注入行 DOM。
  *
- * 挂点：`src/client.js` 的 `'evangelion: workspace pins'` effect 把按钮注入官方工作区行的
+ * 挂点：`src/client.js` 的 `'universe: workspace pins'` effect 把按钮注入官方工作区行的
  * `span.rowActions`（ui-workspace-client.js:1270-1346 的 ProjectRowItem，行内第 4 个子元素），
- * 按钮带 `data-eva-ws-pin-button`（值 = workspaceId）与 `data-eva-ws-pin-state`（on|off），
+ * 按钮带 `data-uni-ws-pin-button`（值 = workspaceId）与 `data-uni-ws-pin-state`（on|off），
  * 行本身用 `div[data-row-key^='workspace:']` 定位（该属性逐字来自
  * `"data-row-key": "workspace:" + group.key`，而 `buildGroup` 的第一个实参是
  * `workspace.workspaceId`，同文件 :434）。三个都是本主题自己的契约名，不引用任何
@@ -2079,7 +2144,7 @@ body [data-composer-placeholder] {
  * 官方按钮的像素位置（注入时插在最前，官方那两个位置零变化），`rowActions` 的显隐条件，
  * 以及官方菜单（重命名 / 删除）一个字节不碰；暗色档无模式分支、不新增也不修改任何令牌
  * （dark.1 冻结）。回滚 = 删本段三条规则。 */
-[data-eva-ws-pin-button] {
+[data-uni-ws-pin-button] {
   box-sizing: border-box;
   display: inline-flex;
   flex: none;
@@ -2095,11 +2160,11 @@ body [data-composer-placeholder] {
   cursor: pointer;
 }
 
-[data-eva-ws-pin-button]:hover {
+[data-uni-ws-pin-button]:hover {
   color: var(--dsw-alias-label-primary);
 }
 
-[data-eva-ws-pin-state='on'] {
+[data-uni-ws-pin-state='on'] {
   color: var(--dsw-alias-label-primary);
 }
 

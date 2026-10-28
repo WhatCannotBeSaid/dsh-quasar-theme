@@ -1,8 +1,8 @@
-# eva-inspired-theme bundle patch
+# dsh-universe-theme bundle patch
 #
 # This is the `dsh.bundle.patch` layer of the package. Adding the theme to a
 # profile reconciles `dsh.profile.bundles` against the installed package and, seeing
-# this declaration, appends `eva-inspired-theme` to the bundle stack; profile boot then
+# this declaration, appends `dsh-universe-theme` to the bundle stack; profile boot then
 # merges this patch — the `insert`s below — exactly like a hand-written
 # cordis.patch.yml mount line. One registration installs and mounts, with no profile
 # file to edit.
@@ -40,5 +40,5 @@
 # extra plugins is not one.
 # ---------------------------------------------------------------------------
 - insert:
-    - id: eva-inspired-theme
-      name: 'eva-inspired-theme'
+    - id: dsh-universe-theme
+      name: 'dsh-universe-theme'

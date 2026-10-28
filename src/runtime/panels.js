@@ -26,7 +26,7 @@
            视图选项 menu -- also a 'role="menu"' portal -- out of the sweep. */
         var ANCHOR_TOLERANCE = 24
         /* Marked, so the write itself can be told apart from the official one. */
-        var MARK = 'data-eva-panel-centred'
+        var MARK = 'data-uni-panel-centred'
         var disposed = false
         var owned = new Map()
         var candidates = []

@@ -1,4 +1,4 @@
-/* EVA model picker + EVA effort picker -- two independent controls.
+/* Universe model picker + effort picker -- two independent controls.
  *
  * The composer's merged model control becomes TWO buttons, each with its OWN popover:
  *
@@ -43,7 +43,7 @@
  *   }
  *
  * Usage:
- *   var pair = EvaModelEffortPicker.createPair({ directory: store, load: load,
+ *   var pair = UniModelEffortPicker.createPair({ directory: store, load: load,
  *                                                select: select, t: t })
  *   bar.appendChild(pair.model.el)
  *   bar.appendChild(pair.effort.el)
@@ -51,7 +51,7 @@
  * No backticks and no template placeholders anywhere in this file: it is written to be
  * pasted verbatim into src/client.js, which carries the same house rule.
  */
-var EvaModelEffortPicker = (function () {
+var UniModelEffortPicker = (function () {
   'use strict'
 
   var NS = 'http://www.w3.org/2000/svg'
@@ -80,7 +80,7 @@ var EvaModelEffortPicker = (function () {
    * command only rx, ry, x and y are lengths, so the rotation and both flags are copied
    * through untouched -- scaling them would silently flip the arcs' direction. */
   var PATH_MODEL = 'M2 3.3333 A6 2 0 0 1 14 3.3333 A6 2 0 0 1 2 3.3333 Z M2 3.3333 V12.6667 A6 2 0 0 0 14 12.6667 V3.3333 M2 8 A6 2 0 0 0 14 8'
-  var ATTR = 'data-eva-mep'
+  var ATTR = 'data-uni-mep'
   var SEARCH_THRESHOLD = 4
 
   /* Which provider groups the user has collapsed is a preference about the panel, not a
@@ -95,7 +95,7 @@ var EvaModelEffortPicker = (function () {
    * Both directions are guarded. A blocked store (private mode, an embedding host that
    * denies storage) must degrade to in-memory state for this session, not throw from
    * inside a dropdown. */
-  var MEP_KEY = 'eva-theme/model-groups-collapsed'
+  var MEP_KEY = 'uni-theme/model-groups-collapsed'
   var collapseStore = null
 
   function collapsedMap() {
@@ -254,43 +254,43 @@ var EvaModelEffortPicker = (function () {
   }
 
   function createShell(kind, t) {
-    var anchor = h('div', 'eva-mep-anchor')
+    var anchor = h('div', 'uni-mep-anchor')
     anchor.setAttribute(ATTR, '')
-    anchor.setAttribute('data-eva-mep-kind', kind)
-    anchor.setAttribute('data-eva-mep-open', 'false')
+    anchor.setAttribute('data-uni-mep-kind', kind)
+    anchor.setAttribute('data-uni-mep-open', 'false')
 
-    var trigger = h('button', 'eva-mep-trigger')
+    var trigger = h('button', 'uni-mep-trigger')
     trigger.type = 'button'
-    trigger.setAttribute('data-eva-mep-trigger', '')
+    trigger.setAttribute('data-uni-mep-trigger', '')
     trigger.setAttribute('aria-haspopup', 'dialog')
     trigger.setAttribute('aria-expanded', 'false')
 
-    var label = h('span', 'eva-mep-triggerLabel')
-    var value = h('span', 'eva-mep-triggerValue')
+    var label = h('span', 'uni-mep-triggerLabel')
+    var value = h('span', 'uni-mep-triggerValue')
     /* Both axes are glyph-or-word, decided by the composer's compact contract (the
      * two --dsh-composer-model-*-display variables the stylesheet reads): the glyph in
      * a short row, the name in a roomy one. This half is the effort axis, so its label
      * box holds the brain rather than text. It carries no accessible text of its own --
      * icon() already marks it aria-hidden, and the trigger's aria-label spells the axis
      * out (see effort.trigger.aria). */
-    if (kind === 'effort') label.appendChild(icon(PATH_BRAIN, 'eva-mep-triggerGlyph'))
+    if (kind === 'effort') label.appendChild(icon(PATH_BRAIN, 'uni-mep-triggerGlyph'))
     /* The model axis mark is a SIBLING of the label, never a child of it. paint() names
      * the model by assigning label.textContent, and assigning textContent discards
      * child elements -- a glyph parented there would be wiped on the first repaint.
      * The effort half can keep its glyph inside the label because its label is never
      * given text; that half writes its value into shell.value instead. */
-    if (kind === 'model') trigger.appendChild(icon(PATH_MODEL, 'eva-mep-triggerAxis'))
+    if (kind === 'model') trigger.appendChild(icon(PATH_MODEL, 'uni-mep-triggerAxis'))
     trigger.appendChild(label)
     trigger.appendChild(value)
     /* No disclosure chevron on the trigger (2026-10-19). The open state is already
-     * visible from the trigger's own background and ink -- see the [data-eva-mep-open]
+     * visible from the trigger's own background and ink -- see the [data-uni-mep-open]
      * rule in the stylesheet -- so the arrow only added a third right-edge mark beside
      * the value. PATH_CHEVRON stays: the provider group rows in the panel still use it
      * for their collapse affordance, which has no highlight to replace it. */
 
-    var pop = h('div', 'eva-mep-pop')
-    pop.setAttribute('data-eva-mep-pop', '')
-    var panel = h('div', 'eva-mep-panel')
+    var pop = h('div', 'uni-mep-pop')
+    pop.setAttribute('data-uni-mep-pop', '')
+    var panel = h('div', 'uni-mep-panel')
     panel.setAttribute('role', 'dialog')
     pop.appendChild(panel)
 
@@ -369,7 +369,7 @@ var EvaModelEffortPicker = (function () {
       if (!instance.open || !shell.pop || !shell.panel) return
       /* Measure uncorrected: the previous shift must not be mistaken for the panel's
        * natural position, or each pass would build on the last one's error. */
-      shell.pop.style.removeProperty('--eva-mep-shift')
+      shell.pop.style.removeProperty('--uni-mep-shift')
       var rect = shell.panel.getBoundingClientRect()
       if (!rect.width) return
       var margin = 8
@@ -379,7 +379,7 @@ var EvaModelEffortPicker = (function () {
       if (rect.width + margin * 2 > view) shift = margin - rect.left
       else if (rect.right > view - margin) shift = (view - margin) - rect.right
       else if (rect.left < margin) shift = margin - rect.left
-      if (shift) shell.pop.style.setProperty('--eva-mep-shift', Math.round(shift) + 'px')
+      if (shift) shell.pop.style.setProperty('--uni-mep-shift', Math.round(shift) + 'px')
     }
     instance.place = place
 
@@ -398,7 +398,7 @@ var EvaModelEffortPicker = (function () {
      * the top match was always one of ours: settings.open was refused there while
      * the same keystroke still worked on every page without a composer. Measured on
      * 0.2.1-rc.3: Ctrl+Alt+, opens settings from the plugins page and does nothing in
-     * a conversation; the same modal context is what EVA's SYSTEM click reads before
+     * a conversation; the same modal context is what the theme's SYSTEM click reads before
      * it invokes the command, which is why that click went dead in conversations only.
      *
      * The role is a claim about a live menu, so it is carried only while the menu is
@@ -417,7 +417,7 @@ var EvaModelEffortPicker = (function () {
       if (want === instance.open) return
       if (want) closer()
       instance.open = want
-      shell.anchor.setAttribute('data-eva-mep-open', want ? 'true' : 'false')
+      shell.anchor.setAttribute('data-uni-mep-open', want ? 'true' : 'false')
       shell.trigger.setAttribute('aria-expanded', want ? 'true' : 'false')
       setMenuRole(want)
       if (want) {
@@ -441,7 +441,7 @@ var EvaModelEffortPicker = (function () {
         document.removeEventListener('mousedown', outside, true)
         document.removeEventListener('keydown', onKey, true)
         window.removeEventListener('resize', replace)
-        shell.pop.style.removeProperty('--eva-mep-shift')
+        shell.pop.style.removeProperty('--uni-mep-shift')
       }
     }
 
@@ -555,25 +555,25 @@ var EvaModelEffortPicker = (function () {
     var shell = instance.shell
     instance.el = shell.anchor
     var rows = []
-    var empty = h('div', 'eva-mep__empty', t('empty.models'))
-    empty.setAttribute('data-eva-mep-empty', '')
+    var empty = h('div', 'uni-mep__empty', t('empty.models'))
+    empty.setAttribute('data-uni-mep-empty', '')
 
-    var searchRow = h('div', 'eva-mep__searchRow')
+    var searchRow = h('div', 'uni-mep__searchRow')
     var searchInput = document.createElement('input')
     searchInput.type = 'search'
-    searchInput.className = 'eva-mep__search'
-    searchInput.setAttribute('data-eva-mep-search', '')
+    searchInput.className = 'uni-mep__search'
+    searchInput.setAttribute('data-uni-mep-search', '')
     searchInput.setAttribute('placeholder', t('search.placeholder'))
     searchInput.setAttribute('aria-label', t('search.placeholder'))
-    var searchClear = h('button', 'eva-mep__searchClear')
+    var searchClear = h('button', 'uni-mep__searchClear')
     searchClear.type = 'button'
-    searchClear.setAttribute('data-eva-mep-search-clear', '')
+    searchClear.setAttribute('data-uni-mep-search-clear', '')
     searchClear.setAttribute('aria-label', t('search.clear'))
     searchClear.appendChild(icon('M5 5 11 11 M11 5 5 11'))
     searchRow.appendChild(searchInput)
     searchRow.appendChild(searchClear)
 
-    var scroll = h('div', 'eva-mep__scroll')
+    var scroll = h('div', 'uni-mep__scroll')
     /* The menu role is not set here: see setMenuRole in attachCommon. A collapsed
      * popover that claimed role="menu" was read by the host as an open modal. */
     instance.scroll = scroll
@@ -732,7 +732,7 @@ var EvaModelEffortPicker = (function () {
       if (signature === painted) return
 
       var hold = document.activeElement && shell.panel.contains(document.activeElement)
-        ? document.activeElement.evaFocusKey
+        ? document.activeElement.uniFocusKey
         : null
       var top = scroll.scrollTop
 
@@ -756,33 +756,33 @@ var EvaModelEffortPicker = (function () {
         /* Results always render open: a filter the user cannot see is worse than a
          * collapsed group the user chose to collapse. */
         var isClosed = !filtering && closedGroups[group.id] === true
-        var wrap = h('div', 'eva-mep__group')
-        wrap.setAttribute('data-eva-mep-group', slug(group.id))
+        var wrap = h('div', 'uni-mep__group')
+        wrap.setAttribute('data-uni-mep-group', slug(group.id))
 
-        var groupRow = h('button', 'eva-mep__groupRow')
+        var groupRow = h('button', 'uni-mep__groupRow')
         groupRow.type = 'button'
-        groupRow.setAttribute('data-eva-mep-group-toggle', slug(group.id))
-        groupRow.evaGroupId = group.id
-        groupRow.evaFocusKey = JSON.stringify(['group', group.id])
+        groupRow.setAttribute('data-uni-mep-group-toggle', slug(group.id))
+        groupRow.uniGroupId = group.id
+        groupRow.uniFocusKey = JSON.stringify(['group', group.id])
         groupRow.setAttribute('aria-expanded', isClosed ? 'false' : 'true')
         groupRow.tabIndex = -1
         /* Presentation-only hook: a caller that wants the reference's leading glyph per
          * provider supplies one, and the slot stays invisible when it does not. */
         groupRow.appendChild(h(
           'span',
-          'eva-mep__groupIcon',
+          'uni-mep__groupIcon',
           typeof opts.iconFor === 'function' ? opts.iconFor(group) : ''
         ))
-        groupRow.appendChild(h('span', 'eva-mep__groupName', group.name))
-        groupRow.appendChild(h('span', 'eva-mep__groupCount', group.entries.length))
-        groupRow.appendChild(icon(PATH_CHEVRON, 'eva-mep__chev'))
+        groupRow.appendChild(h('span', 'uni-mep__groupName', group.name))
+        groupRow.appendChild(h('span', 'uni-mep__groupCount', group.entries.length))
+        groupRow.appendChild(icon(PATH_CHEVRON, 'uni-mep__chev'))
         groupRow.addEventListener('click', function (id) {
           return function () { toggleGroup(id) }
         }(group.id))
         wrap.appendChild(groupRow)
         rows.push(groupRow)
 
-        var body = h('div', 'eva-mep__groupBody')
+        var body = h('div', 'uni-mep__groupBody')
         body.hidden = isClosed
         for (j = 0; j < group.entries.length; j++) {
           body.appendChild(modelRow(group.entries[j], group.id, isClosed))
@@ -794,7 +794,7 @@ var EvaModelEffortPicker = (function () {
       applyPending()
 
       var restored = null
-      if (hold) restored = rows.find(function (row) { return row.evaFocusKey === hold })
+      if (hold) restored = rows.find(function (row) { return row.uniFocusKey === hold })
       if (restored && rows.indexOf(restored) >= 0) rove(rows, restored)
       else if (rows.length && !rows.some(function (r) { return r.tabIndex === 0 })) rows[0].tabIndex = 0
 
@@ -816,21 +816,21 @@ var EvaModelEffortPicker = (function () {
         state.current.provider === entry.provider && state.current.model === entry.model.id
       /* A model belongs to exactly one provider group now that the aggregate list is
        * gone, so the row key is the provider plus the model id. */
-      var row = h('button', 'eva-mep__option eva-mep__option--indent')
+      var row = h('button', 'uni-mep__option uni-mep__option--indent')
       row.type = 'button'
       row.setAttribute('role', 'menuitemradio')
       row.setAttribute('aria-checked', selected ? 'true' : 'false')
-      row.setAttribute('data-eva-mep-model', slug(groupId + '|' + entry.provider + ':' + entry.model.id))
-      row.setAttribute('data-eva-mep-model-id', slug(entry.provider + ':' + entry.model.id))
-      row.evaFocusKey = JSON.stringify(['model', groupId, entry.provider, entry.model.id])
+      row.setAttribute('data-uni-mep-model', slug(groupId + '|' + entry.provider + ':' + entry.model.id))
+      row.setAttribute('data-uni-mep-model-id', slug(entry.provider + ':' + entry.model.id))
+      row.uniFocusKey = JSON.stringify(['model', groupId, entry.provider, entry.model.id])
       row.tabIndex = -1
-      row.appendChild(h('span', 'eva-mep__optionLabel', entry.model.name))
+      row.appendChild(h('span', 'uni-mep__optionLabel', entry.model.name))
       /* The check is invisible on every row but the selected one -- CSS holds it at
        * opacity 0 -- yet each one used to be a full 8-node SVG. At the real directory's
        * size that is 244 glyphs built to show one, and it is the bulk of the first
        * paint. The slot is kept as an empty box either way, because its 14px width comes
        * from CSS, so a row that skips the glyph has exactly the layout it had before. */
-      row.appendChild(selected ? icon(PATH_CHECK, 'eva-mep__check') : h('span', 'eva-mep__check'))
+      row.appendChild(selected ? icon(PATH_CHECK, 'uni-mep__check') : h('span', 'uni-mep__check'))
       if (state.pending) row.disabled = true
       row.addEventListener('click', function () { choose(entry.provider, entry.model.id) })
       /* A row folded inside a collapsed group is still in the DOM, so pushing it here
@@ -849,7 +849,7 @@ var EvaModelEffortPicker = (function () {
         return
       }
       if (event.key === 'Enter' || event.key === ' ') {
-        if (active && active.getAttribute && active.getAttribute('data-eva-mep-search') !== null) return
+        if (active && active.getAttribute && active.getAttribute('data-uni-mep-search') !== null) return
         if (active && active.click && rows.indexOf(active) >= 0) {
           event.preventDefault()
           active.click()
@@ -867,9 +867,9 @@ var EvaModelEffortPicker = (function () {
         return
       }
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
-        active && active.getAttribute && active.getAttribute('data-eva-mep-group-toggle') !== null) {
+        active && active.getAttribute && active.getAttribute('data-uni-mep-group-toggle') !== null) {
         event.preventDefault()
-        toggleGroup(active.evaGroupId)
+        toggleGroup(active.uniGroupId)
       }
     }
 
@@ -923,10 +923,10 @@ var EvaModelEffortPicker = (function () {
     instance.el = shell.anchor
     var rows = []
     var listSignature = null
-    var empty = h('div', 'eva-mep__empty', t('empty.efforts'))
-    empty.setAttribute('data-eva-mep-empty', '')
+    var empty = h('div', 'uni-mep__empty', t('empty.efforts'))
+    empty.setAttribute('data-uni-mep-empty', '')
 
-    var scroll = h('div', 'eva-mep__scroll')
+    var scroll = h('div', 'uni-mep__scroll')
     /* Menu role is added on open only -- see setMenuRole in attachCommon. */
     instance.scroll = scroll
 
@@ -1020,7 +1020,7 @@ var EvaModelEffortPicker = (function () {
         return false
       }
       var hold = document.activeElement && shell.panel.contains(document.activeElement)
-        ? document.activeElement.evaEffortKey
+        ? document.activeElement.uniEffortKey
         : null
       var top = scroll.scrollTop
       scroll.textContent = ''
@@ -1036,7 +1036,7 @@ var EvaModelEffortPicker = (function () {
       }
       scroll.scrollTop = top
       var restored = null
-      for (i = 0; i < rows.length; i++) if (rows[i].evaEffortKey === hold) restored = rows[i]
+      for (i = 0; i < rows.length; i++) if (rows[i].uniEffortKey === hold) restored = rows[i]
       if (restored) rove(rows, restored)
       else if (rows.length) rows[0].tabIndex = 0
       listSignature = signature
@@ -1045,15 +1045,15 @@ var EvaModelEffortPicker = (function () {
     }
 
     function effortRow(spec, selected) {
-      var row = h('button', 'eva-mep__option')
+      var row = h('button', 'uni-mep__option')
       row.type = 'button'
       row.setAttribute('role', 'menuitemradio')
       row.setAttribute('aria-checked', selected ? 'true' : 'false')
-      row.setAttribute('data-eva-mep-effort', slug(spec.key))
-      row.evaEffortKey = spec.key
+      row.setAttribute('data-uni-mep-effort', slug(spec.key))
+      row.uniEffortKey = spec.key
       row.tabIndex = -1
-      row.appendChild(h('span', 'eva-mep__optionLabel', spec.label))
-      row.appendChild(icon(PATH_CHECK, 'eva-mep__check'))
+      row.appendChild(h('span', 'uni-mep__optionLabel', spec.label))
+      row.appendChild(icon(PATH_CHECK, 'uni-mep__check'))
       if (state.pending) row.disabled = true
       row.addEventListener('click', function () { choose(spec.effort) })
       scroll.appendChild(row)

@@ -1,10 +1,10 @@
-/* EVA model picker + EVA effort picker -- two independent controls.
+/* Universe model picker + effort picker -- two independent controls.
  *
  *   [ DeepSeek V4.1 Flash  ^ ]      [ 大脑图标  高  v ]
  *            |                              |
  *      model panel                    effort panel
  *
- * Every selector is rooted at [data-eva-mep]; no CSS-Modules hash, no colour literal.
+ * Every selector is rooted at [data-uni-mep]; no CSS-Modules hash, no colour literal.
  * Each panel is centred on its own trigger and sized by its contents, so the two
  * controls read as two independent dropdowns rather than one shared surface. Nothing
  * here declares container-type: a size-container is contained in the inline axis, which
@@ -16,7 +16,7 @@
  * hairline, selection fill and spacing relationships follow the reference.
  */
 
-[data-eva-mep] {
+[data-uni-mep] {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -27,7 +27,7 @@
  * row shares one rhythm, see the block below -- but the seat still has to be a flex line
  * of its own so a long model name ellipsises against the effort button instead of pushing
  * it around. */
-[data-eva-mep-seat] {
+[data-uni-mep-seat] {
   display: inline-flex;
   align-items: center;
   min-width: 0;
@@ -56,14 +56,14 @@
  * The 3px step keys on the row's own container query rather than on
  * `[data-model-compact]`: the row's width is what actually changes, and a compact row can
  * also happen while the row is still wide (a long model name), which must not tighten it. */
-[data-composer-card] [data-eva-mep-seat],
+[data-composer-card] [data-uni-mep-seat],
 [data-composer-card] div:has([data-slot^='conversation.input']):not([data-composer-card]) {
   column-gap: 6px;
   row-gap: 12px;
 }
 
 @container (width <= 560px) {
-  [data-composer-card] [data-eva-mep-seat],
+  [data-composer-card] [data-uni-mep-seat],
   [data-composer-card] div:has([data-slot^='conversation.input']):not([data-composer-card]) {
     column-gap: 3px;
     row-gap: 8px;
@@ -72,7 +72,7 @@
 
 /* -------------------------------------------------------------------- trigger -- */
 
-[data-eva-mep] .eva-mep-trigger {
+[data-uni-mep] .uni-mep-trigger {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -104,11 +104,11 @@
  * The model anchor is the flexible one of the two, for the same reason. The effort
  * side is pinned at its content width so a long model name can never squash the
  * glyph into a clipped box. */
-[data-eva-mep][data-eva-mep-kind='model'] {
+[data-uni-mep][data-uni-mep-kind='model'] {
   flex: 0 1 auto;
 }
 
-[data-eva-mep][data-eva-mep-kind='effort'] {
+[data-uni-mep][data-uni-mep-kind='effort'] {
   flex: 0 0 auto;
 }
 
@@ -117,25 +117,25 @@
  * shrinks the trigger through flex and makes the label's box narrower than the text
  * it wants to draw. Sizing the cap tight instead would shrink ordinary names in a
  * wide row for no reason. It matches the official panel's own 420px ceiling. */
-[data-eva-mep][data-eva-mep-kind='model'] .eva-mep-trigger {
+[data-uni-mep][data-uni-mep-kind='model'] .uni-mep-trigger {
   max-width: min(420px, 60vw);
 }
 
-[data-eva-mep] .eva-mep-trigger:hover {
+[data-uni-mep] .uni-mep-trigger:hover {
   background-color: var(--dsw-alias-interactive-bg-hover);
 }
 
-[data-eva-mep][data-eva-mep-open='true'] .eva-mep-trigger {
+[data-uni-mep][data-uni-mep-open='true'] .uni-mep-trigger {
   background-color: var(--dsw-alias-interactive-bg-hover-accent);
   color: var(--dsw-alias-label-primary);
 }
 
-[data-eva-mep] .eva-mep-trigger:focus-visible {
+[data-uni-mep] .uni-mep-trigger:focus-visible {
   outline: 1px solid var(--dsw-alias-brand-primary);
   outline-offset: -1px;
 }
 
-[data-eva-mep] .eva-mep-triggerLabel {
+[data-uni-mep] .uni-mep-triggerLabel {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -145,14 +145,14 @@
   font-weight: 500;
 }
 
-[data-eva-mep] .eva-mep-triggerValue {
+[data-uni-mep] .uni-mep-triggerValue {
   flex: 0 0 auto;
   color: var(--dsw-alias-label-primary);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-[data-eva-mep] .eva-mep-triggerValue[hidden] {
+[data-uni-mep] .uni-mep-triggerValue[hidden] {
   display: none;
 }
 
@@ -175,7 +175,7 @@
  *   wide     model: the model's name        effort: the effort's name ("高")
  *
  * So the brain is display-toggled by --dsh-composer-model-icon-display (its default is
- * none), exactly like .eva-mep-triggerAxis on the model side, and the value beside it is
+ * none), exactly like .uni-mep-triggerAxis on the model side, and the value beside it is
  * toggled by --dsh-composer-model-text-display below, exactly like the model's label.
  * The two halves stay mirrors of each other: whatever state the row is in, both buttons
  * are in it together, and neither mixes a glyph with a word.
@@ -189,14 +189,14 @@
  * was painted label-dimmed, but in compact mode it IS the button's whole label, and the
  * dimmed token made the effort button read as disabled next to the model glyph and the
  * dictation mic (both of which take the trigger's label-secondary). Inheriting is also
- * what keeps hover and open states consistent across all three: the [data-eva-mep-open]
+ * what keeps hover and open states consistent across all three: the [data-uni-mep-open]
  * rule lifts the trigger's colour and this follows it without a second selector. */
-[data-eva-mep][data-eva-mep-kind='effort'] .eva-mep-triggerLabel {
+[data-uni-mep][data-uni-mep-kind='effort'] .uni-mep-triggerLabel {
   display: var(--dsh-composer-model-icon-display, none);
   color: var(--dsw-alias-label-dimmed);
 }
 
-[data-eva-mep] .eva-mep-triggerGlyph {
+[data-uni-mep] .uni-mep-triggerGlyph {
   flex: 0 0 auto;
   display: block;
   width: 14px;
@@ -206,7 +206,7 @@
 /* The weight has to be set on the `path`, not the `svg`: icon() writes stroke-width as
  * a presentation attribute on the path itself, and a directly-specified value is not
  * overridden by inheritance from its parent. */
-[data-eva-mep] .eva-mep-triggerGlyph path {
+[data-uni-mep] .uni-mep-triggerGlyph path {
   /* Back to the theme's 1px icon stroke. The brain carries far more curve per unit area
    * than the chevron and check do, so at the picker's default 1.4px its internal folds
    * close up into a blob at this size. */
@@ -236,32 +236,32 @@
  *
  * Nothing here is a media query on purpose: collapsing the text is not a function of
  * the viewport, it is a function of the line the buttons were actually given. */
-[data-eva-mep][data-eva-mep-kind='model'] .eva-mep-triggerAxis {
+[data-uni-mep][data-uni-mep-kind='model'] .uni-mep-triggerAxis {
   display: var(--dsh-composer-model-icon-display, none);
 }
 
 /* The model axis mark is hidden whenever the name is shown, so it never competes with
  * it. The effort half follows the same switch since 2026-10-19 -- see the compact note
  * above its label rule -- so both triggers are glyph-only together or text together. */
-[data-eva-mep] .eva-mep-triggerAxis {
+[data-uni-mep] .uni-mep-triggerAxis {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
 }
 
-[data-eva-mep] .eva-mep-triggerAxis path {
+[data-uni-mep] .uni-mep-triggerAxis path {
   stroke-width: 1;
 }
 
-[data-eva-mep][data-eva-mep-kind='model'] .eva-mep-triggerLabel,
-[data-eva-mep][data-eva-mep-kind='effort'] .eva-mep-triggerValue:not([hidden]) {
+[data-uni-mep][data-uni-mep-kind='model'] .uni-mep-triggerLabel,
+[data-uni-mep][data-uni-mep-kind='effort'] .uni-mep-triggerValue:not([hidden]) {
   display: var(--dsh-composer-model-text-display, block);
 }
 
 /* The triggers no longer carry a disclosure chevron (2026-10-19). The open state was
  * already carried by the trigger's own background and ink -- see the
- * [data-eva-mep-open='true'] rule above -- so the arrow was a third right-edge mark
- * that the value now owns alone. `.eva-mep__chev` in the panel is a different element
+ * [data-uni-mep-open='true'] rule above -- so the arrow was a third right-edge mark
+ * that the value now owns alone. `.uni-mep__chev` in the panel is a different element
  * and stays: a provider group row has no highlight to show its collapsed state. */
 
 /* ------------------------------------------------------- compact seat: squares -- */
@@ -295,7 +295,7 @@
  * The floor is written on the anchors rather than the triggers so it applies to whichever
  * of the two is showing a glyph, and min-width (not width) so a trigger that still has a
  * word in it -- a very short row, a value that has not collapsed -- is not clipped. */
-[data-model-compact] [data-eva-mep] .eva-mep-trigger {
+[data-model-compact] [data-uni-mep] .uni-mep-trigger {
   justify-content: center;
   min-width: 28px;
   padding: 0;
@@ -309,17 +309,17 @@
  *
  * The effort label's own dimmed colour is what made it the darkest of the three, so it
  * inherits instead of naming a token: one rule, and hover/open lift it with the trigger. */
-[data-model-compact] [data-eva-mep] .eva-mep-trigger {
+[data-model-compact] [data-uni-mep] .uni-mep-trigger {
   color: var(--dsw-alias-label-primary);
 }
 
-[data-model-compact] [data-eva-mep][data-eva-mep-kind='effort'] .eva-mep-triggerLabel {
+[data-model-compact] [data-uni-mep][data-uni-mep-kind='effort'] .uni-mep-triggerLabel {
   color: inherit;
 }
 
 /* -------------------------------------------------------------------- popover -- */
 
-[data-eva-mep] .eva-mep-pop {
+[data-uni-mep] .uni-mep-pop {
   position: absolute;
   bottom: calc(100% + 8px);
   /* Centred on its own trigger, which is what the reference does: the panel grows
@@ -334,14 +334,14 @@
   left: 50%;
   z-index: 1100;
   display: none;
-  transform: translateX(calc(-50% + var(--eva-mep-shift, 0px)));
+  transform: translateX(calc(-50% + var(--uni-mep-shift, 0px)));
 }
 
-[data-eva-mep][data-eva-mep-open='true'] .eva-mep-pop {
+[data-uni-mep][data-uni-mep-open='true'] .uni-mep-pop {
   display: block;
 }
 
-[data-eva-mep] .eva-mep-panel {
+[data-uni-mep] .uni-mep-panel {
   position: relative;
   box-sizing: border-box;
   display: flex;
@@ -368,11 +368,11 @@
   font-size: 13px;
   overflow: hidden;
 
-  --eva-mep-gutter: 8px;
-  --eva-mep-indent: 32px;
-  --eva-mep-row: 38px;
-  --eva-mep-group-row: 36px;
-  --eva-mep-count: inline;
+  --uni-mep-gutter: 8px;
+  --uni-mep-indent: 32px;
+  --uni-mep-row: 38px;
+  --uni-mep-group-row: 36px;
+  --uni-mep-count: inline;
 }
 
 /* The material lives on its own layer, which is how ui-primitives MenuSurface does it:
@@ -383,7 +383,7 @@
  * positioned descendants just because it is translucent.
  * (EVA does not override --dsw-elevation-prominent; the DSH base theme supplies it, so
  * the fallback above only shows up in a harness that defines nothing.) */
-[data-eva-mep] .eva-mep-panel::before {
+[data-uni-mep] .uni-mep-panel::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -398,25 +398,25 @@
 /* The effort panel is the same panel; it just holds four short rows, so its own
  * max-content width is naturally small. No width override -- one rule for both keeps
  * the two panels from drifting apart as their contents change. */
-[data-eva-mep][data-eva-mep-kind='effort'] .eva-mep-panel {
+[data-uni-mep][data-uni-mep-kind='effort'] .uni-mep-panel {
   max-height: min(320px, calc(100vh - 120px));
 }
 
 /* --------------------------------------------------------------------- search -- */
 
-[data-eva-mep] .eva-mep__searchRow {
+[data-uni-mep] .uni-mep__searchRow {
   position: relative;
   display: flex;
   align-items: center;
   margin: 2px 0 6px;
-  padding: 0 var(--eva-mep-gutter);
+  padding: 0 var(--uni-mep-gutter);
 }
 
-[data-eva-mep] .eva-mep__searchRow[hidden] {
+[data-uni-mep] .uni-mep__searchRow[hidden] {
   display: none;
 }
 
-[data-eva-mep] .eva-mep__search {
+[data-uni-mep] .uni-mep__search {
   box-sizing: border-box;
   width: 100%;
   height: 32px;
@@ -431,23 +431,23 @@
   transition: border-color var(--ds-transition-duration) var(--ds-ease-in-out);
 }
 
-[data-eva-mep] .eva-mep__search::placeholder {
+[data-uni-mep] .uni-mep__search::placeholder {
   color: var(--dsw-alias-label-dimmed);
 }
 
-[data-eva-mep] .eva-mep__search:focus-visible {
+[data-uni-mep] .uni-mep__search:focus-visible {
   border-color: var(--dsw-alias-brand-primary);
 }
 
-[data-eva-mep] .eva-mep__search::-webkit-search-cancel-button,
-[data-eva-mep] .eva-mep__search::-webkit-search-decoration {
+[data-uni-mep] .uni-mep__search::-webkit-search-cancel-button,
+[data-uni-mep] .uni-mep__search::-webkit-search-decoration {
   display: none;
 }
 
-[data-eva-mep] .eva-mep__searchClear {
+[data-uni-mep] .uni-mep__searchClear {
   position: absolute;
   top: 50%;
-  right: calc(var(--eva-mep-gutter) + 4px);
+  right: calc(var(--uni-mep-gutter) + 4px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -462,23 +462,23 @@
   transform: translateY(-50%);
 }
 
-[data-eva-mep] .eva-mep__searchClear[hidden] {
+[data-uni-mep] .uni-mep__searchClear[hidden] {
   display: none;
 }
 
-[data-eva-mep] .eva-mep__searchClear:hover {
+[data-uni-mep] .uni-mep__searchClear:hover {
   background-color: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
-[data-eva-mep] .eva-mep__searchClear:focus-visible {
+[data-uni-mep] .uni-mep__searchClear:focus-visible {
   outline: 1px solid var(--dsw-alias-brand-primary);
   outline-offset: -1px;
 }
 
 /* --------------------------------------------------------------------- scroll -- */
 
-[data-eva-mep] .eva-mep__scroll {
+[data-uni-mep] .uni-mep__scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -487,41 +487,41 @@
   scrollbar-color: var(--dsw-alias-scrollbar-bg-l1) transparent;
 }
 
-[data-eva-mep] .eva-mep__scroll[role='menu'] {
+[data-uni-mep] .uni-mep__scroll[role='menu'] {
   outline: none;
 }
 
-[data-eva-mep] .eva-mep__scroll::-webkit-scrollbar {
+[data-uni-mep] .uni-mep__scroll::-webkit-scrollbar {
   width: 8px;
 }
 
-[data-eva-mep] .eva-mep__scroll::-webkit-scrollbar-thumb {
+[data-uni-mep] .uni-mep__scroll::-webkit-scrollbar-thumb {
   border-radius: var(--dsw-radius-sm);
   background-color: var(--dsw-alias-scrollbar-bg-l1);
 }
 
-[data-eva-mep] .eva-mep__scroll::-webkit-scrollbar-thumb:hover {
+[data-uni-mep] .uni-mep__scroll::-webkit-scrollbar-thumb:hover {
   background-color: var(--dsw-alias-scrollbar-hover-l1);
 }
 
 /* ---------------------------------------------------------------------- group -- */
 
-[data-eva-mep] .eva-mep__group + .eva-mep__group {
+[data-uni-mep] .uni-mep__group + .uni-mep__group {
   margin-top: 2px;
 }
 
-[data-eva-mep] .eva-mep__groupBody[hidden] {
+[data-uni-mep] .uni-mep__groupBody[hidden] {
   display: none;
 }
 
-[data-eva-mep] .eva-mep__groupRow {
+[data-uni-mep] .uni-mep__groupRow {
   display: flex;
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
   width: 100%;
-  min-height: var(--eva-mep-group-row);
-  padding: 0 var(--eva-mep-gutter);
+  min-height: var(--uni-mep-group-row);
+  padding: 0 var(--uni-mep-gutter);
   border: 0;
   border-radius: var(--dsw-radius-md);
   background-color: transparent;
@@ -534,7 +534,7 @@
   transition: background-color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
 }
 
-[data-eva-mep] .eva-mep__groupIcon {
+[data-uni-mep] .uni-mep__groupIcon {
   flex: 0 0 auto;
   width: 18px;
   overflow: hidden;
@@ -543,11 +543,11 @@
   text-align: center;
 }
 
-[data-eva-mep] .eva-mep__groupIcon:empty {
+[data-uni-mep] .uni-mep__groupIcon:empty {
   display: none;
 }
 
-[data-eva-mep] .eva-mep__groupName {
+[data-uni-mep] .uni-mep__groupName {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -555,15 +555,15 @@
   white-space: nowrap;
 }
 
-[data-eva-mep] .eva-mep__groupCount {
+[data-uni-mep] .uni-mep__groupCount {
   flex: 0 0 auto;
-  display: var(--eva-mep-count);
+  display: var(--uni-mep-count);
   color: var(--dsw-alias-label-dimmed);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 
-[data-eva-mep] .eva-mep__chev {
+[data-uni-mep] .uni-mep__chev {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
@@ -572,20 +572,20 @@
 }
 
 /* Collapsed points at the list, expanded points at the list it just opened. */
-[data-eva-mep] .eva-mep__groupRow[aria-expanded='false'] .eva-mep__chev {
+[data-uni-mep] .uni-mep__groupRow[aria-expanded='false'] .uni-mep__chev {
   transform: rotate(-90deg);
 }
 
 /* --------------------------------------------------------------------- option -- */
 
-[data-eva-mep] .eva-mep__option {
+[data-uni-mep] .uni-mep__option {
   display: flex;
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
   width: 100%;
-  min-height: var(--eva-mep-row);
-  padding: 5px var(--eva-mep-gutter);
+  min-height: var(--uni-mep-row);
+  padding: 5px var(--uni-mep-gutter);
   border: 0;
   border-radius: var(--dsw-radius-md);
   background-color: transparent;
@@ -602,11 +602,11 @@
 }
 
 /* Model rows line up under their group's name, past the icon slot. */
-[data-eva-mep] .eva-mep__option--indent {
-  padding-left: var(--eva-mep-indent);
+[data-uni-mep] .uni-mep__option--indent {
+  padding-left: var(--uni-mep-indent);
 }
 
-[data-eva-mep] .eva-mep__optionLabel {
+[data-uni-mep] .uni-mep__optionLabel {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -614,7 +614,7 @@
   white-space: nowrap;
 }
 
-[data-eva-mep] .eva-mep__check {
+[data-uni-mep] .uni-mep__check {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
@@ -622,21 +622,21 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
-[data-eva-mep] .eva-mep__option[aria-checked='true'] .eva-mep__check {
+[data-uni-mep] .uni-mep__option[aria-checked='true'] .uni-mep__check {
   opacity: 1;
 }
 
 /* --------------------------------------------------------------------- states -- */
 
 @media (hover: hover) {
-  [data-eva-mep] .eva-mep__option:not(:disabled):hover,
-  [data-eva-mep] .eva-mep__groupRow:not(:disabled):hover {
+  [data-uni-mep] .uni-mep__option:not(:disabled):hover,
+  [data-uni-mep] .uni-mep__groupRow:not(:disabled):hover {
     background-color: var(--dsw-alias-interactive-bg-hover);
   }
 
   /* A selected row keeps its fill and only brightens under the pointer, so hover can
    * never make the current value look deselected. */
-  [data-eva-mep] .eva-mep__option[aria-checked='true']:not(:disabled):hover {
+  [data-uni-mep] .uni-mep__option[aria-checked='true']:not(:disabled):hover {
     background-image: linear-gradient(
       var(--dsw-alias-interactive-bg-hover),
       var(--dsw-alias-interactive-bg-hover)
@@ -644,30 +644,30 @@
   }
 }
 
-[data-eva-mep] .eva-mep__option[aria-checked='true'] {
+[data-uni-mep] .uni-mep__option[aria-checked='true'] {
   background-color: var(--dsw-alias-interactive-bg-active);
 }
 
 /* Focus is drawn as a ring, not a fill, so it stays legible on top of the selection
  * fill and can never be mistaken for it. */
-[data-eva-mep] .eva-mep__option:focus-visible,
-[data-eva-mep] .eva-mep__groupRow:focus-visible {
+[data-uni-mep] .uni-mep__option:focus-visible,
+[data-uni-mep] .uni-mep__groupRow:focus-visible {
   outline: 1px solid var(--dsw-alias-brand-primary);
   outline-offset: -2px;
 }
 
-[data-eva-mep] .eva-mep__option:disabled,
-[data-eva-mep] .eva-mep__groupRow:disabled {
+[data-uni-mep] .uni-mep__option:disabled,
+[data-uni-mep] .uni-mep__groupRow:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-[data-eva-mep] .eva-mep__empty {
+[data-uni-mep] .uni-mep__empty {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 64px;
-  padding: 8px var(--eva-mep-gutter);
+  padding: 8px var(--uni-mep-gutter);
   color: var(--dsw-alias-label-dimmed);
   font-size: 12px;
   text-align: center;
@@ -680,29 +680,29 @@
  * What is left to do here is tighten the rhythm so a small panel still shows a useful
  * number of rows, and keep the trigger from eating the whole composer row. */
 @media (max-width: 480px) {
-  [data-eva-mep] .eva-mep__searchRow,
-  [data-eva-mep] .eva-mep__scroll {
-    --eva-mep-gutter: 6px;
-    --eva-mep-indent: 26px;
-    --eva-mep-row: 34px;
-    --eva-mep-group-row: 32px;
+  [data-uni-mep] .uni-mep__searchRow,
+  [data-uni-mep] .uni-mep__scroll {
+    --uni-mep-gutter: 6px;
+    --uni-mep-indent: 26px;
+    --uni-mep-row: 34px;
+    --uni-mep-group-row: 32px;
   }
 
-  [data-eva-mep] .eva-mep-panel {
+  [data-uni-mep] .uni-mep-panel {
     max-height: min(64vh, 420px);
   }
 
-  [data-eva-mep][data-eva-mep-kind='model'] .eva-mep-trigger {
+  [data-uni-mep][data-uni-mep-kind='model'] .uni-mep-trigger {
     max-width: min(200px, 45vw);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-eva-mep] .eva-mep-trigger,
-  [data-eva-mep] .eva-mep__chev,
-  [data-eva-mep] .eva-mep__option,
-  [data-eva-mep] .eva-mep__groupRow,
-  [data-eva-mep] .eva-mep__search {
+  [data-uni-mep] .uni-mep-trigger,
+  [data-uni-mep] .uni-mep__chev,
+  [data-uni-mep] .uni-mep__option,
+  [data-uni-mep] .uni-mep__groupRow,
+  [data-uni-mep] .uni-mep__search {
     transition-duration: 0s;
   }
 }

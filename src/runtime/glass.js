@@ -24,8 +24,8 @@
            are measured too, which keeps a resize (and a column drag) repainting. If a
            future build gives the six different sizes, split them into two targets. */
         var targets = [
-          { id: 'eva-lg-input', selector: '[data-composer-card]', bezel: 14, scale: 14 },
-          { id: 'eva-lg-guide', selector: '[data-sidebar-right-guide-entry]', bezel: 14, scale: 14 },
+          { id: 'uni-lg-input', selector: '[data-composer-card]', bezel: 14, scale: 14 },
+          { id: 'uni-lg-guide', selector: '[data-sidebar-right-guide-entry]', bezel: 14, scale: 14 },
         ]
 
         /* One map, drawn at the size of the region (the box plus one bevel all round) and
@@ -64,7 +64,7 @@
         }
 
         var host = document.createElementNS(NS, 'svg')
-        host.setAttribute('id', 'eva-lg-defs')
+        host.setAttribute('id', 'uni-lg-defs')
         host.setAttribute('aria-hidden', 'true')
         host.setAttribute('focusable', 'false')
         host.setAttribute('style',

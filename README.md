@@ -125,17 +125,20 @@ one the host draws.
 
 ### The new session page (hero)
 
-Three changes, on that page only:
+That page is the composer and nothing else. Three things are gone, on that page only:
 
-- the headline is replaced by one fixed German line, exactly as registered:
-  `Wovon man nicht sprechen kann, darüber muss man schweigen`;
-- the 「预览版」/ “Preview” badge is gone;
-- the whale logo above the headline is gone.
+- the headline, and with it the fixed German line that used to fill it;
+- the 「预览版」/ “Preview” badge;
+- the whale logo above the headline.
 
-That line is set in **Great Vibes** (SIL OFL 1.1, shipped in the package) at
-`min(44px, 5.3cqw)` and never wraps. Two costs, stated plainly: it is injected as
-generated content, so find-in-page and screen readers do not see it, and it does not
-follow the interface language — a Chinese and an English user both read the German.
+The whole row goes, not just its text: the logo slot and the wordmark beside it were
+already hidden, and an empty flex row still holds the HeroShell's gap, which reads as a
+stray blank band rather than as the composer having moved up. With the row
+`display: none` the composer sits where the headline used to be.
+
+**Great Vibes** (SIL OFL 1.1) still ships in the package with its `@font-face` intact —
+this round removed a rendering, not an asset, so a rollback costs no download. The
+composer card, the workspace picker and the two dropdowns on that page are untouched.
 
 ### The composer's control row
 

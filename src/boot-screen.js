@@ -1,6 +1,6 @@
 
     /* --------------------------------------------------------- boot screen
-     * 「闸门开启」启动遮罩：两层挡板盖住首屏，左侧进度按墙钟推进，结束后
+     * 「星野展开」启动遮罩：两层挡板盖住首屏，左侧进度按墙钟推进，结束后
      * 挡板左右分开、整块淡出并自删。默认开启，localStorage 写 '0' 关闭，
      * URL 加 ?boot=0 只跳过一次，?boot=1 强制重播一次；**每次启动 DSH 播一次**
      * （见下面 BOOT_SEEN_KEY：标记落在 sessionStorage，同一次运行内刷新不重播，
@@ -14,7 +14,7 @@
      *
      * 2026-10-12：BOOT_MARK 仍由构建期注入（产物 8 位哈希）。它现在只用于同页去重
      * 与调试核对，不再决定「下次启动播不播」。
-     * 更早它写死成 'eva-boot/2026-10-06-a'，6 天没变，那句话退化成「有史以来只播一次」。
+     * 更早它写死成 'uni-boot/2026-10-06-a'，6 天没变，那句话退化成「有史以来只播一次」。
      *
      * 这里刻意不读 Host 设置：唯一开关是浏览器本地值，任何时刻都读得到，
      * 因此没有「apply() 首帧读到的只是 schema 默认值」那个竞态。
@@ -60,7 +60,7 @@
        「下次启动播不播」——那条规则由 sessionStorage 决定。
        不要在这里写死字面量：2026-10-06 到 10-12 之间标记是常量，遮罩首播之后就再没
        出现过。构建器在占位符丢失时会直接报错。 */
-    var BOOT_MARK = 'eva-boot/@BUILD@'
+    var BOOT_MARK = 'uni-boot/@BUILD@'
     var BOOT_MS = 1600
     var BOOT_SLIDE_MS = 620
     var BOOT_FADE_MS = 320
@@ -83,25 +83,29 @@
     function bootEnabled() {
       if (typeof window === 'undefined') return false
       /* 同一轮运行里只播一次：HMR 换包、重复 apply 都拦在这里。 */
-      if (window.__evaBootMark === BOOT_MARK) return false
+      if (window.__uniBootMark === BOOT_MARK) return false
       /* ?boot=1 强制重播一次：压过下面每一条「跳过」的理由，但压不过上面那条同页去重
          —— 否则 HMR 重挂会让挡板再盖一次，那不是重播，是重复。 */
       try {
         if (typeof location !== 'undefined' && String(location.search).indexOf('boot=1') >= 0) return true
-      } catch (e) { /* 读不到就当没写 */ }
+      }
+      catch (e) { /* 读不到就当没写 */ }
       try {
         if (typeof location !== 'undefined' && String(location.search).indexOf('boot=0') >= 0) return false
-      } catch (e) { /* 读不到就当没写 */ }
+      }
+      catch (e) { /* 读不到就当没写 */ }
       try {
         if (window.localStorage && window.localStorage.getItem(BOOT_KEY) === '0') return false
-      } catch (e) { /* 隐私模式读不到：照常播 */ }
+      }
+      catch (e) { /* 隐私模式读不到：照常播 */ }
       /* 这一轮已经播过：同一次 DSH 运行里的刷新、HMR 换包都不再播；
          退出 DSH 后 sessionStorage 随窗口销毁，下次启动重新播。
          读不到 sessionStorage（隐私模式）时按没播过处理 —— 宁可多播一次，
          也不要重演「以为播过、其实永远不播」。 */
       try {
         if (window.sessionStorage && window.sessionStorage.getItem(BOOT_SEEN_KEY) === BOOT_SEEN_VALUE) return false
-      } catch (e) { /* 读不到：按没播过处理 */ }
+      }
+      catch (e) { /* 读不到：按没播过处理 */ }
       return true
     }
 
@@ -146,7 +150,7 @@
       bootEl = null
     }
 
-    /* 返回 disposer：apply() 里那条标着 'evangelion: boot screen' 的注册直接收下它，
+    /* 返回 disposer：apply() 里那条标着 'universe: boot screen' 的注册直接收下它，
        所以主题一关，挡板就随样式表一起撤。
        所有文案都写在 CSS 的 content 里，DOM 上一个可翻译的字都没有。 */
     function mountBootScreen() {
@@ -165,44 +169,45 @@
       }
       if (bootReduceMotion()) return destroyBoot
       bootDone = true
-      if (typeof window !== 'undefined') window.__evaBootMark = BOOT_MARK
+      if (typeof window !== 'undefined') window.__uniBootMark = BOOT_MARK
       /* 在开播处就记下「这一轮已播」：中途关窗也算播过。落点是 sessionStorage，
          所以这条记录只活到窗口关闭为止 —— 下一次启动 DSH 会重新播。 */
       try {
         if (typeof window !== 'undefined' && window.sessionStorage) window.sessionStorage.setItem(BOOT_SEEN_KEY, BOOT_SEEN_VALUE)
-      } catch (e) { /* 写不进去：退化成同页只播一次 */ }
+      }
+      catch (e) { /* 写不进去：退化成同页只播一次 */ }
 
       var el = document.createElement('div')
-      el.setAttribute('data-eva-boot', '')
+      el.setAttribute('data-uni-boot', '')
       el.setAttribute('translate', 'no')
       el.setAttribute('aria-hidden', 'true')
       el.className = 'notranslate'
       el.innerHTML = '' +
-        '<div class="eva-boot-tex"></div>' +
-        '<div class="eva-boot-panel eva-boot-panel-l"></div>' +
-        '<div class="eva-boot-panel eva-boot-panel-r"></div>' +
-        '<div class="eva-boot-body">' +
-        '<span class="eva-boot-tag"></span>' +
-        '<span class="eva-boot-mark">' +
-        '<span class="eva-boot-word"></span>' +
-        '<span class="eva-boot-sub"></span>' +
+        '<div class="uni-boot-tex"></div>' +
+        '<div class="uni-boot-panel uni-boot-panel-l"></div>' +
+        '<div class="uni-boot-panel uni-boot-panel-r"></div>' +
+        '<div class="uni-boot-body">' +
+        '<span class="uni-boot-tag"></span>' +
+        '<span class="uni-boot-mark">' +
+        '<span class="uni-boot-word"></span>' +
+        '<span class="uni-boot-sub"></span>' +
         '</span>' +
-        '<span class="eva-boot-hex"></span>' +
-        '<span class="eva-boot-rail">' +
-        '<span class="eva-boot-pct"></span>' +
-        '<span class="eva-boot-state"></span>' +
+        '<span class="uni-boot-hex"></span>' +
+        '<span class="uni-boot-rail">' +
+        '<span class="uni-boot-pct"></span>' +
+        '<span class="uni-boot-state"></span>' +
         '</span>' +
         '</div>'
       document.body.appendChild(el)
       bootEl = el
 
-      var left = el.querySelector('.eva-boot-panel-l')
-      var right = el.querySelector('.eva-boot-panel-r')
-      var body = el.querySelector('.eva-boot-body')
-      var rail = el.querySelector('.eva-boot-rail')
-      var hex = el.querySelector('.eva-boot-hex')
-      var pct = el.querySelector('.eva-boot-pct')
-      var state = el.querySelector('.eva-boot-state')
+      var left = el.querySelector('.uni-boot-panel-l')
+      var right = el.querySelector('.uni-boot-panel-r')
+      var body = el.querySelector('.uni-boot-body')
+      var rail = el.querySelector('.uni-boot-rail')
+      var hex = el.querySelector('.uni-boot-hex')
+      var pct = el.querySelector('.uni-boot-pct')
+      var state = el.querySelector('.uni-boot-state')
       var now = function () {
         return (typeof performance !== 'undefined' && typeof performance.now === 'function')
           ? performance.now() : Date.now()
@@ -224,7 +229,7 @@
         finished = true
         bootClearTimers()
         if (bootEl === null) return
-        el.setAttribute('data-eva-boot-open', '')
+        el.setAttribute('data-uni-boot-open', '')
         var exitAt = now()
         var slide = function () {
           if (bootEl === null) return
@@ -267,7 +272,7 @@
           var fill = eased.toFixed(4)
           if (railFill !== fill) {
             railFill = fill
-            rail.style.setProperty('--eva-boot-progress', fill)
+            rail.style.setProperty('--uni-boot-progress', fill)
           }
         }
         /* 六边形的呼吸：这家主题的 paint layer 不许出现 @keyframes（选择器检查会把紧跟
@@ -278,7 +283,7 @@
           var op = (0.45 + 0.55 * Math.abs(Math.sin(ms / 420))).toFixed(3)
           if (hexOp !== op) {
             hexOp = op
-            hex.style.setProperty('--eva-boot-hex-op', op)
+            hex.style.setProperty('--uni-boot-hex-op', op)
           }
         }
         var shown = value + '%'
@@ -286,7 +291,7 @@
         var label = value < 45 ? 'SYNC' : (value < 99 ? 'GATE' : 'OPEN')
         if (state && state.textContent !== label) state.textContent = label
         if (t >= 1) {
-          el.setAttribute('data-eva-boot-full', '')
+          el.setAttribute('data-uni-boot-full', '')
           /* 满格停一拍，让 100% 真的被看清。 */
           if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
             if (bootExit === null) bootExit = window.setTimeout(finish, BOOT_HOLD_MS)

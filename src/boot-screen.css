@@ -1,11 +1,11 @@
-/* ===================== 启动遮罩：「闸门开启」 =====================
+/* ===================== 启动遮罩：「星野展开」 =====================
  * 只在动画播放期间存在，播完节点就被删掉，所以下面每条规则在正常使用时
  * 都不匹配。颜色全部走本主题自己的令牌（这张表里没有一个字面色值，
  * selfcheck 的 css.8 会拦），两套模式自动跟着变；尺寸用 vh/vw + clamp，
  * 任何视口都不会把字挤出画面。
  * 文字一律写在 content 里：DOM 上没有可翻译文本，网页翻译改不掉它。
  * ================================================================= */
-[data-eva-boot] {
+[data-uni-boot] {
   position: fixed;
   inset: 0;
   /* 高过应用自己的所有层：遮罩要盖住首屏，不是被首屏盖住。 */
@@ -27,7 +27,7 @@
 
 /* 两层挡板才是背景。遮罩自己不画底色，挡板分开时才真的露出应用。
    这里用不透明的 platform 令牌，不用带透明度的 bg-base —— 遮罩要挡住首屏。 */
-[data-eva-boot] .eva-boot-panel {
+[data-uni-boot] .uni-boot-panel {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -36,11 +36,11 @@
   will-change: transform;
 }
 
-[data-eva-boot] .eva-boot-panel-l { left: 0; }
-[data-eva-boot] .eva-boot-panel-r { right: 0; }
+[data-uni-boot] .uni-boot-panel-l { left: 0; }
+[data-uni-boot] .uni-boot-panel-r { right: 0; }
 
 /* 工业扫描线，压在挡板之上、文字之下。 */
-[data-eva-boot] .eva-boot-tex {
+[data-uni-boot] .uni-boot-tex {
   position: absolute;
   inset: 0;
   opacity: 0.5;
@@ -49,7 +49,7 @@
     repeating-linear-gradient(90deg, color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent) 0 1px, transparent 1px 96px);
 }
 
-[data-eva-boot] .eva-boot-body {
+[data-uni-boot] .uni-boot-body {
   position: absolute;
   inset: 0;
   display: flex;
@@ -59,7 +59,7 @@
   gap: clamp(14px, 2.4vh, 30px);
 }
 
-[data-eva-boot] .eva-boot-tag {
+[data-uni-boot] .uni-boot-tag {
   position: absolute;
   top: max(20px, 3vh);
   left: max(20px, 3vw);
@@ -70,15 +70,15 @@
   color: var(--dsw-alias-brand-primary);
 }
 
-[data-eva-boot] .eva-boot-tag::before { content: 'NERV // MAGI SYSTEM'; }
+[data-uni-boot] .uni-boot-tag::before { content: 'UNIVERSE // DEEP SPACE'; }
 
-[data-eva-boot] .eva-boot-mark {
+[data-uni-boot] .uni-boot-mark {
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-[data-eva-boot] .eva-boot-word {
+[data-uni-boot] .uni-boot-word {
   font-size: clamp(42px, min(13vh, 12vw), 132px);
   font-weight: 900;
   line-height: 0.92;
@@ -87,9 +87,9 @@
   text-indent: 0.2em;
 }
 
-[data-eva-boot] .eva-boot-word::before { content: 'EVA'; }
+[data-uni-boot] .uni-boot-word::before { content: 'UNIVERSE'; }
 
-[data-eva-boot] .eva-boot-sub {
+[data-uni-boot] .uni-boot-sub {
   margin-top: 0.9em;
   font-size: max(9px, 1.15vh);
   font-weight: 500;
@@ -98,25 +98,25 @@
   opacity: 0.68;
 }
 
-[data-eva-boot] .eva-boot-sub::before { content: 'EVA-INSPIRED THEME / 闸门开启'; }
+[data-uni-boot] .uni-boot-sub::before { content: 'UNIVERSE THEME / 星野展开'; }
 
 /* 六边形用 clip-path 画，不依赖字体也不依赖 border-radius。
-   呼吸由 JS 逐帧写 --eva-boot-hex-op：这张表里不能有 @keyframes —— 半屏检查
+   呼吸由 JS 逐帧写 --uni-boot-hex-op：这张表里不能有 @keyframes —— 半屏检查
    会把紧跟规则之后的 @ 块和关键帧百分比当成「非契约选择器」拦下来。 */
-[data-eva-boot] .eva-boot-hex {
+[data-uni-boot] .uni-boot-hex {
   width: clamp(26px, 5vh, 52px);
   height: clamp(26px, 5vh, 52px);
   background: var(--dsw-alias-brand-primary);
   clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
-  opacity: var(--eva-boot-hex-op, 0.6);
+  opacity: var(--uni-boot-hex-op, 0.6);
 }
 
 /* 底部进度轨：填充宽度只由 JS 写的一个自定义属性决定。
-   2026-10-09 性能：以前这里写 `width: var(--eva-boot-progress)`，于是每帧都
+   2026-10-09 性能：以前这里写 `width: var(--uni-boot-progress)`，于是每帧都
    是一次布局（而且挡板是 fixed 全屏层，布局还会往外冒）。改成定宽 + `scaleX`
    之后，同一个自定义属性只驱动合成/绘制，形状不变（这条填充没有圆角、没有
    阴影、只填一个纯色，缩放与改宽在其他像素上完全一致）。 */
-[data-eva-boot] .eva-boot-rail {
+[data-uni-boot] .uni-boot-rail {
   position: absolute;
   left: max(20px, 3vw);
   right: max(20px, 3vw);
@@ -125,20 +125,20 @@
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
 }
 
-[data-eva-boot] .eva-boot-rail::after {
+[data-uni-boot] .uni-boot-rail::after {
   content: '';
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
   width: 100%;
-  transform: scaleX(var(--eva-boot-progress, 0));
+  transform: scaleX(var(--uni-boot-progress, 0));
   transform-origin: 0 0;
   will-change: transform;
   background: var(--dsw-alias-brand-primary);
 }
 
-[data-eva-boot] .eva-boot-pct {
+[data-uni-boot] .uni-boot-pct {
   position: absolute;
   left: 0;
   bottom: 14px;
@@ -149,7 +149,7 @@
   color: var(--dsw-alias-brand-primary);
 }
 
-[data-eva-boot] .eva-boot-state {
+[data-uni-boot] .uni-boot-state {
   position: absolute;
   right: 0;
   bottom: 14px;
@@ -160,8 +160,8 @@
 }
 
 /* 满格后的收尾由 JS 驱动 width/opacity/transform，这里只留状态钩子：
-   `data-eva-boot-full`（进度满格）与 `data-eva-boot-open`（开始收尾，由
+   `data-uni-boot-full`（进度满格）与 `data-uni-boot-open`（开始收尾，由
    src/boot-screen.js 的 finish() 写）。万一哪个渲染器没跑 JS 的淡出，下面
    **这一条**也能把挡板收掉 —— 只有这一条：`-full` 是给探针和 DevTools 看的
    状态，没有配套规则（原文写「这两条」，与实现不符）。 */
-[data-eva-boot][data-eva-boot-open] .eva-boot-body { opacity: 0; }
+[data-uni-boot][data-uni-boot-open] .uni-boot-body { opacity: 0; }

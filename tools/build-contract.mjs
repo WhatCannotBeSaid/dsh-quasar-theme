@@ -3,7 +3,17 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 
 export const LOCAL_WALLPAPERS = 'out/wallpapers.local.json'
-export const CLIENT_FILES = ['src/runtime/glass.js', 'src/runtime/pins.js', 'src/runtime/panels.js', 'src/client.js']
+/* 品牌标（2026-10-27 第二版）：用户给的墨笔黑洞图，组件只负责盒子，图像在
+ * `--cp-brand-mark` 里（tools/build-client.mjs 从 build/brand-mark-black-hole.png 内嵌）。
+ * 原来的矢量几何文件 src/runtime/brand-logo-geometry.js 已不再被组件引用，也不再进包；
+ * 文件本身留在盘上，需要回退到矢量方案时把这一行加回来即可。 */
+export const CLIENT_FILES = ['src/runtime/black-hole.js', 'src/runtime/deep-space.js', 'src/runtime/brand-logo.js', 'src/runtime/glass.js', 'src/runtime/pins.js', 'src/runtime/panels.js', 'src/client.js']
+
+/* 品牌标的样式（遮罩 + currentColor）。它不在 src/theme.css 里，因为 paint layer 只接受
+ * 「body/:root/#root + data-* 契约选择器」（selfcheck css.7），而组件自己的类是主题的内部
+ * 约定，不该被那条门禁管；它在同一个 <style> 里，所以停用插件时和 paint layer 一起消失。 */
+export const BRAND_LOGO_CSS_FILE = 'src/brand-logo.css'
+
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 
 export function parseMode(args = []) {

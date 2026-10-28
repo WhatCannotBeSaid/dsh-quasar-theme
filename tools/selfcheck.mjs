@@ -1,5 +1,5 @@
 /**
- * Structural self-check for EVA-Inspired-Theme.
+ * Structural self-check for dsh-universe-theme.
  *
  * Pure Node, no dependencies, no network, no side effects: it reads the package and
  * fails loudly. It exists because every claim this package makes about itself —
@@ -121,7 +121,7 @@ const canonicalCss = (text) => (text.match(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|
 
 checks.group('package')
 checks.check('pkg.1', 'package.json parses and declares the agreed name', () => {
-  if (pkg.name !== 'eva-inspired-theme') return `name is ${pkg.name}`
+  if (pkg.name !== 'dsh-universe-theme') return `name is ${pkg.name}`
   return true
 })
 checks.check('pkg.2', 'main points at index.js', () => pkg.main === 'index.js')
@@ -271,7 +271,36 @@ checks.check('tok.13', 'every token value is a non-empty string', () => {
 
 /* --------------------------------------------------------------- paint layer */
 
+checks.check('css.17', 'the black hole is framed by the main+rightbar container, not by the viewport', () => {
+  /* 2026-10-28（用户点名「调整黑洞背景的展示范围，使其不再覆盖左栏」）：画布原来是
+   * `position:fixed;inset:0`，黑洞连左栏一起画，左栏靠自己的漆盖住它。现在画布按容器 rect
+   * 摆位（mount() 里量 `[data-slot='root'] > *:has(> [data-slot='main'])`），这枚检查钉住
+   * 两件事：漆层里那条给左栏补漆的规则用的是「只补漆」的形状，客户端里画布不再是铺满视口。 */
+  const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const block = sheet.match(/body\[data-uni-black-hole\]:has\(\[data-black-hole-state='ready'\]\)[^{}]*\[data-slot='sidebar'\][^{}]*\{([^}]*)\}/)?.[0]
+  if (!block) return 'no sidebar repaint rule on the black-hole page'
+  if (!/background-color:\s*var\(--dsw-specific-sidebar-fill\)\s*!important/.test(block)) {
+    return 'the sidebar repaint does not use the per-mode sidebar-fill token'
+  }
+  if (/background-image|::(before|after)|backdrop-filter|filter:|content:/.test(block)) {
+    return 'the sidebar rule paints more than a fill; it must not add a veil or a pseudo-element'
+  }
+  return /data-uni-black-hole/.test(sheet) || 'the repaint is not scoped to the black-hole page'
+})
+checks.group('runtime')
+checks.check('rt.blackhole', 'the ASCII canvas is positioned from a container rect, not the viewport', () => {
+  const mount = client.match(/function mount\(\)[\s\S]*?\n  \}/)?.[0] ?? ''
+  if (!mount) return 'mount() is missing from the bundled runtime'
+  if (/position:fixed;inset:0|inset:\s*0;width:100%;height:100%/.test(mount)) {
+    return 'mount() still stretches the canvas over the viewport'
+  }
+  const hasFrame = /\[data-slot='root'\] > \* > div:has\(> \[data-slot='main'\]\)|\[data-slot='root'\] > \*:has\(> \[data-slot='main'\]\)/.test(mount)
+  if (!hasFrame) return 'mount() does not measure the main+rightbar frame'
+  if (!/getBoundingClientRect/.test(mount)) return 'mount() never measures the frame'
+  return /ResizeObserver/.test(mount) || 'mount() does not re-frame when the container resizes'
+})
 checks.group('paint-layer')
+
 checks.check('css.1', 'theme.css declares no color-scheme', () =>
   !/color-scheme\s*:/i.test(css) || 'theme.css sets color-scheme')
 checks.check('css.2', 'theme.css paints the wallpaper', () =>
@@ -350,9 +379,9 @@ checks.check('css.11', 'the workspace pin button is styled by contract, not by h
    * (16x16, radius-xs, no border, no background) so the control lands on the pixels the
    * two official buttons beside it already occupy. */
   const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  if (!/\[data-eva-ws-pin-button\]\s*\{/.test(sheet)) return 'the pin button has no rule'
-  if (!/\[data-eva-ws-pin-state='on'\]\s*\{/.test(sheet)) return 'the pinned state has no rule'
-  const box = sheet.match(/\[data-eva-ws-pin-button\]\s*\{([\s\S]*?)\}/)?.[1] ?? ''
+  if (!/\[data-uni-ws-pin-button\]\s*\{/.test(sheet)) return 'the pin button has no rule'
+  if (!/\[data-uni-ws-pin-state='on'\]\s*\{/.test(sheet)) return 'the pinned state has no rule'
+  const box = sheet.match(/\[data-uni-ws-pin-button\]\s*\{([\s\S]*?)\}/)?.[1] ?? ''
   if (!/width:\s*16px/.test(box) || !/height:\s*16px/.test(box)) {
     return 'the pin button does not copy the official 16x16 icon box'
   }
@@ -435,7 +464,7 @@ checks.check('css.14', "the art layer's filter is selected per mode, not hard-wi
 })
 checks.check('css.15', 'the art is filtered inside the blur+brightness window the modes share, and the inset follows it', () => {
   /* Round 61 (2026-10-17). Measured on out/wallpaper-src/wallhaven-og33jl.png at
-     1600x900 (cover), shipped fill #1a1325 at alpha 0.35, glyph-sized 13px patch mean as
+     1600x900 (cover), shipped fill #111720 at alpha 0.35 (fifth round, 2026-10-25), glyph-sized 13px patch mean as
      the ink's background, worst pixel over the frame. Blur alone cannot get there inside
      the user's radius budget (m00842「6px都够了, 不能超过6px，越低越好」): 6px still leaves
      the worst patch at tertiary 1.41. The lever that works is brightness, which pushes the
@@ -610,10 +639,10 @@ checks.check('boot.3', 'the paint rules ride in the theme tag, not a second shee
 checks.check('boot.4', 'client.js mounts the mask and destroys it on the same channel', () => {
   if (!/function mountBootScreen\(\)/.test(client)) return 'mountBootScreen is missing'
   if (!/return destroyBoot/.test(client)) return 'mountBootScreen returns no disposer'
-  if (!/ctx\.effect\(\(\) => mountBootScreen\(\), 'evangelion: boot screen'\)/.test(client)) {
+  if (!/ctx\.effect\(\(\) => mountBootScreen\(\), 'universe: boot screen'\)/.test(client)) {
     return 'the boot effect is not registered'
   }
-  return /--eva-boot-progress/.test(client) || 'the boot css never made it into the bundle'
+  return /--uni-boot-progress/.test(client) || 'the boot css never made it into the bundle'
 })
 checks.check('boot.5', 'every documented way to skip the mask exists', () => {
   const want = [
@@ -621,7 +650,7 @@ checks.check('boot.5', 'every documented way to skip the mask exists', () => {
     ["localStorage '0'", /getItem\(BOOT_KEY\) === '0'/],
     ['already played this run', /sessionStorage\.getItem\(BOOT_SEEN_KEY\) === BOOT_SEEN_VALUE/],
     ['reduced motion', /prefers-reduced-motion/],
-    ['per-load mark', /__evaBootMark/],
+    ['per-load mark', /__uniBootMark/],
   ]
   const missing = want.filter(([, re]) => !re.test(client)).map(([name]) => name)
   return missing.length === 0 || `missing in client.js: ${missing.join(', ')}`
@@ -634,7 +663,7 @@ checks.check('boot.6', 'the mask asks the host for no chime', () => {
   if (/eva-theme\/api\/boot-sound/.test(bootJs)) return 'boot-screen.js still asks for the chime'
   return !/eva-theme\/api\/boot-sound/.test(client) || 'the old request is still in client.js'
 })
-/* 2026-10-12: the mark was a frozen literal (`eva-boot/2026-10-06-a`) from 10-06 to
+/* 2026-10-12: the mark was a frozen literal (`uni-boot/2026-10-06-a`) from 10-06 to
    10-12, so "once per build" was really "once ever" — the mask stopped appearing
    after its first play, and the README meanwhile promised it on every load. Two
    halves of one line were wrong, and both were silent. boot.7 pins the fix at all
@@ -642,16 +671,16 @@ checks.check('boot.6', 'the mask asks the host for no chime', () => {
    the bundle, and ?boot=1 forces a replay on demand. */
 checks.check('boot.7', 'the build mark is per-build, and ?boot=1 forces a replay', () => {
   const build = read('tools/build-client.mjs')
-  if (!/var BOOT_MARK = 'eva-boot\/@BUILD@'/.test(bootJs)) {
+  if (!/var BOOT_MARK = 'uni-boot\/@BUILD@'/.test(bootJs)) {
     return 'src/boot-screen.js no longer carries the build-mark placeholder'
   }
   if (!/createHash\('sha256'\)/.test(build) || !/MARK_PLACEHOLDER/.test(build)) {
     return 'the build does not hash the bundle for the mark'
   }
-  if (/var BOOT_MARK = 'eva-boot\/2026-10-06-a'/.test(client)) {
+  if (/var BOOT_MARK = 'uni-boot\/2026-10-06-a'/.test(client)) {
     return 'the frozen 2026-10-06 literal is still assigned to BOOT_MARK in the bundle'
   }
-  if (!/var BOOT_MARK = 'eva-boot\/[0-9a-f]{8}'/.test(client)) {
+  if (!/var BOOT_MARK = 'uni-boot\/[0-9a-f]{8}'/.test(client)) {
     return 'the bundle does not carry a per-build mark'
   }
   return /indexOf\('boot=1'\)\s*>=\s*0\)\s*return true/.test(client) ||
@@ -701,7 +730,7 @@ checks.check('cli.6', 'the token layer is mounted inside ctx.effect', () => {
      literal call inside the effect body is now the whole invariant. */
   const calls = client.match(/overrideTokens\(/g) ?? []
   if (calls.length !== 1) return `overrideTokens is called ${calls.length} times, expected exactly 1`
-  return /ctx\.effect\(\(\) => \{\s*var dispose = theme\.overrideTokens\([\s\S]*?\}, 'evangelion: token layer'\)/.test(client) ||
+  return /ctx\.effect\(\(\) => \{\s*var dispose = theme\.overrideTokens\([\s\S]*?\}, 'universe: token layer'\)/.test(client) ||
     'the token-layer effect does not call theme.overrideTokens()'
 })
 checks.check('cli.7', 'the token layer returns a disposer that retracts the override', () =>
@@ -740,7 +769,7 @@ checks.check('cli.9', 'the paint layer returns a disposer that removes the eleme
   return /return\s*\(\)\s*=>\s*\{[\s\S]*?tag\.remove\(\)/.test(tail) || 'no style disposer'
 })
 checks.check('cli.10', 'both effects are named for the effect log', () =>
-  /'evangelion: token layer'/.test(client) && /'evangelion: paint layer'/.test(client))
+  /'universe: token layer'/.test(client) && /'universe: paint layer'/.test(client))
 checks.check('cli.11', 'the plugin injects the theme service', () => {
   const match = client.match(/exports\.inject = \[([^\]]*)\]/)
   if (match === null) return 'exports.inject not found'
@@ -794,7 +823,7 @@ checks.check('cli.11c', 'the client half writes browser storage only for the nam
   }
   return true
 })
-checks.check('cli.11d', 'the client half owns exactly eight effects', () => {
+checks.check('cli.11d', 'the client half owns exactly nine effects including the black-hole renderer', () => {
   /* Nine of these were already counted when rounds 41-45 built the 工作区 row's entry: five of the
      theme's own (token layer, liquid-glass maps, paint layer, boot mask, the brand row's three-zone
      bridge since round 25), one from the vendored session-status rail, and the seventh (round 39) the
@@ -819,14 +848,15 @@ checks.check('cli.11d', 'the client half owns exactly eight effects', () => {
      `left` beats any selector), and it has to follow the official placement across scroll, resize
      and ResizeObserver ticks -- a lifecycle the paint effect does not have. */
   const effects = client.match(/ctx\.effect\(/g) ?? []
-  if (effects.length !== 8) return `${effects.length} ctx.effect() calls, expected exactly 8`
+  if (effects.length !== 9) return `${effects.length} ctx.effect() calls, expected exactly 9`
+  if (!/UniverseBlackHole\.mount\(\)/.test(client)) return 'missing ASCII black-hole lifecycle mount'
   if (!/tag\.dataset\.pluginCss = PLUGIN_ID \+ '\/theme\.css'/.test(client)) {
     return 'the paint layer is not namespaced'
   }
-  if (!/'evangelion: boot screen'/.test(client)) return 'the boot mask effect has no label'
-  if (!/'evangelion: brand row zones'/.test(client)) return 'the brand row bridge has no label'
-  if (!/'evangelion: workspace pins'/.test(client)) return 'the workspace pin effect has no label'
-  if (!/'evangelion: centred panels'/.test(client)) return 'the panel-centring effect has no label'
+  if (!/'universe: boot screen'/.test(client)) return 'the boot mask effect has no label'
+  if (!/'universe: brand row zones'/.test(client)) return 'the brand row bridge has no label'
+  if (!/'universe: workspace pins'/.test(client)) return 'the workspace pin effect has no label'
+  if (!/'universe: centred panels'/.test(client)) return 'the panel-centring effect has no label'
   return /applySessionEvaStatus\(ctx\)/.test(client) || 'the vendored session rail is never applied'
 })
 /* Round 24 (2026-10-07): liquid glass. The two halves of the effect live in two
@@ -847,7 +877,7 @@ checks.check('cli.11d', 'the client half owns exactly eight effects', () => {
    degrade the composer to blur-only instead of failing loudly. */
 const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, '')
 checks.check('glass.1', 'the sheet names the liquid-glass filters the client half builds', () => {
-  const named = [...new Set([...cssRules.matchAll(/url\(#(eva-lg-[a-z-]+)\)/g)].map((m) => m[1]))]
+  const named = [...new Set([...cssRules.matchAll(/url\(#(uni-lg-[a-z-]+)\)/g)].map((m) => m[1]))]
   /* One since C1: the six guide entries in the right column. Pinned rather than left
      open — a further surface must come with its own declared intent. */
   if (named.length !== 1) {
@@ -858,11 +888,11 @@ checks.check('glass.1', 'the sheet names the liquid-glass filters the client hal
       return `${id} is referenced by the sheet but never built in src/client.js`
     }
   }
-  const built = [...new Set([...clientJs.matchAll(/id: '(eva-lg-[a-z-]+)'/g)].map((m) => m[1]))]
+  const built = [...new Set([...clientJs.matchAll(/id: '(uni-lg-[a-z-]+)'/g)].map((m) => m[1]))]
   /* Two always: the composer card's filter is unused by the sheet yet must stay
      constructed, or restoring C1's two CSS lines would land on a filter that is gone. */
-  if (!built.includes('eva-lg-input')) {
-    return 'src/client.js no longer builds eva-lg-input, so C1 has no rollback path'
+  if (!built.includes('uni-lg-input')) {
+    return 'src/client.js no longer builds uni-lg-input, so C1 has no rollback path'
   }
   if (built.length !== 2) {
     return `src/client.js builds ${built.length} glass filters, expected 2 (input + guide)`
@@ -870,7 +900,7 @@ checks.check('glass.1', 'the sheet names the liquid-glass filters the client hal
   return true
 })
 checks.check('glass.2', 'every url() filter keeps its blur-only fallback in front of it', () => {
-  const rules = cssRules.split('}').filter((rule) => rule.includes('url(#eva-lg-'))
+  const rules = cssRules.split('}').filter((rule) => rule.includes('url(#uni-lg-'))
   /* The guide's rule only, since C1 dropped the composer card's url() line. */
   if (rules.length !== 1) return `${rules.length} rules name a url() glass filter, expected 1`
   for (const rule of rules) {
@@ -1124,7 +1154,7 @@ checks.check('cli.25', 'the workspace pin control is injected and moves rows off
   if (!client.includes(head) || !client.includes(tail)) {
     return 'the pin artwork is not the official path data'
   }
-  if (!/data-eva-ws-pin-button/.test(client)) return 'the pin control carries no contract attribute'
+  if (!/data-uni-ws-pin-button/.test(client)) return 'the pin control carries no contract attribute'
   /* Round 64 (2026-10-20): the pin's SEAM. The first official button is not a direct child
      of rowActions -- it sits inside the menu trigger's own span wrapper, which has no gap
      of its own. Inserting there (the round-39 shape) put the pin flush against the menu
@@ -1489,24 +1519,24 @@ checks.check('font.2', 'each font record matches its file and the @font-face in 
   }
   return bad.length === 0 || bad.join('; ')
 })
-checks.check('font.3', 'the hero headline cannot wrap: nowrap plus a container-relative size', () => {
-  /* The headline row's width is not a function of its content -- measured identical with
-     and without container queries at 41 viewport widths (520..2400) -- so a container unit
-     tracks it and a linear vw formula does not. 5.3cqw was derived FROM this face's width
-     factor, which is why the family is pinned here as well: swapping the face without
-     re-deriving the coefficient is the one edit that silently reintroduces wrapping. */
+checks.check('font.3', 'the hero headline is gone: the row is hidden and nothing is injected', () => {
+  /* D104 (2026-10-28, user-named): 「去掉新会话页面的文字，只保留输入框」-- the motto no
+     longer ships, so the old nowrap / cqw / 'Great Vibes' assertions would only pin dead
+     CSS. What has to hold now is the removal itself, at the row rather than at the text:
+     hiding only the two inner spans would leave an empty flex row holding the HeroShell
+     gap, so the row itself must be `display: none`. The font file, its @font-face and
+     font.1 / font.2 stay untouched -- this round removed a rendering, not an asset. */
   const missing = []
-  const rule = css.match(/div:has\(> span > \[data-slot='conversation\.hero\.brand\.mark'\]\)[^{]*::before\s*\{[^}]*\}/)?.[0] ?? ''
-  if (rule === '') missing.push('the headline ::before rule')
-  else {
-    if (!/white-space:\s*nowrap/.test(rule)) missing.push('white-space: nowrap')
-    if (!/font-size:\s*min\([^)]*cqw/.test(rule)) missing.push('a container-relative font-size')
-    if (!/font-family:\s*'Great Vibes'/.test(rule)) missing.push("font-family 'Great Vibes'")
+  const row = css.match(/\[data-phase='hero'\] div:has\(> span > \[data-slot='conversation\.hero\.brand\.mark'\]\)\s*\{[^}]*\}/)?.[0] ?? ''
+  if (row === '') missing.push("the hero headline row rule")
+  else if (!/display:\s*none/.test(row)) missing.push('display: none on the hero headline row')
+  if (/div:has\(> span > \[data-slot='conversation\.hero\.brand\.mark'\]\)[^\n{]*::before/.test(css)) {
+    missing.push('a headline ::before injection that should have been removed')
   }
-  if (!/div:has\(> span > \[data-slot='conversation\.hero\.brand\.mark'\]\)\s*\{[^}]*container-type:\s*inline-size/.test(css)) {
-    missing.push('container-type: inline-size on the headline row')
+  if (/div:has\(> span > \[data-slot='conversation\.hero\.brand\.mark'\]\)\s*\{[^}]*container-type:\s*inline-size/.test(css)) {
+    missing.push('the headline container-type that only served the removed motto')
   }
-  return missing.length === 0 || `missing ${missing.join(', ')}`
+  return missing.length === 0 || `unexpected ${missing.join(', ')}`
 })
 
 /* ---------------------------------------------------------------- dark freeze */
@@ -1527,11 +1557,19 @@ checks.check('font.3', 'the hero headline cannot wrap: nowrap plus a container-r
 // (the user put the body and the UI back under D1 alone, on the Roam `--body-font` stack), so
 // the digest returns to the round-26 value. It is identical to Recompute #1 by construction:
 // the same 55 keys with the same dark values.
-const DARK_TOKENS_SHA = 'd29a6d36e8a444fc'
+// Recompute #2 (2026-10-25): d29a6d36e8a444fc -> 38ed701923cc7d8c, WITH the user's approval.
+// He asked for the EVA palette to be replaced with something easier on the eyes and more
+// fitting a space theme, and named BOTH modes explicitly -- 「更换目前亮色和暗色模式的配色
+// 方案」 -- so the 2026-10-08 dark freeze is reopened by that instruction rather than bypassed.
+// The dark change is wholesale: base anchor h300 -> h258, fills/labels/borders/signals all
+// re-solved in tools/s2-palette.py (see its 第五轮 header). The key set is unchanged, so the
+// digest moves for the values alone. Dark veil alpha stays 0.35 (transparency was not asked
+// about); only the fill under it changed, so DARK_VEILED follows.
+const DARK_TOKENS_SHA = '38ed701923cc7d8c'
 const DARK_VEIL_ALPHA = 0.35
 const DARK_VEILED = {
-  '--dsw-alias-bg-base': '#1a132559',
-  '--dsw-specific-sidebar-fill': '#1a132559',
+  '--dsw-alias-bg-base': '#11172059',
+  '--dsw-specific-sidebar-fill': '#11172059',
 }
 
 checks.check('dark.1', 'dark is frozen: veil alpha 0.35, both veiled surfaces byte-identical', () => {

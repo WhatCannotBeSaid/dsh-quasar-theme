@@ -11,15 +11,15 @@
            a set would be a button that lied about the order. */
         if (typeof workspaces.insertBefore !== 'function') return undefined
 
-        var PIN_KEY = 'eva-theme/workspace-pins'
+        var PIN_KEY = 'uni-theme/workspace-pins'
         /* A real Workspace row keys itself on its own id -- buildGroup's first argument
            is workspace.workspaceId (ui-workspace-client.js:434). The Ungrouped bucket
            reuses the same prefix with an empty suffix (:437), which is why an empty id
            is skipped below rather than treated as a Workspace. */
         var ROW_PREFIX = 'workspace:'
         var ROW_SELECTOR = 'div[data-row-key^="' + ROW_PREFIX + '"]'
-        var BUTTON_ATTR = 'data-eva-ws-pin-button'
-        var STATE_ATTR = 'data-eva-ws-pin-state'
+        var BUTTON_ATTR = 'data-uni-ws-pin-button'
+        var STATE_ATTR = 'data-uni-ws-pin-state'
         /* The one subtree every workspace row lives in. Measured on the live app: the
            sidebar holds a single role=tree, and the Workspace rows and the Session rows
            are both inside it. Reaching for it by this slot name is what lets the pass
@@ -43,7 +43,7 @@
         /* The two labels go through the official locale service -- the same door the
            vendored switch uses -- so the control follows the host's language. A missing
            or throwing locale seat costs the wording only, never the button. */
-        var NS = 'eva-workspace-pins'
+        var NS = 'uni-workspace-pins'
         var DICT = {
           zh: { pin: '置顶工作区', unpin: '取消置顶' },
           en: { pin: 'Pin workspace', unpin: 'Unpin workspace' },
@@ -78,7 +78,8 @@
             try {
               var text = translate(key)
               if (typeof text === 'string' && text !== '') return text
-            } catch (error) { /* a translator that throws falls back to the dictionary below */ }
+            }
+            catch (error) { /* a translator that throws falls back to the dictionary below */ }
           }
           return DICT.en[key]
         }
@@ -94,7 +95,8 @@
               if (typeof parsed[i] === 'string' && parsed[i] !== '' && ids.indexOf(parsed[i]) === -1) ids.push(parsed[i])
             }
             return ids
-          } catch (error) { return [] }
+          }
+          catch (error) { return [] }
         }
 
         function writePins(ids) {
@@ -390,7 +392,7 @@
 
         /* Only the row key is watched for attributes: React rewrites class on every
            render, while data-row-key moves only when the row does -- and that filter is
-           also what keeps this effect's own data-eva-ws-pin* writes from scheduling
+           also what keeps this effect's own data-uni-ws-pin* writes from scheduling
            another pass. childList has to stay on for the button to survive React
            (round-39 note above), and a filter cannot narrow it, so the pass itself is
            what must be silent when nothing changed -- see decorate(). What CAN be
