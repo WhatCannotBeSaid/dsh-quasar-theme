@@ -286,8 +286,13 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
   if (!/background-color:\s*var\(--cp-void,\s*var\(--dsw-alias-bg-base\)\)\s*!important/.test(block)) {
     return 'the sidebar repaint does not follow the canvas clear colour (--cp-void)'
   }
-  if (/background-image|::(before|after)|backdrop-filter|filter:|content:/.test(block)) {
-    return 'the sidebar rule paints more than a fill; it must not add a veil or a pseudo-element'
+  if (/::(before|after)|backdrop-filter|filter:|content:/.test(block)) {
+    return 'the sidebar rule must stay a plain fill layer (no pseudo-element, no blur)'
+  }
+  /* 主区是「画布色 + body::after 那层纱」；左栏少这层纱就会比主区暗一档（2026-10-29
+   * 重启后用户回报「还是割裂」）。只允许这一层同值的纱，其它 background-image 拒绝。 */
+  if (!/background-image:\s*linear-gradient\(var\(--dsw-alias-bg-base\),\s*var\(--dsw-alias-bg-base\)\)\s*!important/.test(block)) {
+    return 'the sidebar repaint must carry the same veil layer body::after paints'
   }
   /* 左栏与画布同色之后，星点若在 x=侧栏宽度处硬切，边界会从「色差」变成「截断线」；
    * 画布左缘那条 alpha 斜坡是这套割裂修复的另一半。 */

@@ -313,6 +313,10 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
   background-color: var(--cp-void, var(--dsw-alias-bg-base)) !important;
+  /* 只有画布色还不够（2026-10-29 重启后用户回报「还是割裂」）：主区是「画布不透明清屏
+     色」再叠 body::after 那层纱，左栏若只铺画布色就少了这一层，比主区暗一档。这里补同一
+     层同值的纱，两区底色逐像素相等，交界只剩画布左缘那条渐隐。 */
+  background-image: linear-gradient(var(--dsw-alias-bg-base), var(--dsw-alias-bg-base)) !important;
 }
 
 /* 画布左缘 72px 星点渐隐（2026-10-29，同上）。取景从对话区左缘开始，星点在
