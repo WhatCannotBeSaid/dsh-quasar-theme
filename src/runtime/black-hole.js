@@ -125,7 +125,7 @@ var UniverseBlackHole = (function () {
     }
   }
   function create(canvas, input) {
-    var config = options(input), ctx = canvas.getContext('2d', { alpha: false })
+    var config = options(input), ctx = canvas.getContext('2d', { alpha: true })
     if (!ctx) throw Error('Canvas 2D unavailable')
     var disposed = false, raf = 0, buildTimer = 0, generation = 0, elapsed = 0, previous = 0, lastDraw = -Infinity
     var visible = true, frames = 0, totalPaint = 0, maxPaint = 0, buildCpu = 0, w = 0, h = 0, cols = 0, rows = 0, grid = [], cw = 8, ch = 12, ready = false, mode = 'dark'
@@ -134,8 +134,12 @@ var UniverseBlackHole = (function () {
       if (disposed || !w || !h || !ready) return
       var start = performance.now(), light = mode === 'light'
       var horizon = SHADOW_SHARE * Math.min(w, h) / 2, cx = w / 2, cy = h / 2
-      ctx.fillStyle = light ? '#edf0f4' : '#030509'
-      ctx.fillRect(0, 0, w, h)
+      /* 2026-10-29（用户 m00567：「左栏和整个区域要是无界的，看起来要是都一样的」）：
+         画布改成透明（alpha: true + clearRect），底色交给 body 的 --cp-void。不透明
+         清屏色会让画布成为一块与左栏必然有色差的方块：无论填画布色还是官方纱，都得
+         和另一个合成色对齐，两次实测各差一档。透明之后星点直接叠在整窗统一的那层底
+         上，左栏与主区之间没有可漂移的色差，也没有画布边缘。 */
+      ctx.clearRect(0, 0, w, h)
       if (light) {
         ctx.beginPath()
         ctx.arc(cx, cy, horizon, 0, Math.PI * 2)

@@ -298,26 +298,31 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
     在当前真实结构下匹配 0 个节点（frame 与 column 之间还隔着两层无属性 div），补漆选择器
     原来也据此写错，一并按真实链条改正。
 
-   左栏不刷任何漆（2026-10-29 终版）。前后试过两种补色，都被用户当场否掉：
-   ① 官方侧栏纱 —— 它在暗档是 α0.35 的纱，叠在 body 底色与 `body::after` 之外合成
-   ≈0.73 的灰雾，与主区并排成一条硬边；② 画布清屏色 `--cp-void`（`#030509`）——
-   比主区暗约 8 阶，重启后用户回报「还是不行」。根因是同一个：左栏只要自己上色，
-   就得猜一个与主区相等的值，而主区是「外壳纱 + 画布」的合成结果，不存在单一等值色。
+   整窗一个底（2026-10-29 终版）。用户 m00567 的原话是「我是让左栏跟黑洞独立，黑洞不在
+   左栏显示。但左栏和整个区域要是无界的，看起来要是都一样的」—— 不是「给左栏选一个跟
+   主区相等的颜色」，而是两区必须同源。所以这里不再给左栏补任何漆，而是反过来：把
+   左栏的官方填色也清掉，body 刷成 `--cp-void`，画布改成透明只画星点（见
+   src/runtime/black-hole.js 的 `clearRect`）。清完之后整窗只剩这一层底，左栏、主区、
+   右栏逐像素相等，「无界」不需要任何颜色匹配。
 
-   所以整条规则删除：左栏不再设 background，直接透出 `body` 与 `body::after`，与主区
-   共用同一层。两区底色由同一个绘制源给出，逐像素相等，不需要任何颜色匹配，也不会
-   随亮暗档漂移。
+   这条路能成的关键是画布不再不透明：前两次失败都是想在「画布 + 外壳纱」的合成色上
+   用一个单值对齐，而合成结果没有对应的令牌，猜一次差一次。
 
-   `--cp-void` 仍由绘制方发布：src/runtime/black-hole.js 的 `draw()` 每帧 `fillStyle`
-   用的就是同一对值，由 `applyMode()` 同步到 `documentElement`；本表不再消费它。 */
+   `--cp-void` 由绘制方发布：src/runtime/black-hole.js 的 `applyMode()` 按当前档把值写到
+   `documentElement` 上，值取画布那一对清屏色（暗 `#030509` / 亮 `#edf0f4`）。画布本身
+   已经不填它，但整窗底色用它，所以两处仍然同源、同档漂移。 */
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) {
+  background-color: var(--cp-void, var(--dsw-alias-bg-base)) !important;
+}
 
-/* 画布左缘 72px 星点渐隐（2026-10-29，同上）。取景从对话区左缘开始，星点在
-   x=280 处突然出现；给画布一条横向 alpha 斜坡之后，左栏与主区之间既没有色差也
-   没有「截断线」。mask 是合成层属性，不改 canvas 的绘制，也不增加每帧的 JS；
-   终点用 `currentColor`（继承来的实色文字色）而不是字面黑，免得本表自造颜色。 */
-canvas[data-uni-black-hole] {
-  -webkit-mask-image: linear-gradient(to right, transparent 0, currentColor 72px);
-  mask-image: linear-gradient(to right, transparent 0, currentColor 72px);
+/* 左栏不再自刷，改成清空它自己和外层容器的填色（2026-10-29，同上）。官方的
+   `--dsw-specific-sidebar-fill` 在暗档是 α0.35 的纱，叠在 body 底与 `body::after` 之上
+   会把左栏抬成另一档灰；清成 transparent 之后它与主区读同一个底。 */
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'],
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
+  background-color: transparent !important;
+  background-image: none !important;
 }
 body::after {
   content: '';

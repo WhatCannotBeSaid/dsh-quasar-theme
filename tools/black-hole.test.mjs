@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks'
 const source = readFileSync(new URL('../src/runtime/black-hole.js', import.meta.url), 'utf8')
 function fixture() {
   let id=0
-  const timers=new Map(), frames=new Map(), listeners=new Map(), painted=[], observers=[], arcs=[], fills=[]
+  const timers=new Map(), frames=new Map(), listeners=new Map(), painted=[], observers=[], arcs=[], fills=[], clears=[]
   const motion={matches:false,addEventListener:(k,fn)=>listeners.set('motion',fn),removeEventListener:()=>listeners.delete('motion')}
   const document={hidden:false,documentElement:{},addEventListener:(k,fn)=>listeners.set(k,fn),removeEventListener:k=>listeners.delete(k)}
   class Observer { constructor(fn){this.fn=fn;this.active=true;observers.push(this)} observe(){} disconnect(){this.active=false} }
@@ -15,11 +15,11 @@ function fixture() {
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:fn=>{timers.set(++id,fn);return id},clearTimeout:n=>timers.delete(n),
     requestAnimationFrame:fn=>{frames.set(++id,fn);return id},cancelAnimationFrame:n=>frames.delete(n)})
   vm.runInContext(source,context)
-  const ctx={setTransform(){},fillRect(){},fillText(glyph){painted.push(glyph)},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1)}}
+  const ctx={setTransform(){},clearRect(){clears.push(1)},fillRect(){},fillText(glyph){painted.push(glyph)},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1)}}
   const canvas={dataset:{},width:0,height:0,getContext:()=>ctx,getBoundingClientRect:()=>({width:320,height:200})}
   function drain(){let count=0;while(timers.size){assert.ok(count++<1000);const tasks=[...timers.values()];timers.clear();tasks.forEach(fn=>fn())}}
   function frame(t){const tasks=[...frames.values()];frames.clear();tasks.forEach(fn=>fn(t))}
-  return {api:context.UniverseBlackHole,canvas,timers,frames,listeners,observers,painted,arcs,fills,motion,document,drain,frame}
+  return {api:context.UniverseBlackHole,canvas,timers,frames,listeners,observers,painted,arcs,fills,clears,motion,document,drain,frame}
 }
 test('ASCII parameters clamp angle, cell budget and speed; glyph alphabet is printable ASCII',()=>{
   const {api}=fixture()
@@ -48,7 +48,7 @@ test('null-path cache contains dark captured rays and finite emitting disk inter
 test('dark paint leaves the shadow to the background; light paint fills it with ink first',()=>{
   const f=fixture(),r=f.api.create(f.canvas)
   f.drain();assert.equal(r.stats().ready,true)
-  assert.equal(f.arcs.length,0);assert.equal(f.fills.length,0)
+  assert.equal(f.arcs.length,0);assert.equal(f.fills.length,0);assert.ok(f.clears.length>0,"the canvas must clear itself to stay transparent")
   r.setMode('light')
   assert.equal(f.arcs.length,1);assert.equal(f.fills.length,1)
   const [disc]=f.arcs

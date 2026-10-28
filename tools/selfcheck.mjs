@@ -277,18 +277,15 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
    * 摆位（mount() 里量 `[data-slot='root'] > *:has(> [data-slot='main'])`），这枚检查钉住
    * 两件事：漆层里那条给左栏补漆的规则用的是「只补漆」的形状，客户端里画布不再是铺满视口。 */
   const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  /* 2026-10-29（用户两次回报「还是割裂」）：左栏改成**不上漆**。只要它自己上色，
-   * 就得猜一个与主区相等的值，而主区是「外壳纱 + 画布」的合成结果 —— 官方纱（≈0.73
-   * 灰雾）与画布清屏色（#030509）都试过，实测各偏一边。删除补漆之后两区共用 body
-   * 那一层，由同一个绘制源给出，不存在可漂移的色差。这条检查因此反过来钉住「没有
-   * 左栏自刷漆的规则」。 */
-  if (/body\[data-uni-black-hole\][^{}]*\[data-slot='sidebar'\][^{}]*\{[^}]*background(-color|-image)?\s*:/.test(sheet)) {
-    return 'the sidebar must not paint itself; it has to share the body veil with the main column'
+  /* 2026-10-29 终版（用户 m00567：「我是让左栏跟黑洞独立，黑洞不在左栏显示。但左栏和
+   * 整个区域要是无界的，看起来要是都一样的」）：不再给左栏挑一个与主区相等的颜色，
+   * 改成整窗一个底 —— body 刷成 `--cp-void`，左栏（含外层容器与官方填色）清成
+   * transparent，画布透明只画星点。这枚检查钉住前两条的形状；第三条在 rt.blackhole。 */
+  if (!/body\[data-uni-black-hole\]:has\(\[data-black-hole-state='ready'\]\)\s*\{[^}]*background-color:\s*var\(--cp-void/.test(sheet)) {
+    return 'the page does not paint its floor with the canvas clear colour (--cp-void)'
   }
-  /* 星点若在 x=侧栏宽度处硬切，边界会变成一条「截断线」；画布左缘那条 alpha 斜坡
-   * 是另一半修复。 */
-  if (!/canvas\[data-uni-black-hole\][^{]*\{[^}]*mask-image/.test(sheet)) {
-    return 'the canvas has no left-edge fade, so the star field is cut off at the sidebar edge'
+  if (!/\[data-slot='sidebar'\][^{}]*\{[^}]*background-color:\s*transparent\s*!important/.test(sheet)) {
+    return 'the sidebar is still painted, so it cannot share the floor with the main column'
   }
   return /data-uni-black-hole/.test(sheet) || 'the canvas is not scoped to the black-hole page'
 })
@@ -315,6 +312,12 @@ checks.check('rt.blackhole', 'the ASCII canvas is positioned from a container re
   const hasFrame = /\[data-slot='root'\] > \* > div:has\(> \[data-slot='main'\]\)|\[data-slot='root'\] > \*:has\(> \[data-slot='main'\]\)/.test(mount)
   if (!hasFrame) return 'mount() does not measure the main+rightbar frame'
   if (!/getBoundingClientRect/.test(mount)) return 'mount() never measures the frame'
+  /* 2026-10-29：画布必须透明（alpha:true + clearRect），否则它是一块与左栏必然有色差的
+   * 不透明方块，「整窗一个底」这条就成不了。 */
+  const draw = functionSource(client, 'draw')
+  if (!draw) return 'draw() is missing from the bundled runtime'
+  if (/\{\s*alpha:\s*false\s*\}/.test(client)) return 'the canvas context is still opaque'
+  if (!/clearRect/.test(draw)) return 'draw() still paints an opaque floor instead of clearing it'
   return /ResizeObserver/.test(mount) || 'mount() does not re-frame when the container resizes'
 })
 checks.group('paint-layer')
