@@ -278,6 +278,20 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
 body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-composer-card] {
   background-color: var(--dsw-alias-bg-base);
 }
+/* 会话框外那一行「工作区选择」「模式」：同一块纸色背板，范围收死在这两颗。
+   2026-10-29 用户报「亮色新会话页的黑洞遮挡了会话框外『工作区选择』与『模式』的文字」。
+   真机截图量下来，压在字上的是吸积盘外圈的浅棕字符（; : + * 那一层）：字与噪点同色、
+   同号，字形被啃。字色 #1c242b 压在最深一格 #b3a291 上仍有 ≈6.5:1，所以不是「字太暗」，
+   是「字后面不干净」—— 调字色会掉到 1:1 附近，方向是错的。
+   只给字形加纸色光晕（0 0 1px/2px/4px）不够：光晕只清字形外 1~2px，字缝里照样露棕字
+   （用户 m00207「又看不清了」），只有背板能把噪点整块挡住。
+   不动黑洞本身：压淡吸积盘外圈会把盘一起削薄（m00225 试过一轮，m00394 撤回）。
+   `[data-phase='hero']` 挂在新会话页根节点上，对话页没有这个属性，
+   所以作用域自动等于「只这一页」；两条选择器都是 data-* 契约（css.7）。 */
+body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-phase='hero'] button[aria-label='选择工作区'],
+body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='conversation.hero.agentPreset'] button {
+  background-color: var(--dsw-alias-bg-base);
+}
 /* build 期把画布藏起来，等第一帧画好再露面（否则会看到一张空白的半成品）。
    2026-10-29 修：`data-uni-black-hole` 挂在 body、`data-black-hole-state` 挂在画布，
    一条要求同一元素同时带两个属性的选择器命中 0 个元素，是死规则。 */
