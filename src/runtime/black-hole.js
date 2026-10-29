@@ -23,6 +23,11 @@ var UniverseBlackHole = (function () {
   /* 暗档的阴影底色。html 底部是 rgb(12,17,26) = '#0c111a'，阴影要压得比它还深，
      洞心才有一个可辨认的暗面；'#030509' 与 --cp-void 同值，是这套主题里最深的墨。 */
   var SHADOW_INK = '#030509'
+  /* 光子环精细层的墨色（第十五阶段）。环是热的，不是灯光：
+     暗档取暖白香槟金（亮，但偏奶油而非纯白），亮档取深暖金铜（压在浅纸上够黑）。
+     两档都避开纯白/纯黑，环才读成「金属加热」而不是描边。 */
+  var RING_INK_DARK = '#f3dcae'
+  var RING_INK_LIGHT = '#6b3f14'
   var TAN_HALF = B_CRIT / DISTANCE / SHADOW_SHARE
   var RING_WIDTH = 0.32
   /* 光子环的可见性（第八阶段）：几何照旧，只收紧映射。
@@ -136,7 +141,9 @@ var UniverseBlackHole = (function () {
   function shade(ray, time, brightness, spin) {
     var flux = 0
     var turn = time * (Number(spin) || 0)
-    if (ray.ring) flux += ray.ring * RING_GAIN * (.92 + .08 * Math.cos(turn))
+    /* 环权重不再进入 ASCII 亮度（第十五阶段）：光子环已经交给 bakeRing 的 Canvas 精细层，
+       字符只负责吸积盘。以前这里会把环权重加进 flux，盘交点格因此被环带顶到满档 @，
+       环的位置就叠出一圈字符。ray.ring 仍由 trace 产出，只喂给精细层。 */
     if (ray.radius) {
       var r = ray.radius
       var phase = ray.phi - turn - time * (DISK + SWIRL / Math.pow(r, 1.5))
@@ -160,21 +167,66 @@ var UniverseBlackHole = (function () {
     return 1 - Math.exp(-flux * brightness)
   }
   function lit(cell) { return cell ? !!(cell.radius || cell.ring) : false }
-  /* Give the shadow a drawn edge: a captured cell that touches a lit cell takes a
-     stroke glyph, so the black disc keeps an outline where the disk is too dim to
-     draw one. The stroke follows the edge's dominant direction. */
-  function silhouette(grid, cols, rows) {
-    for (var row = 0; row < rows; row++) {
-      for (var col = 0; col < cols; col++) {
-        var i = row * cols + col, cell = grid[i]
-        if (!cell || !cell.captured) continue
-        var horizontal = (col > 0 && lit(grid[i - 1])) || (col < cols - 1 && lit(grid[i + 1]))
-        var vertical = (row > 0 && lit(grid[i - cols])) || (row < rows - 1 && lit(grid[i + cols]))
-        if (horizontal) cell.stroke = '|'
-        else if (vertical) cell.stroke = '-'
-        else if ((col > 0 && row > 0 && lit(grid[i - cols - 1])) || (col < cols - 1 && row < rows - 1 && lit(grid[i + cols + 1]))) cell.stroke = '\\'
-        else if ((col < cols - 1 && row > 0 && lit(grid[i - cols + 1])) || (col > 0 && row < rows - 1 && lit(grid[i + cols - 1]))) cell.stroke = '/'
+  /* 光子环的精细层（第十五阶段）。环的几何宽度只有 2px 上下（RING_CORE=0.15 换算到屏幕），
+     而字符格高将近 10px —— ASCII 网格再密也表达不出一条连续细环，只会读成断续的亮点。
+     这里不再走字符，改为在「环可能出现的那一圈」里按像素采样 trace() 的 impact，
+     把 ring 权重烘成一张透明遮罩，逐帧只贴这张遮罩。
+     烘焙只在初始化 / 视口变化 / 相关配置变化时做一次，逐帧零测地线积分。 */
+  function bakeRing(w, h, angle) {
+    /* 测试桩与精简 DOM 里可能没有 createElement / getContext / createImageData：
+       没有精细环层就退回纯 ASCII，不能让整个渲染器挂掉。 */
+    if (!document || typeof document.createElement !== 'function') return null
+    var short = Math.max(1, Math.min(w, h))
+    var horizon = SHADOW_SHARE * short / 2
+    /* 采样窗口：环峰随方位角在 140..215px 之间移动（下方被前景盘拉出一段外扩），
+       窗口必须按实测最外环峰留余量，不能只贴阴影半径。
+       映射与 buildGrid 的 :387 完全一致：分母是 short，不是本窗口边长。 */
+    var outer = horizon * 1.75
+    var size = Math.ceil(outer) * 2
+    if (!(size > 0) || size > 4096) return null
+    var off = document.createElement('canvas')
+    if (!off || typeof off.getContext !== 'function') return null
+    off.width = size; off.height = size
+    var octx = off.getContext('2d')
+    if (!octx || typeof octx.createImageData !== 'function') return null
+    var image = octx.createImageData(size, size)
+    if (!image || !image.data) return null
+    var data = image.data
+    var cx = size / 2, cy = size / 2
+    var start = performance.now()
+    var peak = 0
+    for (var row = 0; row < size; row++) {
+      var sy = cy - row - .5
+      for (var col = 0; col < size; col++) {
+        var sx = col + .5 - cx
+        var rad = Math.sqrt(sx * sx + sy * sy)
+        /* 环只画在阴影之外。ring 权重在 impact 逼近 B_CRIT 时对「即将被捕获」的光线
+           同样给高值 —— 那是光子环在数学上的位置，但它落在阴影半径以内约 9px，
+           直接贴上去等于给阴影描了一圈边，与「阴影完整深黑」冲突。这里从阴影半径起
+           画：形状、粗细与径向外沿仍完全由 trace() 的 ring 值决定，切掉的只是被判为
+           已经进入阴影的那部分。 */
+        if (rad < horizon + .5 || rad > outer) continue
+        var ray = trace((2 * sx) / short, (2 * sy) / short, angle)
+        if (ray.captured) continue
+        var weight = ray.ring
+        if (!(weight > .004)) continue
+        /* 跨越内切边缘的一像素做线性淡入，避免硬切出一道新的圆边。 */
+        if (rad < horizon + 1.5) weight *= (rad - horizon - .5)
+        if (weight > peak) peak = weight
+        var i4 = (row * size + col) * 4
+        data[i4] = 255; data[i4 + 1] = 255; data[i4 + 2] = 255
+        data[i4 + 3] = 255 * Math.pow(weight, 1.7)
       }
+    }
+    octx.putImageData(image, 0, 0)
+    return { canvas: off, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak, ms: performance.now() - start }
+  }
+  /* 阴影描边曾在这里给被捕获格写 stroke 字符。第十五阶段已整体移除：
+     它既不随时间动（只在 buildGrid 里算一次），也不属于吸积盘，
+     却正好压在阴影边缘与光子环的起点上，读成一圈静止的杂字。 */
+  function silhouette(grid, cols, rows) {
+    for (var i = 0; i < cols * rows; i++) {
+      if (grid[i] && grid[i].stroke) grid[i].stroke = ''
     }
   }
   function create(canvas, input) {
@@ -185,6 +237,33 @@ var UniverseBlackHole = (function () {
     /* dpr 必须在 create() 这一层：draw() 用它算位移变换，resize() 用它定缓冲区尺寸，
        以前它只活在 resize() 里，位移那行一跑到就是 ReferenceError。 */
     var dpr = 1
+    /* 环遮罩缓存：只在视口尺寸或仰角变化时重烘一次，逐帧零成本。 */
+    var bakedRing = null, bakedFor = ''
+    function ensureRing() {
+      var key = w + 'x' + h + '@' + config.angle
+      if (bakedRing && bakedFor === key) return
+      bakedFor = key
+      bakedRing = w > 0 && h > 0 ? bakeRing(w, h, config.angle) : null
+      tintedRing = {}
+    }
+    /* 遮罩是白色 + alpha，贴图前按档染一次色：同一张遮罩只染一次，逐帧不再重绘。
+       染色用 'source-in' 换成纯色，alpha 通道原样保留 —— 环的粗细与形状完全来自
+       trace() 的 ring 值，没有任何硬编码圆环。 */
+    var tintedRing = {}
+    function ringImage(ink) {
+      if (!bakedRing) return null
+      var key = bakedRing.size + ':' + ink
+      if (tintedRing[key]) return tintedRing[key]
+      var c = document.createElement('canvas')
+      c.width = bakedRing.size; c.height = bakedRing.size
+      var x = c.getContext('2d')
+      x.drawImage(bakedRing.canvas, 0, 0)
+      x.globalCompositeOperation = 'source-in'
+      x.fillStyle = ink
+      x.fillRect(0, 0, c.width, c.height)
+      tintedRing[key] = c
+      return c
+    }
     var motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     function draw() {
       if (disposed || !w || !h || !ready) return
@@ -229,6 +308,23 @@ var UniverseBlackHole = (function () {
       ctx.arc(baseX, baseY, horizon, 0, Math.PI * 2)
       ctx.fillStyle = light ? HORIZON_INK : SHADOW_INK
       ctx.fill()
+      /* 光子环（第十五阶段）：夹在阴影与盘字之间。盘的前景臂随后压在环上，
+         所以「盘穿过洞前方」的遮挡关系不变，环只是把阴影外沿那一圈补连续。
+         遮罩是设备无关位图，按 shadow 半径等比缩放后贴到 baseX/baseY 上。
+         两档用各自的环比色而不是一律纯白：暗底的环是发光，亮纸上的环是墨，
+         一律贴白会在亮档把阴影边缘烧掉一圈。 */
+      if (bakedRing) {
+        var ringSize = bakedRing.size, scale = horizon / bakedRing.horizon
+        var img = ringImage(light ? RING_INK_LIGHT : RING_INK_DARK)
+        ctx.save()
+        /* 环色与 alpha 一起决定「亮到什么程度」：暗档要清晰明亮（环芯接近高光但不到纯白），
+           亮档要压在浅纸上有足够反差（环芯接近深金铜）。两者都只覆盖 r128–160 那一圈，
+           吸积盘的 ASCII 层完全不动。 */
+        ctx.globalAlpha = light ? .74 : .86
+        if (img) ctx.drawImage(img, baseX - ringSize / 2 * scale,
+          baseY - ringSize / 2 * scale, ringSize * scale, ringSize * scale)
+        ctx.restore()
+      }
       ctx.font = '600 ' + Math.round(ch * .95) + 'px ui-monospace, Consolas, monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -237,10 +333,12 @@ var UniverseBlackHole = (function () {
       var lastGlyph = GLYPHS.length - 1, ink = config.brightness, t = elapsed
       for (var i = 0; i < grid.length; i++) {
         var cell = grid[i], glyph = '', value = 0, bucket = 0
-        if (cell.stroke) {
-          glyph = cell.stroke
-          ctx.fillStyle = light ? '#8d7a63' : '#8a5228'
-        } else if (cell.radius || cell.ring) {
+        if (cell.radius) {
+          /* 环带内不落任何字符：环由 bakeRing 的精细层独占，字符压在环上会把闭环打断。
+             上界 150 是环层实际可见的最外半径（360 方向实测 147.6px，留 2.4px 余量）。 */
+          var gx = (i % cols + .5) * cw - baseX, gy = (((i / cols) | 0) + .5) * ch - baseY
+          var gd = Math.sqrt(gx * gx + gy * gy)
+          if (gd >= horizon - 1 && gd <= 150) continue
           value = shade(cell, t, ink, SPIN)
           if (value > .004) {
             /* (value * 12) | 0 与 Math.floor(value * 12) 在 value ∈ [0,1) 上逐位相同，
@@ -295,6 +393,7 @@ var UniverseBlackHole = (function () {
       if (nw === w && nh === h && ready) return
       w = nw; h = nh; ready = false; stop(); generation++
       var mine = generation
+      ensureRing()
       if (buildTimer) clearTimeout(buildTimer)
       dpr = Math.min(window.devicePixelRatio || 1, 1.5)
       canvas.width = Math.max(1, Math.round(w * dpr))
@@ -359,8 +458,7 @@ var UniverseBlackHole = (function () {
       update: function (next) {
         var old = config
         config = options(Object.assign({}, config, next))
-        if (config.angle !== old.angle || config.cellWidth !== old.cellWidth || config.maxCells !== old.maxCells) { ready = false; resize() } else sync()
-      },
+        if (config.angle !== old.angle || config.cellWidth !== old.cellWidth || config.maxCells !== old.maxCells) { ready = false; resize() } else sync()      },
       /* 只写姿态、不重画：转场期每帧走这里，出帧由 tick 统一负责（一帧一画）。
          绝不从这里传 angle / cellWidth / maxCells —— 那三个要重建网格，而这里没有那条判断。 */
       pose: function (next) { config = options(Object.assign({}, config, next)) },

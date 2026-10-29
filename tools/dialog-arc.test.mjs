@@ -234,10 +234,11 @@ test('出画取景：圆心出画只剩左半弧，亮度与速度一起收到�
   assert.ok(visible.length > 200, `可见的那半个洞要有字形，实际 ${visible.length}`)
   const leftmost = Math.min(...visible.map(entry => entry.x))
   assert.ok(leftmost < view.x - Number(view.radius) * 0.5, `半个圆要铺到左端，实际最左 ${leftmost}`)
-  /* 镜环高光朝哪一侧由盘的公转方向决定，挪到右缘后朝外（出画那侧），所以只判「高光还在」。 */
-  const bright = ['#bb7c40', '#d0904b', '#e3a65c', '#f2bd75', '#ffe0a8']
-  const lit = visible.filter(entry => bright.includes(entry.style)).length
-  assert.ok(lit >= 3, `可见的弧里要留着镜环高光，实际 ${lit}`)
+  /* 光子环改由 bakeRing 的 Canvas 精细层承担（第十五阶段），字符只画吸积盘。
+     以前这里靠环权重的暖色字符证明「高光还在」，现在字符通道里没有环，
+     改为守住真正的契约：可见的那半个圆里必须铺满盘字。 */
+  const lit = visible.filter(entry => entry.glyph && entry.glyph !== ' ').length
+  assert.ok(lit > 200, `可见的弧里要铺满盘字，实际 ${lit}`)
 
   f.canvas.__uniSkyModeOff()
   assert.equal(f.attrs['data-uni-sky-mode'], undefined, '回新会话页要撤掉属性')
