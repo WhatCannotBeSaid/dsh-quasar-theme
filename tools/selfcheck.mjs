@@ -341,7 +341,7 @@ checks.check('css.6', 'theme.css contains no CSS-Modules hash class selector', (
   const hits = paintCss.match(HASH_CLASS)
   return hits === null || `hash selectors: ${[...new Set(hits)].join(', ')}`
 })
-checks.check('css.7', 'every selector in theme.css is body/:root/#root, a body pseudo-element, or a data-* contract', () => {
+checks.check('css.7', 'every selector in theme.css is body/:root/#root, a body pseudo-element, or a data-* contract (plus @property registrations)', () => {
   /* Comments are stripped first. Without that, an English sentence inside a block
    * comment is parsed as a selector list — which is exactly how this check failed
    * the first time it ran. */
@@ -355,6 +355,10 @@ checks.check('css.7', 'every selector in theme.css is body/:root/#root, a body p
     for (const part of block.split(',')) {
       const sel = part.trim().replace(/\s+/g, ' ')
       if (sel === '') continue
+      /* `@property --uni-hole-edge { syntax: '<length>' … }` 是声明级注册，不是选择器：
+       * 2026-10-29 加进来是为了让 mask 斜坡的边界能由 transition 连续推过去。只放行
+       * 这一种形态，别把口子开给其他 `@` 块 —— 字体、keyframes 这些仍然走构建层。 */
+      if (/^@property\s+--[a-z][a-z0-9-]*$/.test(sel)) continue
       const allowed = sel === 'body' || sel === ':root' ||
         /\[data-[a-z-]+/.test(sel) || /^#root\b/.test(sel) || /^body:not\(/.test(sel) ||
         /* `body::before` is the art layer and `body::after` is the veil: they are

@@ -11,11 +11,11 @@ function fixture() {
   const document={hidden:false,documentElement:{},addEventListener:(k,fn)=>listeners.set(k,fn),removeEventListener:k=>listeners.delete(k)}
   class Observer { constructor(fn){this.fn=fn;this.active=true;observers.push(this)} observe(){} disconnect(){this.active=false} }
   const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,
-    window:{devicePixelRatio:2,matchMedia:()=>motion},document,ResizeObserver:Observer,IntersectionObserver:Observer,MutationObserver:Observer,
+    window:{devicePixelRatio:2,matchMedia:()=>motion,addEventListener:(k,fn)=>listeners.set('window:'+k,fn),removeEventListener:k=>listeners.delete('window:'+k)},document,ResizeObserver:Observer,IntersectionObserver:Observer,MutationObserver:Observer,
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:fn=>{timers.set(++id,fn);return id},clearTimeout:n=>timers.delete(n),
     requestAnimationFrame:fn=>{frames.set(++id,fn);return id},cancelAnimationFrame:n=>frames.delete(n)})
   vm.runInContext(source,context)
-  const ctx={setTransform(){},fillRect(){},clearRect(){},fillText(glyph){painted.push(glyph)},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1)}}
+  const ctx={setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(glyph){painted.push(glyph)},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1)}}
   const canvas={dataset:{},width:0,height:0,getContext:()=>ctx,getBoundingClientRect:()=>({width:320,height:200})}
   function drain(){let count=0;while(timers.size){assert.ok(count++<1000);const tasks=[...timers.values()];timers.clear();tasks.forEach(fn=>fn())}}
   function frame(t){const tasks=[...frames.values()];frames.clear();tasks.forEach(fn=>fn(t))}
@@ -59,20 +59,20 @@ test('dark paint leaves the shadow to the background; light paint fills it with 
   r.dispose()
 })
 
-test('mount sizes the canvas to the main+rightbar frame and leaves the sidebar outside it',()=>{
+test('mount spans the whole frame and hands the sidebar line to the mask variable',()=>{
   const attrs={}
   const frame={getBoundingClientRect:()=>({left:240,top:0,width:1000,height:900})}
   const body={prepend(){},setAttribute:(k,v)=>{attrs[k]=v},removeAttribute:k=>{delete attrs[k]}}
   /* 位置/尺寸由 `left/top/width/height` 四个独立属性给，所以这里用单独的 style 对象接住；
      画布自己的 getBoundingClientRect 跟着它走，第二轮 resize 才是真实尺寸。 */
-  const style={}
+  const style={setProperty(k,v){style[k]=v},removeProperty(k){delete style[k]}}
   const canvas={dataset:{},style,setAttribute(){},remove(){this.removed=true},
     getBoundingClientRect:()=>({width:Number.parseFloat(style.width)||0,height:Number.parseFloat(style.height)||0}),
     getContext:()=>({setTransform(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
   const doc={hidden:false,documentElement:{},body,createElement:()=>canvas,addEventListener(){},removeEventListener(){},
     querySelector:s=>s.includes("[data-slot='root']")?frame:null}
   const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
-    window:{devicePixelRatio:1,innerWidth:1240,innerHeight:900,matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
+    window:{devicePixelRatio:1,innerWidth:1240,innerHeight:900,addEventListener(){},removeEventListener(){},matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
     ResizeObserver:class{observe(){}unobserve(){}disconnect(){}},
     IntersectionObserver:class{observe(){}disconnect(){}},MutationObserver:class{observe(){}disconnect(){}},
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:()=>0,clearTimeout(){},
@@ -80,26 +80,30 @@ test('mount sizes the canvas to the main+rightbar frame and leaves the sidebar o
   vm.runInContext(source,context)
   const dispose=context.UniverseBlackHole.mount()
   assert.equal(typeof dispose,'function')
-  assert.equal(canvas.style.left,'240px');assert.equal(canvas.style.top,'0px')
-  assert.equal(canvas.style.width,'1000px');assert.equal(canvas.style.height,'900px')
+  /* 框固定在视口左缘、整窗宽、frame 高：换页不改尺寸，也就不会重建网格。 */
+  assert.equal(canvas.style.left,'0px');assert.equal(canvas.style.top,'0px')
+  assert.equal(canvas.style.width,'1240px');assert.equal(canvas.style.height,'900px')
+  /* 左栏隔离交给 mask 斜坡的起点：画布盖住左栏，但斜坡左边那段 alpha 是 0。 */
+  assert.equal(canvas.style['--uni-hole-edge'],'240px')
   assert.equal(attrs['data-uni-black-hole'],'')
   dispose()
   assert.equal(canvas.removed,true);assert.equal(attrs['data-uni-black-hole'],undefined)
 })
 
-test('mount leaves the sidebar outside the canvas: left edge from the column, right edge from the frame',()=>{
-  /* 2026-10-29（用户点名「黑洞限制在对话区和右侧栏内，左栏独立开」）：真机结构里
-     column（[data-slot='root'] > * > div:has(> [data-slot='main'])）与 frame
-     （[data-slot='root'] > *）不是同一个元素。左边界只认 column 左边，左栏在它左边，
-     因此不进取景；右边界认 frame 右边，右栏是 column 的兄弟、和它同包在 frame 里，
-     所以右栏展开时也不会把黑洞在右栏边缘切掉。 */
+test('换页与右栏展开都不改取景框：宽高恒等于 frame，只有 --uni-hole-edge 在动',()=>{
+  /* 2026-10-29 甲方案（用户原话 m02133「甲，弧就停在现在的位置就行」）：取景框固定成整个
+     frame，两页共用一块画布、一份网格，位置全交给 viewX，左栏的隔离交给 mask 斜坡的起点
+     --uni-hole-edge。以前「左边界只认 column 左边、右边界认 frame 右边」的做法在出画时必须
+     把框换成视口，换框就要重建近两万格子，重建期画布是空的、CSS 还把 canvas 藏起来，
+     洞会闪一帧 —— 正好闪在转场最显眼的那一帧，所以作废。 */
   function mountWith(columnRect, frameRect) {
-    const attrs={},style={}
+    const attrs={}
+    const style={setProperty(k,v){style[k]=v},removeProperty(k){delete style[k]}}
     const column={getBoundingClientRect:()=>columnRect}
     const frame={getBoundingClientRect:()=>frameRect}
     const canvas={dataset:{},width:0,height:0,style,setAttribute(){},remove(){},
       getBoundingClientRect:()=>({width:Number.parseFloat(style.width)||0,height:Number.parseFloat(style.height)||0}),
-      getContext:()=>({setTransform(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
+      getContext:()=>({setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
     const doc={hidden:false,documentElement:{},
       body:{prepend(){},setAttribute:(k,v)=>{attrs[k]=v},removeAttribute:k=>{delete attrs[k]}},
       createElement:()=>canvas,addEventListener(){},removeEventListener(){},
@@ -107,6 +111,7 @@ test('mount leaves the sidebar outside the canvas: left edge from the column, ri
         :s==="[data-slot='root'] > *"?frame:null}
     const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
       window:{devicePixelRatio:1,innerWidth:frameRect.width,innerHeight:frameRect.height,
+        addEventListener(){},removeEventListener(){},
         matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
       ResizeObserver:class{observe(){}unobserve(){}disconnect(){}},
       IntersectionObserver:class{observe(){}disconnect(){}},MutationObserver:class{observe(){}disconnect(){}},
@@ -114,18 +119,17 @@ test('mount leaves the sidebar outside the canvas: left edge from the column, ri
       requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
     vm.runInContext(source,context)
     const dispose=context.UniverseBlackHole.mount()
-    const box={left:style.left,top:style.top,width:style.width,height:style.height}
+    const box={left:style.left,top:style.top,width:style.width,height:style.height,edge:style['--uni-hole-edge']}
     dispose()
     return box
   }
   /* 真机 1256px 视口：左栏 0..280，对话区 280..1256，右栏收起。 */
-  assert.deepEqual(
-    mountWith({left:280,top:0,width:976,height:821},{left:0,top:0,width:1256,height:821}),
-    {left:'280px',top:'0px',width:'976px',height:'821px'})
-  /* 右栏展开：对话区被压到 280..880，右栏 880..1256，取景仍要盖到 frame 右边。 */
-  assert.deepEqual(
-    mountWith({left:280,top:0,width:600,height:821},{left:0,top:0,width:1256,height:821}),
-    {left:'280px',top:'0px',width:'976px',height:'821px'})
+  const wide=mountWith({left:280,top:0,width:976,height:821},{left:0,top:0,width:1256,height:821})
+  assert.deepEqual(wide,{left:'0px',top:'0px',width:'1256px',height:'821px',edge:'280px'})
+  /* 右栏展开：对话区被压到 280..880。框一个像素都不许动，否则展开右栏就会重建网格；
+     变的是斜坡起点，而它本来就等于 column 左边（还是 280），所以也不需要动。 */
+  const narrow=mountWith({left:280,top:0,width:600,height:821},{left:0,top:0,width:1256,height:821})
+  assert.deepEqual(narrow,wide)
 })
 
 test('mount publishes the canvas clear colour the sidebar is painted with',()=>{
@@ -135,15 +139,16 @@ test('mount publishes the canvas clear colour the sidebar is painted with',()=>{
     const props={}
     const rootStyle={setProperty:(k,v)=>{props[k]=v},removeProperty:k=>{delete props[k]}}
     const frame={getBoundingClientRect:()=>({left:280,top:0,width:976,height:900})}
-    const canvas={dataset:{},style:{},setAttribute(){},remove(){},
+    const canvas={dataset:{},style:{setProperty(){},removeProperty(){}},setAttribute(){},remove(){},
       getBoundingClientRect:()=>({width:976,height:900}),
-      getContext:()=>({setTransform(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
+      getContext:()=>({setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
     const doc={hidden:false,documentElement:{style:rootStyle},
       body:{prepend(){},setAttribute(){},removeAttribute(){}},
       createElement:()=>canvas,addEventListener(){},removeEventListener(){},
       querySelector:s=>s.includes("[data-slot='root']")?frame:null}
     const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
       window:{devicePixelRatio:1,innerWidth:1256,innerHeight:900,
+        addEventListener(){},removeEventListener(){},
         matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
       ResizeObserver:class{observe(){}unobserve(){}disconnect(){}},
       IntersectionObserver:class{observe(){}disconnect(){}},MutationObserver:class{observe(){}disconnect(){}},

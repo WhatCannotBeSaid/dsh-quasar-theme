@@ -261,8 +261,11 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready'])::before {
    画布亮度 240 时卡片落到 210 左右，深色小字对比度回到 4 以上。
    只改 opacity、不写颜色：selfcheck 的 css.8 禁止 theme.css 出现字面色值；
    底色仍由令牌层的 `--dsw-alias-bg-base` 决定，暗档那条 `body[data-ds-dark-theme]` 不落进
-   本选择器，星野页（无 `data-uni-black-hole`）也不落进。 */
+   本选择器，没挂黑洞的页面（无 `data-uni-black-hole`）也不落进。 */
 body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready'])::after {
+  /* 恒定 0.28（2026-10-29 甲方案后）：洞在两页都常驻，不再有「洞已走」的那一端，
+     所以这里不接任何转场变量。撤掉 data-uni-black-hole 只发生在主题卸载时，
+     那时整张样式表一起走，不存在亮度突跳。 */
   opacity: 0.28;
 }
 /* 亮档输入卡在这一页改成纸面。
@@ -275,8 +278,19 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
 body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-composer-card] {
   background-color: var(--dsw-alias-bg-base);
 }
-[data-uni-black-hole][data-black-hole-state='building'] {
+/* build 期把画布藏起来，等第一帧画好再露面（否则会看到一张空白的半成品）。
+   2026-10-29 修：`data-uni-black-hole` 挂在 body、`data-black-hole-state` 挂在画布，
+   一条要求同一元素同时带两个属性的选择器命中 0 个元素，是死规则。 */
+body[data-uni-black-hole] canvas[data-black-hole-state='building'] {
   visibility: hidden;
+}
+/* 对话页背景（2026-10-29 定稿）：洞在对话页里走到视口右缘出画，弧贴右边，左栏那片只剩背景，
+   所以这里把壳层与左栏的漆一起清空，才不会露出官方底纱。
+   属性的切换由 black-hole.js 的 arcTo() 在同一拍负责，回新会话页时一起撤。 */
+body[data-uni-sky-mode]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
+body[data-uni-sky-mode]:has([data-black-hole-state='ready']) [data-slot='sidebar'],
+body[data-uni-sky-mode]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
+  background: transparent;
 }
 /* 2026-10-28：黑洞只画在「主区 + 右栏」，左栏恢复成一张纸。
    原因：画布以前是 `position: fixed; inset: 0` 铺满视口，黑洞连左栏一起画，
@@ -318,13 +332,24 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sideb
   background-image: none !important;
   backdrop-filter: none !important;
 }
-/* 画布左缘 72px 星点渐隐（2026-10-29）。取景从对话区左缘开始，星点会在 x=280 处
-   突然出现；给画布一条横向 alpha 斜坡之后，左栏与主区之间既没有色差也没有截断线。
-   mask 是合成层属性，不改画布的绘制，也不增加每帧的 JS；终点用 currentColor（继承来
-   的实色文字色）而不是字面黑，免得本表自造颜色。 */
+/* 画布取景框固定成整个 frame 之后（2026-10-29），左栏的隔离不能靠「画布从 x=280 开始」，
+   改由 mask 的 alpha 斜坡负责：斜坡起点就是对话列左缘 --uni-hole-edge，新会话页那一侧
+   逐像素透明（洞不进左栏），对话页这个变量收到 0（弧已经贴到视口右缘）。
+   @property 把它注册成 <length>，于是这 320ms 内由 transition 连续推过去，边界是溶解的，
+   而不是在某一帧跳一下；mask 只改合成结果，不改每帧绘制，也不多一层 JS。 */
+@property --uni-hole-edge {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
 canvas[data-uni-black-hole] {
-  -webkit-mask-image: linear-gradient(to right, transparent 0, currentColor 72px);
-  mask-image: linear-gradient(to right, transparent 0, currentColor 72px);
+  --uni-hole-edge: 0px;
+  transition: --uni-hole-edge 320ms linear;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, transparent var(--uni-hole-edge), currentColor calc(var(--uni-hole-edge) + 72px));
+  mask-image: linear-gradient(to right, transparent 0, transparent var(--uni-hole-edge), currentColor calc(var(--uni-hole-edge) + 72px));
+}
+body[data-uni-motion='reduced'] canvas[data-uni-black-hole] {
+  transition: none;
 }
 body::after {
   content: '';

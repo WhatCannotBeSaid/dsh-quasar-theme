@@ -64,7 +64,7 @@
     "check": "node tools/build-client.mjs --check",
     "selfcheck": "node tools/selfcheck.mjs",
     "audit": "node tools/token-audit.mjs",
-    "test": "node --test tools/runtime.test.mjs tools/build-contract.test.mjs tools/black-hole.test.mjs tools/deep-space.test.mjs tools/brand-logo.test.mjs",
+    "test": "node --test tools/runtime.test.mjs tools/build-contract.test.mjs tools/black-hole.test.mjs tools/dialog-arc.test.mjs tools/brand-logo.test.mjs",
     "verify": "node tools/verify.mjs",
     "verify:release": "node tools/verify.mjs --strict-evidence"
   },

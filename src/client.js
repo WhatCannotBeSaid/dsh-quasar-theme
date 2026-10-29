@@ -333,40 +333,71 @@
          The definitions live in a 0x0 <svg> at the end of the body: they are referenced
          by id, never rendered, and never measured. Turning the theme off removes the
          svg and both observers with it, so the surfaces go back to plain shells. */
-      /* Two page backgrounds, one owner (2026-11-05). The new-session page keeps
-         the black hole -- one large object, centred, behind the hero copy. A
-         conversation page gets the sparse ASCII sky instead, mounted INSIDE
-         [data-conversation-content] at the one layer that survives what the shell
-         does to that element while a session streams. watchPageMode reports both
-         the page and whether the column was rebuilt after a session switch, so
-         each change tears the previous canvas down before the next one starts and
-         there is never a page with both or neither. */
+      /* One background, one owner (2026-10-29). The new-session page keeps the black
+         hole centred behind the hero copy; a conversation page keeps the SAME canvas and
+         only walks it out of frame to the RIGHT, so the left shoulder of the disk and its
+         photon ring stay in view while the sidebar copy stays readable.
+         星野已删（用户原话 m02133「对话页的星野先全部删除，只保留黑洞」），
+         所以这里不再有第二个背景层，也就不再需要交叉淡化。
+
+         转场 = 一次连续运镜（甲方案，用户 m02133 拍板）。洞全程可见：画布和取景框都不动，
+         black-hole.js 只把 viewX 从对话列中心推到右缘外，亮度 1→0.4、速度 1→0.35 一起收。
+         被否的旧写法留档：两个背景交叉淡化（洞在原地淡掉、再瞬移到出画位淡回来，位置和
+         透明度各硬切一次，读作两次切换而不是一次运动）；按进度重绘字符（满帧 15k
+         fillText 实测 6~9ms，60fps 无余量）；冻结画布交给合成器缩放（只是缩小后消失）。 */
       ctx.effect(() => {
         if (typeof document === 'undefined') return undefined
 
+        var HOLE_SELECTOR = 'canvas[data-uni-black-hole]'
+        var MOVE_MS = 320           /* 运镜时长：唯一可调的字面量 */
         var homeDispose = null
-        var chatDispose = null
 
-        function release(dispose) {
-          if (typeof dispose === 'function') dispose()
+        var motion = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+          ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+
+        function release(dispose) { if (typeof dispose === 'function') dispose() }
+        function canvasOf() { return document.querySelector(HOLE_SELECTOR) }
+        function reduced() { return motion !== null && motion.matches === true }
+        function animatable() { return !reduced() && typeof requestAnimationFrame === 'function' }
+
+        function mountHole() {
+          /* 句柄在但画布已经随宿主消失：先作废句柄再重挂，否则会以为挂上了。 */
+          if (typeof homeDispose === 'function') {
+            var live = canvasOf()
+            if (live && live.isConnected) return homeDispose
+            release(homeDispose)
+            homeDispose = null
+          }
+          var dispose = UniverseBlackHole.mount()
+          if (typeof dispose !== 'function') return null
+          homeDispose = dispose
+          return dispose
         }
 
-        var stopWatch = UniverseDeepSpace.watchPageMode(function (home) {
-          release(chatDispose)
-          release(homeDispose)
-          chatDispose = null
-          homeDispose = null
-          var dispose = home ? UniverseBlackHole.mount() : UniverseDeepSpace.mount()
-          if (typeof dispose !== 'function') return
-          if (home) homeDispose = dispose
-          else chatDispose = dispose
-        })
+        /* 页面信号只决定「取景推到哪一端」，不换背景层：洞在两页都常驻，撤掉它只发生在
+           主题卸载时。冷启动（恢复上次会话 / 从列表切进来）没有上一页可衔接，直接落端点。 */
+        function onPage(home) {
+          var hole = canvasOf()
+          var fresh = false
+          if (typeof homeDispose === 'function' && (!hole || !hole.isConnected)) {
+            release(homeDispose)
+            homeDispose = null
+            hole = null
+          }
+          if (!hole) {
+            if (mountHole() === null) return
+            hole = canvasOf()
+            fresh = true
+          }
+          if (!hole || typeof hole.__uniArc !== 'function') return
+          hole.__uniArc(!home, fresh ? 0 : (animatable() ? MOVE_MS : 0))
+        }
+
+        var stopWatch = UniversePageMode.watchPageMode(onPage)
 
         return function () {
           if (typeof stopWatch === 'function') stopWatch()
-          release(chatDispose)
           release(homeDispose)
-          chatDispose = null
           homeDispose = null
         }
       }, 'universe: page backgrounds')
