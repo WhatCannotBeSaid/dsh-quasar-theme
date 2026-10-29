@@ -335,9 +335,10 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sideb
 /* 画布取景框固定成整个 frame 之后（2026-10-29），左栏的隔离不能靠「画布从 x=280 开始」，
    改由 mask 的 alpha 斜坡负责：斜坡起点就是对话列左缘 --uni-hole-edge，新会话页那一侧
    逐像素透明（洞不进左栏），对话页这个变量收到 0（弧已经贴到视口右缘）。
-   @property 把它注册成 <length>，于是这 640ms 内由 transition 连续推过去，边界是溶解的，
+   @property 把它注册成 <length>，于是这 1000ms 内由 transition 连续推过去，边界是溶解的，
    而不是在某一帧跳一下；mask 只改合成结果，不改每帧绘制，也不多一层 JS。
-   时长与 client.js 的 MOVE_MS 对齐：以前是 320ms，和运镜一起拉到 640ms。 */
+   时长与 client.js 的 MOVE_MS 对齐：320ms → 640ms → 1000ms（用户 m03318「现在的转场
+   太快了，慢一点」）。 */
 @property --uni-hole-edge {
   syntax: '<length>';
   inherits: false;
@@ -345,7 +346,7 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sideb
 }
 canvas[data-uni-black-hole] {
   --uni-hole-edge: 0px;
-  transition: --uni-hole-edge 640ms linear;
+  transition: --uni-hole-edge 1000ms linear;
   /* 转场时 canvas 靠 transform 平移（见 black-hole.js 的 arcTo）：直接声明 will-change
      让这一层提前升成合成层，位移才能整段跑在合成器上，主线程卡住也不抖。 */
   will-change: transform;

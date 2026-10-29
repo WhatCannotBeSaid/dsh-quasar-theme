@@ -44,6 +44,8 @@ const ARC_BOW = 64
 const ARC_SPIN = 1.05
 /* 两页洞心的横向差：出画时整段位移就是这个数（视口宽 - 对话列中心）。 */
 const TRAVEL = VIEWPORT.width - COLUMN_CENTER
+/* 运镜时长，要和 src/client.js 的 MOVE_MS 一致；下面的帧时刻都按它推算。 */
+const MOVE_MS = 1000
 const HERO = "[data-slot='conversation.hero.brand.mark'],[data-slot='conversation.hero.workspace']"
 
 /* 所有绘制字形的包围盒中点就是绘制出来的圆心。 */
@@ -330,7 +332,7 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
 
   /* 位移交给合成器（用户 m02944「交给GPU吧，我们目前没有星野，只有一个ASCII黑洞」）：
      起飞时内容摆成新会话页的取景，路上只动 canvas 的 transform，主线程不再逐帧写 viewX。 */
-  f.canvas.__uniArc(true, 640)
+  f.canvas.__uniArc(true, MOVE_MS)
   const out = f.anims.at(-1)
   assert.ok(out, '出画必须走 canvas.animate')
   assert.equal(out.frames[0].transform, 'translate3d(0px, 0px, 0)', '出画从原位起手')
@@ -347,7 +349,7 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
   f.frameAt(1000)
   const spins = [hole.stats().config.speed]
   const brights = [hole.stats().config.brightness]
-  for (const t of [1080, 1160, 1240]) {
+  for (const t of [1250, 1500, 1750]) {
     f.frameAt(t)
     spins.push(hole.stats().config.speed)
     brights.push(hole.stats().config.brightness)
@@ -357,7 +359,7 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
   assert.ok(Math.max(...spins) <= 2, `转速别撞上 options() 的上限 2，撞上就被夹平：${Math.max(...spins)}`)
   assert.ok(brights.at(-1) < brights[0] - 0.05, `亮度要在路上收向 0.4，实际 ${brights[0]} → ${brights.at(-1)}`)
 
-  f.frameAt(1660)
+  f.frameAt(2100)
   assert.equal(hole.stats().config.viewX, ARC_X, '落地把取景写成交互页的那一格')
   assert.equal(f.canvas.style.transform, '', '落地要清掉 transform，静止态不留合成器层')
   assert.ok(out.cancelled, '落地要撤掉动画，别留着一直占层')
@@ -368,18 +370,18 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
 
   /* 回程：内容直接摆成新会话页的取景（终点就是它），位移从 +TRAVEL 收回 0，
      所以回程落地不需要换取景 —— 那一刻画面已经对上了。 */
-  f.canvas.__uniArc(false, 640)
+  f.canvas.__uniArc(false, MOVE_MS)
   const back = f.anims.at(-1)
   assert.equal(back.frames[0].transform, 'translate3d(' + TRAVEL + 'px, 0px, 0)', '回程从右缘起手')
   assert.equal(back.frames.at(-1).transform, 'translate3d(0px, 0px, 0)', '回程收回原位')
   assert.equal(hole.stats().config.viewX, home, '回程起手就把内容摆回新会话页的取景')
-  f.frameAt(2000)
-  f.frameAt(2160)
+  f.frameAt(2200)
+  f.frameAt(2500)
   /* 弧顶在时长正中间（k=0.5），所以转速峰值要在这里取。 */
-  f.frameAt(2320)
+  f.frameAt(2600)
   const backSpin = hole.stats().config.speed
-  f.frameAt(2480)
-  f.frameAt(2700)
+  f.frameAt(2900)
+  f.frameAt(3200)
   assert.ok(backSpin >= 1.2, `回程盘也要转起来，实际 ${backSpin}`)
   assert.ok(Math.abs(hole.stats().config.viewX - home) < 0.01, `回程端点应为 ${home}`)
   assert.ok(Math.abs(hole.stats().config.brightness - 1) < 1e-9, '亮度复位成 1')
@@ -397,7 +399,7 @@ test('主线程卡住不再冻住洞：位置在合成器上，主线程只补�
   const hole = f.canvas.__uniBlackHole
   const home = hole.stats().config.viewX
 
-  f.canvas.__uniArc(true, 640)
+  f.canvas.__uniArc(true, MOVE_MS)
   const out = f.anims.at(-1)
   f.frameAt(1000)
   const drawnBefore = hole.stats().frames
@@ -409,8 +411,8 @@ test('主线程卡住不再冻住洞：位置在合成器上，主线程只补�
   assert.equal(out.cancelled, false, '空档不许提前撤动画')
 
   /* 恢复之后照样收尾，端点精确。 */
-  f.frameAt(1700)
   f.frameAt(1800)
+  f.frameAt(2100)
   assert.equal(hole.stats().config.viewX, ARC_X, '卡顿之后仍然精确落到对话页取景')
   assert.equal(f.canvas.style.transform, '', '收尾照常清 transform')
   dispose()
@@ -568,11 +570,11 @@ test('洞常驻：挂载唯一，换页只拨取景，同一页的后续变更�
 
   h.calls.length = 0
   h.page(true)
-  assert.deepEqual(h.calls, ['arc:false:640'], `回新会话页只运镜，实际 ${h.calls.join(' → ')}`)
+  assert.deepEqual(h.calls, ['arc:false:1000'], `回新会话页只运镜，实际 ${h.calls.join(' → ')}`)
 
   h.calls.length = 0
   h.page(false)
-  assert.deepEqual(h.calls, ['arc:true:640'], `进对话页只运镜，实际 ${h.calls.join(' → ')}`)
+  assert.deepEqual(h.calls, ['arc:true:1000'], `进对话页只运镜，实际 ${h.calls.join(' → ')}`)
 
   /* 页面翻转豁免 180ms 窗口：上面的断言没 drain 就成立，说明翻页当拍就拨了。 */
   h.calls.length = 0
@@ -587,7 +589,7 @@ test('冷启动在新会话页：挂载后落端点，随后照常运镜', () =>
   assert.deepEqual(h.calls, ['mountHole', 'arc:false:0'], `冷启动在首页：落端点，实际 ${h.calls.join(' → ')}`)
   h.calls.length = 0
   h.page(false)
-  assert.deepEqual(h.calls, ['arc:true:640'], `进对话页运镜，实际 ${h.calls.join(' → ')}`)
+  assert.deepEqual(h.calls, ['arc:true:1000'], `进对话页运镜，实际 ${h.calls.join(' → ')}`)
   assert.equal(h.mounted(), 1)
 })
 

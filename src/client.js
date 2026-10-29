@@ -341,10 +341,12 @@
          所以这里不再有第二个背景层，也就不再需要交叉淡化。
 
          转场 = 一次连续运镜（甲方案，用户 m02133 拍板）。洞全程可见：画布和取景框都不动，
-         black-hole.js 只把 viewX 从对话列中心推到右缘外，亮度 1→0.4、速度 1→0.35 一起收。
-         2026-10-29 追加「旋转」后把时长从 320ms 抬到 640ms：真机上 320ms 太短，眨眼就结束，
-         读不出弧线，用户当场反馈「我这里没有你说的这个效果」。时长与 black-hole.js 的缓动
-         （easeInOutCubic，中点才到弧顶）配套，改一个就要改另一个。
+         black-hole.js 只把洞心从对话列中心推到右缘外，亮度 1→0.4、速度 1→0.35 一起收。
+         时长三段演进：320ms（太短，眨眼就结束，读不出弧线，用户当场反馈「我这里没有你说的
+         这个效果」）→ 640ms（加了「旋转」之后仍嫌快）→ 1000ms（用户 m03318「现在的转场
+         太快了，慢一点」）。位移现在整段跑在合成器上（canvas.animate 的关键帧），所以拉长
+         一倍也不增加主线程负担。时长与 black-hole.js 的缓动（easeInOutCubic，中点才到弧顶）
+         配套，改一个就要改另一个。
          被否的旧写法留档：两个背景交叉淡化（洞在原地淡掉、再瞬移到出画位淡回来，位置和
          透明度各硬切一次，读作两次切换而不是一次运动）；按进度重绘字符（满帧 15k
          fillText 实测 6~9ms，60fps 无余量）；冻结画布交给合成器缩放（只是缩小后消失）。 */
@@ -352,7 +354,7 @@
         if (typeof document === 'undefined') return undefined
 
         var HOLE_SELECTOR = 'canvas[data-uni-black-hole]'
-        var MOVE_MS = 640           /* 运镜时长：唯一可调的字面量 */
+        var MOVE_MS = 1000          /* 运镜时长：唯一可调的字面量 */
         var homeDispose = null
 
         var motion = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
