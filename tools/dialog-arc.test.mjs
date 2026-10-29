@@ -37,6 +37,13 @@ const RADIUS = 0.34 * Math.min(VIEWPORT.width, VIEWPORT.height) / 2
 /* 对话页只露左半边：洞心正好压在视口右缘，右半出画。
    2026-10-29 用户两次点名：「黑洞在左边会挡住左侧栏的文字，挪到右边」→「只显示左半边黑洞」。 */
 const ARC_X = VIEWPORT.width / 2
+/* 甲：路径走弧线 + 飞行期盘自转（用户 m02685「向右旋转到达 / 向左旋转放回」）。
+   倾角动不得（会整格重建），所以旋转拆成 viewY 起伏与 speed 脉冲两件逐帧的事。
+   两个数字要和 src/runtime/black-hole.js 里的 ARC_BOW / ARC_SPIN 一致。 */
+const ARC_BOW = 64
+const ARC_SPIN = 1.05
+/* 两页洞心的横向差：出画时整段位移就是这个数（视口宽 - 对话列中心）。 */
+const TRAVEL = VIEWPORT.width - COLUMN_CENTER
 const HERO = "[data-slot='conversation.hero.brand.mark'],[data-slot='conversation.hero.workspace']"
 
 /* 所有绘制字形的包围盒中点就是绘制出来的圆心。 */
@@ -49,7 +56,7 @@ function paintedCenter(painted) {
 function holeFixture({ reduced = false } = {}) {
   let id = 0
   const timers = new Map(), frames = new Map(), listeners = new Map(), attrs = {}, states = []
-  const painted = [], arcs = []
+  const painted = [], arcs = [], anims = []
   const motion = {
     matches: reduced,
     addEventListener: (kind, fn) => listeners.set('motion', fn),
@@ -70,7 +77,7 @@ function holeFixture({ reduced = false } = {}) {
     clearRect() {}, beginPath() {}, closePath() {}, fill() {}, fillRect() {},
     stroke() {}, moveTo() {}, lineTo() {},
     arc(x, y, r) { arcs.push({ ...place(x, y), r }) },
-    fillText(glyph, x, y) { painted.push({ glyph, style: ctx.fillStyle, ...place(x, y) }) },
+    fillText(glyph, x, y) { painted.push({ glyph, style: ctx.fillStyle, alpha: ctx.globalAlpha, ...place(x, y) }) },
   }
 
   const style = {
@@ -95,6 +102,13 @@ function holeFixture({ reduced = false } = {}) {
       }
     },
     getContext: () => ctx,
+    /* 合成器动画的替身：位移现在交给 canvas.animate 的关键帧，主线程不再逐帧写 viewX。
+       测试不需要真跑动画，只要把关键帧留下来逐条核对。 */
+    animate(frames, options) {
+      const record = { frames, options, cancelled: false }
+      anims.push(record)
+      return { cancel() { record.cancelled = true }, finish() {}, finished: Promise.resolve() }
+    },
   }
   const column = { getBoundingClientRect: () => ({ left: COLUMN_LEFT, top: 0, width: COLUMN_WIDTH, height: VIEWPORT.height }) }
   const frame = { getBoundingClientRect: () => ({ left: 0, top: 0, width: VIEWPORT.width, height: VIEWPORT.height }) }
@@ -152,7 +166,7 @@ function holeFixture({ reduced = false } = {}) {
     frames.clear()
     tasks.forEach(fn => fn(time))
   }
-  return { api: context.UniverseBlackHole, canvas, attrs, states, painted, arcs, listeners, frames, frameAt, drain }
+  return { api: context.UniverseBlackHole, canvas, attrs, states, painted, arcs, anims, listeners, frames, frameAt, drain }
 }
 
 test('取景框固定成整个 frame：洞心仍落在对话列中心，左栏交给 mask 斜坡隔离', () => {
@@ -232,6 +246,48 @@ test('出画取景：圆心出画只剩左半弧，亮度与速度一起收到�
   dispose()
 })
 
+test('亮档的盘压成淡影：alpha 收到 0.35，位置与几何一个字都不动', () => {
+  const f = holeFixture()
+  const dispose = f.api.mount()
+  f.drain()
+  const hole = f.canvas.__uniBlackHole
+
+  /* 暗档先量一遍：深蓝底上没有压字问题，盘的墨必须原样（alpha 1）。 */
+  hole.setMode('dark')
+  f.canvas.__uniArc(true, 0)
+  f.frameAt(200)
+  f.painted.length = 0
+  f.frameAt(300)
+  assert.ok(f.painted.length > 200, `暗档的弧要有字形，实际 ${f.painted.length}`)
+  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '暗档的盘不许被压薄')
+
+  const darkView = hole.view()
+
+  /* 亮档：LIGHT 调色板高端近黑，压在浅色纸面上就是压字，用户 m02530 点名了。 */
+  hole.setMode('light')
+  f.frameAt(400)
+  f.painted.length = 0
+  f.frameAt(500)
+  assert.ok(f.painted.length > 200, `亮档的弧也要有字形，实际 ${f.painted.length}`)
+  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [0.35], '亮档对话页的墨统一收到 0.35')
+
+  /* 「不改变位置」是这条需求的硬约束：换档只许改浓淡。 */
+  const lightView = hole.view()
+  assert.equal(lightView.x, darkView.x, '换档不许动洞心')
+  assert.equal(lightView.radius, darkView.radius, '换档不许动半径')
+  const lightConfig = hole.stats().config
+  assert.ok(Math.abs(lightConfig.viewX - ARC_X) < 0.01, `换档后 viewX 仍是 ${ARC_X}，实际 ${lightConfig.viewX}`)
+
+  /* 回新会话页要把墨补回来，否则洞会一直淡着。 */
+  f.canvas.__uniSkyModeOff()
+  f.frameAt(600)
+  f.painted.length = 0
+  f.frameAt(700)
+  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '回新会话页要恢复满墨')
+
+  dispose()
+})
+
 test('换页不重建网格：画布尺寸、格数与 ready 全程不变，所以不会闪一帧', () => {
   const f = holeFixture()
   const dispose = f.api.mount()
@@ -264,7 +320,7 @@ test('换页不重建网格：画布尺寸、格数与 ready 全程不变，所�
   dispose()
 })
 
-test('运镜连续：viewX 单调推到端点、端点精确，亮度与速度同步收', () => {
+test('运镜连续：位移交给合成器，内容只在两端各画一次', () => {
   const f = holeFixture()
   const dispose = f.api.mount()
   f.drain()
@@ -272,29 +328,91 @@ test('运镜连续：viewX 单调推到端点、端点精确，亮度与速度�
   const home = hole.stats().config.viewX
   assert.ok(Math.abs(home - (COLUMN_CENTER - VIEWPORT.width / 2)) < 0.01, `首页 viewX 应为 ${COLUMN_CENTER - VIEWPORT.width / 2}，实际 ${home}`)
 
-  f.canvas.__uniArc(true, 320)
+  /* 位移交给合成器（用户 m02944「交给GPU吧，我们目前没有星野，只有一个ASCII黑洞」）：
+     起飞时内容摆成新会话页的取景，路上只动 canvas 的 transform，主线程不再逐帧写 viewX。 */
+  f.canvas.__uniArc(true, 640)
+  const out = f.anims.at(-1)
+  assert.ok(out, '出画必须走 canvas.animate')
+  assert.equal(out.frames[0].transform, 'translate3d(0px, 0px, 0)', '出画从原位起手')
+  assert.equal(out.frames.at(-1).transform, 'translate3d(' + TRAVEL + 'px, 0px, 0)', '出画落到整段行程')
+  assert.equal(hole.stats().config.viewX, home, '飞行期内容不许跟着动：位移全在 transform 上')
+
+  /* 弧顶写在关键帧里：中点抬到 -ARC_BOW，两端归零。 */
+  const outMid = out.frames.find(frame => frame.offset === 0.5)
+  assert.ok(outMid, '关键帧要有中点')
+  assert.equal(outMid.transform, 'translate3d(' + TRAVEL / 2 + 'px, ' + (-ARC_BOW) + 'px, 0)')
+  assert.equal(out.frames[0].transform.split(',')[1].trim(), '0px', '起点不抬起')
+  assert.equal(out.frames.at(-1).transform.split(',')[1].trim(), '0px', '落点精确回 y=0')
+
   f.frameAt(1000)
-  const seen = [hole.stats().config.viewX]
-  for (const t of [1080, 1160, 1240, 1320]) {
+  const spins = [hole.stats().config.speed]
+  const brights = [hole.stats().config.brightness]
+  for (const t of [1080, 1160, 1240]) {
     f.frameAt(t)
-    seen.push(hole.stats().config.viewX)
+    spins.push(hole.stats().config.speed)
+    brights.push(hole.stats().config.brightness)
   }
-  for (let at = 1; at < seen.length; at += 1) {
-    assert.ok(seen[at] >= seen[at - 1] - 1e-9, `第 ${at} 帧往回跳了：${seen.join(' → ')}`)
-  }
-  assert.ok(seen[2] > home + 1 && seen[2] < ARC_X - 1, `中点要落在两端之间，实际 ${seen[2]}`)
-  assert.ok(Math.abs(seen[seen.length - 1] - ARC_X) < 0.01, `端点要精确落在 ${ARC_X}，实际 ${seen[seen.length - 1]}`)
+  /* 自转：speed 乘进 elapsed（见 tick），脉冲峰值必须明显高过端点插值，否则盘看着是停的。 */
+  assert.ok(Math.max(...spins) >= 1.2, `飞行期盘要真的转起来，峰值只有 ${Math.max(...spins)}`)
+  assert.ok(Math.max(...spins) <= 2, `转速别撞上 options() 的上限 2，撞上就被夹平：${Math.max(...spins)}`)
+  assert.ok(brights.at(-1) < brights[0] - 0.05, `亮度要在路上收向 0.4，实际 ${brights[0]} → ${brights.at(-1)}`)
+
+  f.frameAt(1660)
+  assert.equal(hole.stats().config.viewX, ARC_X, '落地把取景写成交互页的那一格')
+  assert.equal(f.canvas.style.transform, '', '落地要清掉 transform，静止态不留合成器层')
+  assert.ok(out.cancelled, '落地要撤掉动画，别留着一直占层')
 
   const config = hole.stats().config
   assert.ok(Math.abs(config.brightness - 0.4) < 1e-9, '亮度收到 0.4')
   assert.ok(Math.abs(config.speed - 0.35) < 1e-9, '速度收到 0.35')
 
-  /* 反向对称：从出画位一路推回对话列中心。 */
-  f.canvas.__uniArc(false, 320)
+  /* 回程：内容直接摆成新会话页的取景（终点就是它），位移从 +TRAVEL 收回 0，
+     所以回程落地不需要换取景 —— 那一刻画面已经对上了。 */
+  f.canvas.__uniArc(false, 640)
+  const back = f.anims.at(-1)
+  assert.equal(back.frames[0].transform, 'translate3d(' + TRAVEL + 'px, 0px, 0)', '回程从右缘起手')
+  assert.equal(back.frames.at(-1).transform, 'translate3d(0px, 0px, 0)', '回程收回原位')
+  assert.equal(hole.stats().config.viewX, home, '回程起手就把内容摆回新会话页的取景')
   f.frameAt(2000)
+  f.frameAt(2160)
+  /* 弧顶在时长正中间（k=0.5），所以转速峰值要在这里取。 */
   f.frameAt(2320)
+  const backSpin = hole.stats().config.speed
+  f.frameAt(2480)
+  f.frameAt(2700)
+  assert.ok(backSpin >= 1.2, `回程盘也要转起来，实际 ${backSpin}`)
   assert.ok(Math.abs(hole.stats().config.viewX - home) < 0.01, `回程端点应为 ${home}`)
   assert.ok(Math.abs(hole.stats().config.brightness - 1) < 1e-9, '亮度复位成 1')
+  assert.equal(hole.stats().config.viewY, 0, '落地 y 回到 0')
+  assert.equal(f.canvas.style.transform, '', '回程落地同样清掉 transform')
+  dispose()
+})
+
+test('主线程卡住不再冻住洞：位置在合成器上，主线程只补最后那一帧', () => {
+  /* 真机日志里四段 390~490ms 的长任务（m02920）以前会把洞冻在半路。现在整段行程是一条
+     合成器动画，主线程断供只影响「盘转了几帧」和落地那一帧的取景写入。 */
+  const f = holeFixture()
+  const dispose = f.api.mount()
+  f.drain()
+  const hole = f.canvas.__uniBlackHole
+  const home = hole.stats().config.viewX
+
+  f.canvas.__uniArc(true, 640)
+  const out = f.anims.at(-1)
+  f.frameAt(1000)
+  const drawnBefore = hole.stats().frames
+  /* 480ms 的空档：一个 rAF 都不跑。 */
+  f.frameAt(1480)
+  assert.equal(hole.stats().config.viewX, home, '空档里内容不许自己往前走：位移不归主线程管')
+  assert.ok(hole.stats().frames - drawnBefore <= 1, '空档里最多补一帧，不该连画一串')
+  assert.equal(f.canvas.style.transform, 'translate3d(0px, 0px, 0)', '合成器动画仍在跑，位移不变')
+  assert.equal(out.cancelled, false, '空档不许提前撤动画')
+
+  /* 恢复之后照样收尾，端点精确。 */
+  f.frameAt(1700)
+  f.frameAt(1800)
+  assert.equal(hole.stats().config.viewX, ARC_X, '卡顿之后仍然精确落到对话页取景')
+  assert.equal(f.canvas.style.transform, '', '收尾照常清 transform')
   dispose()
 })
 
@@ -450,11 +568,11 @@ test('洞常驻：挂载唯一，换页只拨取景，同一页的后续变更�
 
   h.calls.length = 0
   h.page(true)
-  assert.deepEqual(h.calls, ['arc:false:320'], `回新会话页只运镜，实际 ${h.calls.join(' → ')}`)
+  assert.deepEqual(h.calls, ['arc:false:640'], `回新会话页只运镜，实际 ${h.calls.join(' → ')}`)
 
   h.calls.length = 0
   h.page(false)
-  assert.deepEqual(h.calls, ['arc:true:320'], `进对话页只运镜，实际 ${h.calls.join(' → ')}`)
+  assert.deepEqual(h.calls, ['arc:true:640'], `进对话页只运镜，实际 ${h.calls.join(' → ')}`)
 
   /* 页面翻转豁免 180ms 窗口：上面的断言没 drain 就成立，说明翻页当拍就拨了。 */
   h.calls.length = 0
@@ -469,7 +587,7 @@ test('冷启动在新会话页：挂载后落端点，随后照常运镜', () =>
   assert.deepEqual(h.calls, ['mountHole', 'arc:false:0'], `冷启动在首页：落端点，实际 ${h.calls.join(' → ')}`)
   h.calls.length = 0
   h.page(false)
-  assert.deepEqual(h.calls, ['arc:true:320'], `进对话页运镜，实际 ${h.calls.join(' → ')}`)
+  assert.deepEqual(h.calls, ['arc:true:640'], `进对话页运镜，实际 ${h.calls.join(' → ')}`)
   assert.equal(h.mounted(), 1)
 })
 

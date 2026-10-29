@@ -26,7 +26,8 @@ var UniverseBlackHole = (function () {
   var SWIRL = 16
   /* 取景位移：每帧把画布整体平移这么多像素再画，洞心就离开视图中心。
      默认 0 = 居中（新会话页）。对话页背景要的是「洞向右走出画面、只留盘左半边的镜环弧」，
-     具体数值由 viewXFor() 从视口宽度和半径反算，y 恒为 0。 */
+     x 由 viewXFor() 从视口宽度和半径反算。y 在两个页面都是 0，只有转场途中抬起来走弧线
+     （见 arcTo 的 bow）：去程是同一个洞被摆到右缘，不是换上第二颗。 */
   var VIEW_LIMIT = 4000
   function options(input) {
     input = input || {}
@@ -34,7 +35,7 @@ var UniverseBlackHole = (function () {
       var n = Number(input[key])
       return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : defaults[key]
     }
-    return { angle: number('angle', 10, 50), fps: number('fps', 10, 60),
+    return { angle: number('angle', 10, 50), fps: number('fps', 10, 240),
       maxCells: number('maxCells', 2000, 24000), cellWidth: number('cellWidth', 6, 16),
       brightness: number('brightness', .15, 2), speed: number('speed', 0, 2),
       viewX: number('viewX', -VIEW_LIMIT, VIEW_LIMIT), viewY: number('viewY', -VIEW_LIMIT, VIEW_LIMIT) }
@@ -142,7 +143,7 @@ var UniverseBlackHole = (function () {
     var config = options(input), ctx = canvas.getContext('2d', { alpha: true })
     if (!ctx) throw Error('Canvas 2D unavailable')
     var disposed = false, raf = 0, buildTimer = 0, generation = 0, elapsed = 0, previous = 0, lastDraw = -Infinity
-    var visible = true, frames = 0, totalPaint = 0, maxPaint = 0, buildCpu = 0, w = 0, h = 0, cols = 0, rows = 0, grid = [], cw = 8, ch = 12, ready = false, mode = 'dark', applied = false
+    var visible = true, frames = 0, totalPaint = 0, maxPaint = 0, buildCpu = 0, w = 0, h = 0, cols = 0, rows = 0, grid = [], cw = 8, ch = 12, ready = false, mode = 'dark', applied = false, arcAlpha = 1, modeHook = null
     /* dpr 必须在 create() 这一层：draw() 用它算位移变换，resize() 用它定缓冲区尺寸，
        以前它只活在 resize() 里，位移那行一跑到就是 ReferenceError。 */
     var dpr = 1
@@ -172,6 +173,9 @@ var UniverseBlackHole = (function () {
          viewX 时 viewY 是 undefined，乘出来 NaN —— setTransform 收到 NaN 在浏览器里是
          静默忽略整条变换，新会话页会一直在错的原点下画。 */
       if (shifted) ctx.setTransform(dpr, 0, 0, dpr, dpr * (Number(config.viewX) || 0), dpr * (Number(config.viewY) || 0))
+      /* 亮档对话页的盘是淡影（见 ARC_ALPHA_LIGHT）：一整帧的墨量在这里统一收，墨盘、盘字、
+         星点一起变薄，不需要每种颜色各自调淡。 */
+      if (arcAlpha < 1) ctx.globalAlpha = arcAlpha
       if (light) {
         ctx.beginPath()
         ctx.arc(baseX, baseY, horizon, 0, Math.PI * 2)
@@ -181,17 +185,23 @@ var UniverseBlackHole = (function () {
       ctx.font = '600 ' + Math.round(ch * .95) + 'px ui-monospace, Consolas, monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
+      /* 每格都会走一遍的量提到循环外：一次转场是 19 帧 × 约 15876 格，这些值在帧内不变。
+         lastIndex / 12 这两个常数以前在格子内部被求值了两万多次。 */
+      var lastGlyph = GLYPHS.length - 1, ink = config.brightness, t = elapsed
       for (var i = 0; i < grid.length; i++) {
         var cell = grid[i], glyph = '', value = 0, bucket = 0
         if (cell.stroke) {
           glyph = cell.stroke
           ctx.fillStyle = light ? '#8d7a63' : '#8a5228'
         } else if (cell.radius || cell.ring) {
-          value = shade(cell, elapsed, config.brightness)
+          value = shade(cell, t, ink)
           if (value > .004) {
-            var index = Math.min(GLYPHS.length - 1, Math.floor(Math.pow(value, .62) * (GLYPHS.length - 1) + .5))
+            /* (value * 12) | 0 与 Math.floor(value * 12) 在 value ∈ [0,1) 上逐位相同，
+               value 不可能到 1（shade 返回 1 - exp(-flux)，flux > 0），所以上限那次比较是空转。 */
+            var index = Math.min(lastGlyph, Math.floor(Math.pow(value, .62) * lastGlyph + .5))
             glyph = GLYPHS.charAt(index)
-            bucket = Math.min(11, Math.max(0, Math.floor(value * 12)))
+            bucket = (value * 12) | 0
+            if (bucket > 11) bucket = 11
             var luminous = !light
             if (light) {
               var qx = (i % cols + .5) * cw - baseX, qy = (((i / cols) | 0) + .5) * ch - baseY
@@ -200,13 +210,14 @@ var UniverseBlackHole = (function () {
             ctx.fillStyle = luminous ? DARK[bucket] : LIGHT[bucket]
           }
         } else if (cell.star) {
-          var twinkle = .55 + .45 * Math.sin(elapsed * .45 + cell.star.phase)
+          var twinkle = .55 + .45 * Math.sin(t * .45 + cell.star.phase)
           var level = Math.min(STARS.length - 1, Math.max(0, Math.floor(cell.star.mag * twinkle * 3)))
           glyph = STARS.charAt(level)
           ctx.fillStyle = light ? '#9ba5b3' : '#2b3f57'
         }
         if (glyph && glyph !== ' ') ctx.fillText(glyph, (i % cols + .5) * cw, (((i / cols) | 0) + .5) * ch, cw)
       }
+      if (arcAlpha < 1) ctx.globalAlpha = 1
       /* 位移只活在这一个函数里：帧末复位成居中，下一次进 draw() 再按当时的 config 决定。
          不复位的话，从对话页反向切回新会话页时，第一帧仍带着旧位移。 */
       if (shifted) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -215,9 +226,16 @@ var UniverseBlackHole = (function () {
     }
     function running() { return !disposed && ready && visible && !document.hidden && !motion.matches && config.speed > 0 && w > 0 && h > 0 }
     function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; previous = 0 }
+    /* 显示刷新周期的估计（rAF 间隔的指数滑动平均）。真正决定「动起来顺不顺」的不是我们
+       画多快，而是画出来的帧能不能和刷新对齐：用户那台机器实测 rAF 间隔 6.2ms（约 160Hz），
+       我们却按 60fps 出帧 —— 每次更新落在第 2 或第 3 个刷新上，速度看起来在忽快忽慢。
+       这条估计只用来给飞行期挑一个刷新率的整除数，静止态一律不用。 */
+    var rAFGap = 0
     function tick(now) {
       raf = 0
       if (!running()) return
+      var gap = previous ? now - previous : 0
+      if (gap > 0 && gap < 200) rAFGap = rAFGap ? rAFGap * .7 + gap * .3 : gap
       if (previous) elapsed += Math.min((now - previous) / 1000, .1) * config.speed
       previous = now
       var interval = 1000 / config.fps, delta = now - lastDraw
@@ -287,6 +305,9 @@ var UniverseBlackHole = (function () {
       if (applied && next === mode) return
       applied = true
       mode = next; publishVoid(); sync()
+      /* 亮暗档是盘的浓淡的唯一输入，而浓淡由 mount() 那一层决定（只有它知道洞在不在出画位），
+         所以换档要回调出去，否则洞会一直停在上一档的墨量上。 */
+      if (modeHook) modeHook(mode)
     }
     var theme = new MutationObserver(applyMode)
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-ds-dark-theme'] })
@@ -300,12 +321,29 @@ var UniverseBlackHole = (function () {
         config = options(Object.assign({}, config, next))
         if (config.angle !== old.angle || config.cellWidth !== old.cellWidth || config.maxCells !== old.maxCells) { ready = false; resize() } else sync()
       },
+      /* 只写姿态、不重画：转场期每帧走这里，出帧由 tick 统一负责（一帧一画）。
+         绝不从这里传 angle / cellWidth / maxCells —— 那三个要重建网格，而这里没有那条判断。 */
+      pose: function (next) { config = options(Object.assign({}, config, next)) },
       view: function () {
         var v = viewOf(w, h, config)
         return { x: v.x, y: v.y, radius: SHADOW_SHARE * Math.min(w, h) / 2, width: w, height: h }
       },
-      setMode: function (next) { mode = next === 'light' ? 'light' : 'dark'; publishVoid(); sync() },
-      stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config) } },
+      setMode: function (next) {
+        applied = true
+        mode = next === 'light' ? 'light' : 'dark'
+        publishVoid(); sync()
+        if (modeHook) modeHook(mode)
+      },
+      /* 盘的整体墨量：0..1，由 mount() 按「亮暗档 + 洞在不在出画位」决定。
+         不自己 sync()：调用方紧跟着的 update() 就是那一帧，多画一次会多出 16000 格的绘制，
+         而且会在旧取景上先画一帧（转场里肉眼可见的一跳）。 */
+      setAlpha: function (next) {
+        var value = Number(next)
+        arcAlpha = value >= 0 && value <= 1 ? value : 1
+      },
+      isLight: function () { return mode === 'light' },
+      onMode: function (fn) { modeHook = typeof fn === 'function' ? fn : null },
+      stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, rAFGapMs: rAFGap, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config) } },
       resize: function () { resize() },
       dispose: function () {
         if (disposed) return
@@ -421,22 +459,75 @@ var UniverseBlackHole = (function () {
        位移必须从画布宽度反算：半径和宽度不是同一个量。 */
     var ARC_BRIGHTNESS = 0.4
     var ARC_SPEED = 0.35
+    /* 甲：洞向右「旋转」到右缘，回程向左「旋转」放回（用户 m02685：「转场应该是新会话页的
+       黑洞向右旋转到达目前对话页黑洞的位置，而从对话页返回新会话页则是那半个黑洞向左旋转
+       放回新会话页黑洞的位置」）。
+       倾角 angle 动不了 —— 它一变就触发整格重建（近两万格），正好闪在转场最显眼的一帧。
+       所以旋转拆成两件都能逐帧做的事：
+       1) 路径走弧线：用 viewY 把洞心抬起来再落回去，位移不再是直线。峰值 64px，
+          sin(π·e) 起落都归零，两个端点还是干净的 y=0，静止态一点不受影响。
+       2) 盘在飞的时候真的转：speed 直接乘进 elapsed（见 tick），所以飞行期加一个
+          sin(π·e) 的转速脉冲，盘是看得出在自转的；落地收回 ARC_SPEED。
+       脉冲峰值取 1.05 是为了别撞上 options() 里 speed 的上限 2（撞上就被夹平，转感丢失）。 */
+    var ARC_BOW = 64
+    var ARC_SPIN = 1.05
+    /* 亮档的吸积盘压成一层淡影。LIGHT 调色板的高端是近黑的（#30110b），盘最亮的圈整片压在
+       浅色纸面上；对话页把洞挪到右缘后，正文恰好贴在这片墨后面 —— 用户 m02530
+       「对话页亮色模式下的吸积盘有点遮挡文字，调整下吸积盘使其不遮挡文字，不改变位置」。
+       压 alpha 是唯一不动几何的解法：洞心、半径、取景、格子全不变，只是这一帧的墨薄一点。
+       暗档维持 1：深蓝底上不存在压字问题，那边不动。 */
+    var ARC_ALPHA_LIGHT = 0.35
     var arcRaf = 0
+    var arcAnim = null
     var arcSide = false
-    var live = { viewX: 0, brightness: defaults.brightness, speed: defaults.speed }
+    var live = { viewX: 0, viewY: 0, brightness: defaults.brightness, speed: defaults.speed, alpha: 1 }
 
-    /* 镜像和渲染器一起写：arcTo() 要靠 live 记住「推到哪儿了」，被打断才能接着推。 */
-    function apply(next) {
+    /* 转场期不再抬帧率：位移已经交给合成器（见 arcTo），主线程这边只是继续按静止态
+       defaults.fps 的方式出帧 —— 盘的自转本来就是 30fps 的观感，位置则跟屏幕同步。
+       以前那条 ARC_FPS / 按刷新率挑整除数的逻辑因此整段删掉了。 */
+
+    /* 该档位下盘该有多浓。暗档恒为 1，所以下面的插值在暗档是空转（1 → 1）。 */
+    function arcAlphaFor() { return renderer.isLight() ? ARC_ALPHA_LIGHT : 1 }
+
+    /* 换档时补上浓淡：不补的话，在对话页直接切亮档会一直是暗档的满墨。
+       setAlpha 自己不重画，所以这里补一次空 update() 把那一帧画出来。 */
+    renderer.onMode(function () {
+      if (!arcSide) return
+      var next = arcAlphaFor()
+      live.alpha = next
+      renderer.setAlpha(next)
+      renderer.update({})
+    })
+
+    /* 只写姿态、不出帧。转场期每帧走这条：以前 apply() 走 renderer.update()，而 update()
+       无条件 sync()→draw()，等于绕过 fps 门限自己画一遍；渲染器的 tick 又按 fps 画一遍。
+       一次 320ms 的转场只有 19 帧画面，却被画了 29 次全量（每次约 15876 格 fillText）。
+       现在转场期只有 tick 一个出帧口，画面数 = 帧数。 */
+    function pose(next) {
       if (next) {
         if (next.viewX !== undefined) live.viewX = next.viewX
+        if (next.viewY !== undefined) live.viewY = next.viewY
         if (next.brightness !== undefined) live.brightness = next.brightness
         if (next.speed !== undefined) live.speed = next.speed
+        if (next.alpha !== undefined) live.alpha = next.alpha
       }
-      renderer.update({ viewX: live.viewX, brightness: live.brightness, speed: live.speed })
+      renderer.setAlpha(live.alpha)
+      renderer.pose({ viewX: live.viewX, viewY: live.viewY, brightness: live.brightness, speed: live.speed })
+    }
+    /* 立刻落定，并且保证这一帧被画出来：瞬时路径与转场收尾用它。 */
+    function apply(next) {
+      pose(next)
+      renderer.update({})
     }
     function arcStop() {
       if (arcRaf) cancelAnimationFrame(arcRaf)
       arcRaf = 0
+      if (arcAnim) { arcAnim.cancel(); arcAnim = null; canvas.style.transform = '' }
+    }
+    /* 两页洞心的横向差：一整段位移的行程。交给合成器平移时它就是全部运动量。 */
+    function travelX() {
+      if (typeof window === 'undefined') return 0
+      return Math.max(0, window.innerWidth - columnCenterX())
     }
     function boxWidth() {
       var width = parseFloat(canvas.style.width) || 0
@@ -471,39 +562,81 @@ var UniverseBlackHole = (function () {
       var toX = viewXFor(arcSide)
       var toBright = arcSide ? ARC_BRIGHTNESS : defaults.brightness
       var toSpeed = arcSide ? ARC_SPEED : defaults.speed
-      if (!(ms > 0) || typeof requestAnimationFrame !== 'function') {
-        apply({ viewX: toX, brightness: toBright, speed: toSpeed })
+      var toAlpha = arcSide ? arcAlphaFor() : 1
+      var homeX = viewXFor(false)
+      var travel = travelX()
+      /* 不能动的时候就只能瞬移：时长 0（reduced motion）、浏览器没有 WAAPI、或者两页的洞心
+         本来就在同一处。 */
+      if (!(ms > 0) || !(travel > 0) || typeof canvas.animate !== 'function') {
+        canvas.style.transform = ''
+        apply({ viewX: toX, viewY: 0, brightness: toBright, speed: toSpeed, alpha: toAlpha })
         return
       }
-      var fromX = live.viewX, fromBright = live.brightness, fromSpeed = live.speed
-      var origin = 0
+      var fromBright = live.brightness, fromSpeed = live.speed, fromAlpha = live.alpha
+      /* 起点一帧：内容摆成新会话页的取景（洞在对话列中心），位移由 transform 承担。
+         出画是从 0 平移到 +travel，回程是从 +travel 平移回 0 —— 两端在屏幕上完全重合，
+         中间那段只是平移，洞的形状一个字都不变，所以不需要重建、也不需要逐帧重画。 */
+      var from = arcSide ? 0 : travel
+      var end = arcSide ? travel : 0
+      canvas.style.transform = 'translate3d(' + from + 'px, 0px, 0)'
+      pose({ viewX: homeX, viewY: 0 })
+      renderer.update({})
+      /* 弧线与缓动拆成 12 段关键帧交给合成器：easeInOutCubic + sin(π·e) 的抬升，
+         和逐帧写 viewX 时的曲线逐点同值（步长 1/12）。 */
+      var keys = [], STEPS = 12
+      /* 关键帧里的长度按 0.01px 取整、并把 sin(π) 那点浮点残渣吞成 0 —— 否则终点会长成
+         '-7.8e-15px'，读起来是噪声，落点也不再是逐位精确的 y=0。 */
+      function px(v) { return (Math.abs(v) < 0.005 ? 0 : Math.round(v * 100) / 100) + 'px' }
+      for (var i = 0; i <= STEPS; i++) {
+        var kk = i / STEPS
+        var ee = kk < 0.5 ? 4 * kk * kk * kk : 1 - Math.pow(-2 * kk + 2, 3) / 2
+        keys.push({
+          transform: 'translate3d(' + px(from + (end - from) * ee) + ', ' + px(-ARC_BOW * Math.sin(Math.PI * ee)) + ', 0)',
+          offset: kk,
+          easing: 'linear',
+        })
+      }
+      arcAnim = canvas.animate(keys, { duration: ms, easing: 'linear', fill: 'forwards' })
+      /* 亮度、转速、浓淡还在主线程上插值 —— 它们不参与位移，卡一下也看不出来；
+         真正的运动已经交给合成器，主线程再堵也不影响位置。 */
+      var start = 0
       function step(now) {
         arcRaf = 0
-        if (!origin) origin = now
-        var k = (now - origin) / ms
+        if (!start) start = now
+        var k = (now - start) / ms
         if (k > 1) k = 1
-        /* easeOutCubic：起手快、落点慢，读作镜头推过去停住，而不是匀速平移。 */
-        var e = 1 - Math.pow(1 - k, 3)
-        apply({
-          viewX: fromX + (toX - fromX) * e,
+        var e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2
+        var bow = Math.sin(Math.PI * e)
+        pose({
           brightness: fromBright + (toBright - fromBright) * e,
-          speed: fromSpeed + (toSpeed - fromSpeed) * e,
+          /* 转速 = 端点插值 + 飞行脉冲：盘在途中是真的在自转，落地才收回 0.35。 */
+          speed: fromSpeed + (toSpeed - fromSpeed) * e + ARC_SPIN * bow,
+          alpha: fromAlpha + (toAlpha - fromAlpha) * e,
         })
         if (k < 1) { arcRaf = requestAnimationFrame(step); return }
-        apply({ viewX: toX, brightness: toBright, speed: toSpeed })
+        finish()
+      }
+      function finish() {
+        if (arcAnim) { arcAnim.cancel(); arcAnim = null }
+        canvas.style.transform = ''
+        /* 出画落地：内容得从「新会话页取景 + 平移」换成「对话页取景 + 无平移」，两者在屏幕上
+           完全重合 —— 洞的位置连续，只有取景写对了；星点按格子落位，不随 viewX 动。
+           回程落地不用换：内容本来就已经是新会话页的取景。 */
+        pose({ viewX: toX, viewY: 0, brightness: toBright, speed: toSpeed, alpha: toAlpha })
+        renderer.update({})
       }
       arcRaf = requestAnimationFrame(step)
     }
     canvas.__uniArc = function (side, ms) { arcTo(!!side, Number(ms) || 0) }
     canvas.__uniSkyMode = function () { arcTo(true, 0) }
     canvas.__uniSkyModeOff = function () { arcTo(false, 0) }
-    apply({ viewX: viewXFor(false) })
+    apply({ viewX: viewXFor(false), viewY: 0 })
 
     function onResize() {
       /* 转场跑一半时窗口变了：让这一帧落定，下一帧量到的新尺寸再接管。 */
       if (arcRaf) return
       place()
-      apply({ viewX: viewXFor(arcSide) })
+      apply({ viewX: viewXFor(arcSide), viewY: 0 })
     }
     window.addEventListener('resize', onResize)
 
