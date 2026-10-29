@@ -4,9 +4,9 @@ import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
 import { performance } from 'node:perf_hooks'
 const source = readFileSync(new URL('../src/runtime/black-hole.js', import.meta.url), 'utf8')
-function fixture() {
+function fixture(patched) {
   let id=0
-  const timers=new Map(), frames=new Map(), listeners=new Map(), painted=[], observers=[], arcs=[], fills=[]
+  const timers=new Map(), frames=new Map(), listeners=new Map(), painted=[], observers=[], arcs=[], fills=[], inks=[]
   const motion={matches:false,addEventListener:(k,fn)=>listeners.set('motion',fn),removeEventListener:()=>listeners.delete('motion')}
   const document={hidden:false,documentElement:{},addEventListener:(k,fn)=>listeners.set(k,fn),removeEventListener:k=>listeners.delete(k)}
   class Observer { constructor(fn){this.fn=fn;this.active=true;observers.push(this)} observe(){} disconnect(){this.active=false} }
@@ -14,12 +14,14 @@ function fixture() {
     window:{devicePixelRatio:2,matchMedia:()=>motion,addEventListener:(k,fn)=>listeners.set('window:'+k,fn),removeEventListener:k=>listeners.delete('window:'+k)},document,ResizeObserver:Observer,IntersectionObserver:Observer,MutationObserver:Observer,
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:fn=>{timers.set(++id,fn);return id},clearTimeout:n=>timers.delete(n),
     requestAnimationFrame:fn=>{frames.set(++id,fn);return id},cancelAnimationFrame:n=>frames.delete(n)})
-  vm.runInContext(source,context)
-  const ctx={setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(glyph){painted.push(glyph)},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1)}}
+  vm.runInContext(patched||source,context)
+  /* inks 记的是每枚圆 fill() 时用的 fillStyle：两档差异只允许出现在墨色上，
+     所以测试要能把墨色和几何分开断言。 */
+  const ctx={setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(glyph){painted.push(glyph)},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1);if(ctx.fillStyle!==undefined)inks.push(String(ctx.fillStyle))},fillStyle:''}
   const canvas={dataset:{},width:0,height:0,getContext:()=>ctx,getBoundingClientRect:()=>({width:320,height:200})}
   function drain(){let count=0;while(timers.size){assert.ok(count++<1000);const tasks=[...timers.values()];timers.clear();tasks.forEach(fn=>fn())}}
   function frame(t){const tasks=[...frames.values()];frames.clear();tasks.forEach(fn=>fn(t))}
-  return {api:context.UniverseBlackHole,canvas,timers,frames,listeners,observers,painted,arcs,fills,motion,document,drain,frame}
+  return {api:context.UniverseBlackHole,canvas,timers,frames,listeners,observers,painted,arcs,fills,inks,motion,document,drain,frame}
 }
 test('ASCII parameters clamp angle, cell budget and speed; glyph alphabet is printable ASCII',()=>{
   const {api}=fixture()
@@ -45,17 +47,28 @@ test('null-path cache contains dark captured rays and finite emitting disk inter
     assert.ok(emitting>50);assert.ok(changing>20);assert.ok(Math.abs(brightRight-brightLeft)>10)
   }
 })
-test('dark paint leaves the shadow to the background; light paint fills it with ink first',()=>{
+test('both themes fill the shadow disc first: same centre and radius, only the ink differs',()=>{
   const f=fixture(),r=f.api.create(f.canvas)
   f.drain();assert.equal(r.stats().ready,true)
-  assert.equal(f.arcs.length,0);assert.equal(f.fills.length,0)
+  /* 暗档也必须铺这枚圆：被捕获的格子没有 glyph，draw() 的循环会跳过它们，画布又每帧
+     clearRect 成全透明 —— 不铺就把整个洞心让给页面底纹，洞变成一张静止的纹理。
+     旧的断言正好相反（暗档 arcs 必须为 0），那是在把缺陷写成契约。 */
+  assert.equal(f.arcs.length,1,`dark paint must fill the shadow disc, got ${f.arcs.length} arcs`)
+  assert.equal(f.fills.length,1)
+  const [dark]=f.arcs
+  assert.equal(dark.x,160);assert.equal(dark.y,100)
+  assert.ok(Math.abs(dark.r-34)<1e-6,`horizon radius ${dark.r} should be SHADOW_SHARE*min(w,h)/2`)
+  const darkInk=f.inks[0]
   r.setMode('light')
-  assert.equal(f.arcs.length,1);assert.equal(f.fills.length,1)
-  const [disc]=f.arcs
-  assert.equal(disc.x,160);assert.equal(disc.y,100)
-  assert.ok(Math.abs(disc.r-34)<1e-6,`horizon radius ${disc.r} should be SHADOW_SHARE*min(w,h)/2`)
+  assert.equal(f.arcs.length,2,`light paint must also fill a shadow disc, got ${f.arcs.length} arcs`)
+  assert.equal(f.fills.length,2)
+  const [,light]=f.arcs
+  /* 两档只有墨色不同，圆心与半径逐位相同 —— 换档不该让阴影挪窝或换大小。 */
+  assert.deepEqual(light,dark)
+  assert.notEqual(f.inks[1],darkInk,'light and dark must not use the same shadow ink')
   r.setMode('dark')
-  assert.equal(f.arcs.length,1);assert.equal(f.fills.length,1)
+  assert.equal(f.arcs.length,3)
+  assert.equal(f.inks[2],darkInk,'switching back must restore the dark ink')
   r.dispose()
 })
 

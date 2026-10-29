@@ -13,6 +13,11 @@ document.querySelector('#angle').oninput=function(e){renderer.update({angle:+e.t
 document.querySelector('#brightness').oninput=function(e){renderer.update({brightness:+e.target.value});};
 document.querySelector('#pause').onclick=function(e){paused=!paused;renderer.update({speed:paused?0:1});e.target.textContent=paused?'继续':'暂停';};
 document.querySelector('#theme').onclick=function(){document.body.classList.toggle('light');renderer.setMode(document.body.classList.contains('light')?'light':'dark');};
+/* 取景/亮度/转速 可以用 ?viewX=..&viewY=..&brightness=..&speed=.. 直接摆，验收截图用；
+   走 update() 而不是 pose()，摆完立刻出一帧，不用等动画。 */
+var q=new URLSearchParams(location.search), pose={};
+['viewX','viewY','brightness','speed'].forEach(function(k){if(q.has(k))pose[k]=+q.get(k);});
+if(Object.keys(pose).length)renderer.update(pose);
 if(new URLSearchParams(location.search).has('clean'))document.body.classList.add('clean');
 setInterval(function(){var s=renderer.stats();document.querySelector('#stats').textContent=s.columns+' × '+s.rows+' 字符 · '+s.frames+' 帧\n字符绘制均值 '+s.meanPaintMs.toFixed(2)+' ms（非合成耗时）';},1000);
 window.addEventListener('pagehide',function(){renderer.dispose();},{once:true});

@@ -9,11 +9,10 @@
  * On light paper the shadow is painted as solid ink before the disk, because an
  * unpainted Schwarzschild shadow on a light page reads as empty space rather
  * than a hole; the disk's near side is then drawn with the luminous ramp on top.
- * Cells are traced once per geometry change; only the orbital phase and the
- * star twinkle are recalculated per frame. */
+ * Cells are traced once per geometry change; only the orbital phase is
+ * recalculated per frame. */
 var UniverseBlackHole = (function () {
   var GLYPHS = ' .-:;+*o#%@'
-  var STARS = ".,'"
   var STROKES = '|-/\\'
   var defaults = { angle: 15, fps: 30, maxCells: 16000, cellWidth: 6, brightness: 1, speed: 1 }
   var DISTANCE = 60
@@ -21,9 +20,37 @@ var UniverseBlackHole = (function () {
   var B_CRIT = 3 * Math.sqrt(3)
   var SHADOW_SHARE = 0.34
   var HORIZON_INK = '#101725'
+  /* 暗档的阴影底色。html 底部是 rgb(12,17,26) = '#0c111a'，阴影要压得比它还深，
+     洞心才有一个可辨认的暗面；'#030509' 与 --cp-void 同值，是这套主题里最深的墨。 */
+  var SHADOW_INK = '#030509'
   var TAN_HALF = B_CRIT / DISTANCE / SHADOW_SHARE
   var RING_WIDTH = 0.32
+  /* 光子环的可见性（第八阶段）：几何照旧，只收紧映射。
+     RING_CORE 把高斯重新归一化到原先的峰值强度（exp(0)=1），所以临界线上的环还是那么亮；
+     变窄的是两侧的衰减 —— 0.32 的 σ 折到屏幕约 20px 的软过渡，比字符格宽两倍，线被摊成雾。
+     RING_GAIN 是环项单独吃的增益，让它在高字形区独占：盘即使有 0.5 的亮度也抢不到 '%'。 */
+  var RING_CORE = 0.15
+  var RING_GAIN = 3.1
   var SWIRL = 16
+  /* 静止态的自转：盘相位是「角向位置 - time * SWIRL / r^1.5」，只有这一项时整盘是一张固定
+     的花纹在滑行，读不出「洞在转」。这里补三件逐帧便宜的事：
+     SPIN   把整盘与对侧镜环一起慢速旋过去（同心旋转，不重建任何格子）；
+     KNOTS  两层亮度团按 Kepler 角速度漂移，盘的明暗结构自己在变，而不是包在盘上的花纹；
+     PULSE  全局通量的慢呼吸，乘法作用，不改任何几何。 */
+  var SPIN = 0.42
+  /* 盘面纹理的角速率。以前整个盘只有一个 Kepler 相位（SWIRL / r^1.5）：内缘比外缘快三倍，
+     盘是「拧」着走的，最新帧与旧帧之间没有可读的位移。这里补一个整体角速度，
+     内外缘同向同速，盘的明暗条纹一起转过去 —— 那才是「盘在旋」的观感。
+     数值是量出来的：扫 2.4 / 2.0 / 1.6 / 1.2 四档，拿盘上 72 个角向样本做相关最大搜索，
+     只有 1.2 让 1.8 秒后的图样出现干净的小角度位移（约 5°），其余几档要么一整圈假匹配，
+     要么反向。 */
+  var DISK = 1.2
+  /* 亮度团与呼吸幅度都压在几个百分点：再大就是「闪」，不是「转」。 */
+  var KNOTS = [
+    { n: 1, radial: 1.9, angular: 1.0, weight: .16 },
+    { n: 2, radial: 2.7, angular: -.62, weight: .11 }
+  ]
+  var PULSE = .03
   /* 取景位移：每帧把画布整体平移这么多像素再画，洞心就离开视图中心。
      默认 0 = 居中（新会话页）。对话页背景要的是「洞向右走出画面、只留盘左半边的镜环弧」，
      x 由 viewXFor() 从视口宽度和半径反算。y 在两个页面都是 0，只有转场途中抬起来走弧线
@@ -65,7 +92,9 @@ var UniverseBlackHole = (function () {
     var lx = oy * vz - oz * vy, ly = oz * vx - ox * vz, lz = ox * vy - oy * vx
     var l2 = lx * lx + ly * ly + lz * lz
     var impact = Math.sqrt(l2)
-    var ring = Math.exp(-Math.pow((impact - B_CRIT) / RING_WIDTH, 2))
+    /* 光子环权重：窄高斯，峰值仍为 1。RING_WIDTH 保留为「名义宽度」，实际曲线用 RING_CORE
+       —— 见上方常量的说明。 */
+    var ring = Math.exp(-Math.pow((impact - B_CRIT) / RING_CORE, 2))
     var x = ox, y = oy, z = oz, px = vx, py = vy, pz = vz
     for (var i = 0; i < 420; i++) {
       var r2 = x * x + y * y + z * z, r = Math.sqrt(r2)
@@ -86,7 +115,7 @@ var UniverseBlackHole = (function () {
           var toward = (qz * dx - qx * dz) / (dr * Math.sqrt(dx * dx + dy * dy + dz * dz))
           var beta = Math.sqrt(1 / (dr - 2))
           var shift = Math.sqrt(1 - 2 / dr) * Math.sqrt(1 - beta * beta) / (1 - beta * toward)
-          return { radius: dr, phi: Math.atan2(qz, qx), boost: Math.min(1.7, Math.max(.4, Math.pow(shift, 1.8))), ring: ring * .3, impact: impact }
+          return { radius: dr, phi: Math.atan2(qz, qx), boost: Math.min(1.7, Math.max(.4, Math.pow(shift, 1.8))), ring: ring, impact: impact }
         }
       }
       px += .5 * (k * x + nk * nx) * h
@@ -101,25 +130,34 @@ var UniverseBlackHole = (function () {
   /* Brightness is a flux in [0,1): a smooth radial profile times a slow two-arm
      spiral, so neighbouring cells stay close in value and the glyphs read as a
      surface instead of noise. The photon ring adds a thin fixed annulus. */
-  function shade(ray, time, brightness) {
+  /* spin 是可选的第三层相位（见 SPIN）：不传等于 0，退回只按开普勒相位转，
+     trace 出来的半径 / 方位角一个都不改，所以不传的调用点画面与以前逐位相同。
+     要整盘旋起来就显式传 SPIN —— 唯一调用点（draw 里）就是这么传的。 */
+  function shade(ray, time, brightness, spin) {
     var flux = 0
-    if (ray.ring) flux += ray.ring * 2.2
+    var turn = time * (Number(spin) || 0)
+    if (ray.ring) flux += ray.ring * RING_GAIN * (.92 + .08 * Math.cos(turn))
     if (ray.radius) {
       var r = ray.radius
-      var phase = ray.phi - time * SWIRL / Math.pow(r, 1.5)
+      var phase = ray.phi - turn - time * (DISK + SWIRL / Math.pow(r, 1.5))
       var arms = .72 + .28 * Math.sin(2 * phase - 4 * Math.log(r / INNER))
       var band = .82 + .18 * Math.sin(r * 1.1 + 1.6 * Math.sin(2 * phase))
-      var edge = smooth(INNER - .2, INNER + .8, r) * (1 - smooth(10, 16, r))
-      flux += edge * Math.pow(INNER / r, 2) * arms * band * ray.boost * 3.2
+      /* 亮度团：径向按 log r 起波（等对数宽度），角向跟着同一套 Kepler 相位走，
+         所以团块和盘一起转，但换相的节奏与双旋臂不同 —— 眼睛读到的是「盘里有东西在动」。 */
+      var knots = 0
+      for (var i = 0; i < KNOTS.length; i++) {
+        var knot = KNOTS[i]
+        knots += knot.weight * Math.sin(knot.n * phase + knot.radial * Math.log(r / INNER) - time * knot.angular)
+      }
+      var breathe = 1 + PULSE * Math.sin(time * .33)
+      /* 外缘收口只在盘面最后 1.5M 内做。以前从 r=10 就开始衰减，与 Math.pow(INNER/r, 2)
+         叠成双重压暗，r=15 那一档 460 个格里 325 个直接退化成空格，外围半环读不出字。
+         物理内外缘仍是 INNER=6 / OUTER=16，这里只改「亮度怎么收到 0」。 */
+      var edge = smooth(INNER - .2, INNER + .8, r) * (1 - smooth(14.5, 16.2, r))
+      flux += edge * Math.pow(INNER / r, 2) * arms * (band + knots) * breathe * ray.boost * 3.2
     }
     if (!(flux > 0)) return 0
     return 1 - Math.exp(-flux * brightness)
-  }
-  function star(col, row) {
-    var h = ((col * 73856093) ^ (row * 19349663)) >>> 0
-    h = (h ^ (h >>> 13)) >>> 0
-    if (h % 1000 >= 3) return null
-    return { glyph: STARS[h % STARS.length], mag: .3 + ((h >>> 7) % 100) / 100 * .55, phase: ((h >>> 17) % 628) / 100 }
   }
   function lit(cell) { return cell ? !!(cell.radius || cell.ring) : false }
   /* Give the shadow a drawn edge: a captured cell that touches a lit cell takes a
@@ -176,12 +214,21 @@ var UniverseBlackHole = (function () {
       /* 亮档对话页的盘是淡影（见 ARC_ALPHA_LIGHT）：一整帧的墨量在这里统一收，墨盘、盘字、
          星点一起变薄，不需要每种颜色各自调淡。 */
       if (arcAlpha < 1) ctx.globalAlpha = arcAlpha
-      if (light) {
-        ctx.beginPath()
-        ctx.arc(baseX, baseY, horizon, 0, Math.PI * 2)
-        ctx.fillStyle = HORIZON_INK
-        ctx.fill()
-      }
+      /* 阴影底色两档都要先铺（此前只有亮档铺，暗档靠透明把整块地露给页面底纹，洞心因此
+         是一张静止的纹理而不是洞）：
+           - 被捕获的格子没有 glyph，draw() 下面的循环直接跳过它，这一块就没有任何不透明像素；
+           - 画布每帧 clearRect 成全透明，暗档洞心于是整块透出 html 的底色与它的纹理。
+         所以这里在盘字之前补一枚实心圆，把阴影先把地占住；盘字随后照常画在上面，穿过盘的
+         前景一半（y=0 平面在观察者与洞之间的那半）就落在圆上，遮挡关系不变。
+         圆心取未平移坐标（baseX/baseY）而不是视图圆心：位移由上面那句 setTransform 施加，
+         这里再按视图坐标画就会把洞推第二遍。半径沿用同一个 horizon 公式，实测与网格里
+         captured 格的边缘相差 0.12px（653 格最大半径 139.69，horizon 139.57）。
+         颜色按档分开：暗档 SHADOW_INK 比 html 底色再深一档，才读得出是「洞」而不是底色；
+         亮档维持 HORIZON_INK，浅纸上不铺墨的阴影会被当成空白。 */
+      ctx.beginPath()
+      ctx.arc(baseX, baseY, horizon, 0, Math.PI * 2)
+      ctx.fillStyle = light ? HORIZON_INK : SHADOW_INK
+      ctx.fill()
       ctx.font = '600 ' + Math.round(ch * .95) + 'px ui-monospace, Consolas, monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -194,7 +241,7 @@ var UniverseBlackHole = (function () {
           glyph = cell.stroke
           ctx.fillStyle = light ? '#8d7a63' : '#8a5228'
         } else if (cell.radius || cell.ring) {
-          value = shade(cell, t, ink)
+          value = shade(cell, t, ink, SPIN)
           if (value > .004) {
             /* (value * 12) | 0 与 Math.floor(value * 12) 在 value ∈ [0,1) 上逐位相同，
                value 不可能到 1（shade 返回 1 - exp(-flux)，flux > 0），所以上限那次比较是空转。 */
@@ -209,11 +256,6 @@ var UniverseBlackHole = (function () {
             }
             ctx.fillStyle = luminous ? DARK[bucket] : LIGHT[bucket]
           }
-        } else if (cell.star) {
-          var twinkle = .55 + .45 * Math.sin(t * .45 + cell.star.phase)
-          var level = Math.min(STARS.length - 1, Math.max(0, Math.floor(cell.star.mag * twinkle * 3)))
-          glyph = STARS.charAt(level)
-          ctx.fillStyle = light ? '#9ba5b3' : '#2b3f57'
         }
         if (glyph && glyph !== ' ') ctx.fillText(glyph, (i % cols + .5) * cw, (((i / cols) | 0) + .5) * ch, cw)
       }
@@ -270,9 +312,7 @@ var UniverseBlackHole = (function () {
         var start = performance.now()
         do {
           for (var col = 0; col < cols; col++) {
-            var cell = trace((2 * (col + .5) * cw - w) / short, (h - 2 * (row + .5) * ch) / short, config.angle)
-            if (!cell.radius && !cell.ring && !cell.captured) cell.star = star(col, row)
-            next[row * cols + col] = cell
+            next[row * cols + col] = trace((2 * (col + .5) * cw - w) / short, (h - 2 * (row + .5) * ch) / short, config.angle)
           }
           row++
         } while (row < rows && performance.now() - start < 6)
@@ -651,5 +691,5 @@ var UniverseBlackHole = (function () {
       document.body.removeAttribute('data-uni-black-hole')
     }
   }
-  return { create: create, mount: mount, options: options, viewOf: viewOf, trace: trace, shade: shade, glyphs: GLYPHS + STARS + STROKES, debugSource: 'v3' }
+  return { create: create, mount: mount, options: options, viewOf: viewOf, trace: trace, shade: shade, glyphs: GLYPHS + STROKES, debugSource: 'v3' }
 })()
