@@ -1,8 +1,8 @@
 /* The theme's own client glue: apply(), the mount order, and the exports map.
  *
  * tools/build-client.mjs interpolates this file VERBATIM into the generated
- * client.js, next to src/boot-screen.js (which defines mountBootScreen) and the
- * vendored session-status rail (applySessionEvaStatus). It closes over six
+ * client.js, next to src/boot-screen.js (which defines mountBootScreen). It closes
+ * over six
  * values the builder defines above it in the same factory: PLUGIN_ID, TOKENS, MANIFEST,
  * WALLPAPER_DECLARATIONS, CSS and BOOT_CSS. Nothing here is re-parsed by the
  * builder, so the code below is exactly the code that runs — which is the whole
@@ -465,20 +465,6 @@
          must be registered after it. */
       ctx.effect(() => mountBootScreen(), 'universe: boot screen')
 
-      /* The vendored session-status rail (2026-10-09). The user's own plugin, folded
-         in byte for byte, registering its own disposer through ctx.effect — one call,
-         not an effect of ours.
-
-         It marks each session row's left rail (waiting on you / selected / unread
-         completion) and paints the pinned row's title. Its cordis row carried exactly
-         one config value, hideOfficialDot: true — hide the official unread dot on a row
-         this rail has already coloured — which is also resolveConfig()'s own default,
-         so nothing is passed here; the behaviour is the plugin's own row, unchanged.
-
-         The three services it reads (uiSession, sessions, workspaces) are named in the
-         exports.inject below, so the loader hands it a context where they exist. */
-      applySessionEvaStatus(ctx)
-
       /* The composer's model seat (round 50, 2026-10-14): two independent controls
          where the official composer had one merged button. It is called for its own
          side effect -- the seat registration -- and registers through
@@ -765,12 +751,14 @@
     }
 
     exports.name = PLUGIN_ID
-    /* uiSession / sessions / workspaces are the three services the vendored
-       session-status rail reads (its own exports.inject names the same three); naming
-       them here is what makes the loader wait for them, so apply() cannot run against a
-       context where they are still missing and throw. 'remote' and 'locale' stay for
-       the model picker's official remote face and for the workspace rows' locale
-       lookup. */
-    exports.inject = ['theme', 'remote', 'locale', 'uiSession', 'sessions', 'workspaces']
+    /* 'remote' and 'locale' are the model picker's official remote face and the
+       workspace rows' locale lookup. 'sessions' is the picker's own scope too, but it is
+       named here as well so the loader has it resolved before apply() runs. 'workspaces'
+       is src/runtime/pins.js's ctx.get('workspaces') — the pin reorder goes through that
+       service's own insertBefore.
+
+       2026-10-31: 'uiSession' left this list with the vendored session-status rail, which
+       was its only reader. 'workspaces' stays for the pins above, not for the rail. */
+    exports.inject = ['theme', 'remote', 'locale', 'sessions', 'workspaces']
     exports.apply = apply
     return module.exports

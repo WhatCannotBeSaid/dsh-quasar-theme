@@ -27,8 +27,7 @@ function mountEffect(label, bindings) {
   const effects = new Map()
   const context = { get: () => ({}), inject() {}, effect(fn, name) { effects.set(name, fn) } }
   const exports = vm.runInNewContext(`(function () { var module = {exports:{}}; var exports = module.exports; ${clientSource()} })()`, {
-    PLUGIN_ID: 'dsh-universe-theme', TOKENS: {}, MANIFEST: {},
-    applySessionEvaStatus() {}, ...bindings,
+    PLUGIN_ID: 'dsh-universe-theme', TOKENS: {}, MANIFEST: {}, ...bindings,
   })
   exports.apply(context)
   assert.ok(effects.has(label), label)
@@ -42,7 +41,7 @@ test('S10: built artifact registers one loader with unchanged public exports', (
   const exported=registrations[0].factory(name=>{throw Error('unexpected eager require: '+name)})
   assert.equal(exported.name,'dsh-universe-theme')
   assert.equal(typeof exported.apply,'function')
-  assert.deepEqual(Array.from(exported.inject),['theme','remote','locale','uiSession','sessions','workspaces'])
+  assert.deepEqual(Array.from(exported.inject),['theme','remote','locale','sessions','workspaces'])
 })
 
 test('S4: glass cancels queued scan and rejects late observer delivery after disposal', () => {
@@ -195,17 +194,14 @@ test('S5/S8: changed effort content repositions once, including empty and transl
   assert.equal(f.counts().placements, 3)
 })
 
-test('S6: pin and status fallback admit outside mutations until scoped rows return', () => {
+test('S6: the pin fallback admits outside mutations until scoped rows return', () => {
   const source = clientSource()
   const pin = between(source, '        function touches(records)', '        /* Only the row key')
-  const status = between(read('build/session-eva-status.js'), '      function touches(records)', '      const observer =')
-  for (const code of [pin, status]) {
-    const api = vm.runInNewContext(`var scopeHost = {isConnected:true, contains(){return false}}, scopeMissed = true;
-      ${code}; ({touches, scoped() {scopeMissed = false}})`)
-    const records = [{ target: {}, addedNodes: [], removedNodes: [] }]
-    assert.equal(api.touches(records), true)
-    api.scoped(); assert.equal(api.touches(records), false)
-  }
+  const api = vm.runInNewContext(`var scopeHost = {isConnected:true, contains(){return false}}, scopeMissed = true;
+      ${pin}; ({touches, scoped() {scopeMissed = false}})`)
+  const records = [{ target: {}, addedNodes: [], removedNodes: [] }]
+  assert.equal(api.touches(records), true)
+  api.scoped(); assert.equal(api.touches(records), false)
 })
 
 /* The boot mask's one-shot rule. The user's requirement (2026-10-21): the mask plays

@@ -885,7 +885,9 @@ checks.check('cli.11d', 'the client half owns exactly nine effects including the
   if (!/'universe: brand row zones'/.test(client)) return 'the brand row bridge has no label'
   if (!/'universe: workspace pins'/.test(client)) return 'the workspace pin effect has no label'
   if (!/'universe: centred panels'/.test(client)) return 'the panel-centring effect has no label'
-  return /applySessionEvaStatus\(ctx\)/.test(client) || 'the vendored session rail is never applied'
+  /* 2026-10-31: the vendored session rail's effect left with the rail (D105) and the hover
+     lens took the same slot back, so the count above still reads nine. */
+  return /'universe: hover lens'/.test(client) || 'the hover-lens effect has no label'
 })
 /* Round 24 (2026-10-07): liquid glass. The two halves of the effect live in two
    files on purpose -- the sheet names a filter by id, and src/client.js draws the
@@ -982,7 +984,10 @@ checks.check('cli.21', 'the mounting half lives in src/client.js, transformed by
     return 'the strip removed nothing, so this check proves nothing about the transform'
   }
   if (!client.includes(shipped)) return 'the bundle carries a different copy'
-  return /applySessionEvaStatus\(ctx\)/.test(clientJs) || 'src/client.js no longer applies the rail'
+  /* 2026-10-31: this used to also require the rail call, which was the proof that the
+     shipped copy is the one src/client.js writes. The rail is gone (D105); the hover-lens
+     mount is the same kind of one-line call, so it takes over the role. */
+  return /mountHoverLens\(\)/.test(clientJs) || 'src/client.js no longer mounts the hover lens'
 })
 /* cli.21b is the argument cli.21's comment makes, run instead of asserted. Round 7's
    transform removes indentation and normalises CRLF. Both are invisible to the parser
@@ -1089,76 +1094,17 @@ checks.check('cli.22', 'the build reads the mounting half instead of inlining it
   return /\$\{compressJs\(clientJs\)\}/.test(builder) ||
     'the template does not interpolate clientJs through compressJs'
 })
-/* The second vendor (2026-10-09): `build/session-eva-status.js` is the upstream client
-   bundle of the user's `dsh-session-eva-status` v0.1.0, copied byte for byte and sliced
-   into the theme. The two checks below exist so the copy stays the upstream copy (no hand-rolled
-   replacement under the same name), and it must still read the real services -- plus the
-   invariant that makes those reads safe, that the theme's own exports.inject names the
-   same services the vendored body requires, or apply() could run before they exist. */
-checks.check('cli.23', 'the session status rail is the vendored upstream copy', () =>
-  (/移植自 dsh-session-eva-status v0\.1\.0/.test(client) &&
-    /applySessionEvaStatus = \(function/.test(client)) ||
-  'the vendored session-status block is missing from client.js')
-checks.check('cli.24', 'the vendored rail still reads the real session services', () => {
-  const reads = ["requireService(ctx, 'uiSession')", "requireService(ctx, 'workspaces')",
-    "requireService(ctx, 'sessions')"]
-  const missing = reads.filter((call) => !client.includes(call))
-  if (missing.length > 0) return 'the vendored rail lost its service reads: ' + missing.join(', ')
-  const match = client.match(/exports\.inject = \[([^\]]*)\]/)
-  if (match === null) return 'exports.inject not found'
-  const names = match[1].split(',').map((part) => part.trim().replace(/['"]/g, '')).filter(Boolean)
-  const absent = ['uiSession', 'sessions', 'workspaces'].filter((name) => !names.includes(name))
-  return absent.length === 0 ||
-    `exports.inject is missing ${absent.join(', ')} — apply() could run before they exist`
-})
-/* vend.2 (2026-10-16, round 7; the switch's vend.1 was retired on 2026-10-25 when that
-   plugin became a standalone npm package). Before this round the vendored factory
-   body rode in the bundle byte for byte, and the file's own comment said so. Round 7
-   normalises their layout (CRLF -> LF, leading indentation dropped) to stop shipping
-   ~7,000 characters of indentation, which means the byte-for-byte claim is no longer true
-   and must not be left standing in a comment. It is replaced here by a CHECKED claim of
-   the same strength: re-slice the body out of the upstream file the same way the build
-   does, apply the same normalisation, and require the bundle to contain it. So the
-   property "this block is the upstream block" is still enforced — now it survives a
-   formatting change, and a hand-edit to either the copy or the upstream file still fails.
-
-   What is deliberately NOT claimed any more: byte identity. The body keeps every
-   comment (that is the point of normalising rather than stripping them), so a reviewer
-   can still read the vendored source in place. */
-const sliceVendor = (relative, open, tail) => {
-  const src = read(relative)
-  const openAt = src.indexOf(open)
-  const tailAt = src.indexOf(tail)
-  if (openAt < 0 || tailAt < openAt) return null
-  return src.slice(openAt + open.length, tailAt)
-}
-const normaliseVendor = (text) => text.replace(/\r\n?/g, '\n').replace(/^[ \t]+/gm, '')
-checks.check('vend.2', 'the session-status body in the bundle is the upstream body, minus layout', () => {
-  const body = sliceVendor('build/session-eva-status.js', 'factory: () => {', 'return module.exports')
-  if (body === null) return 'build/session-eva-status.js: factory boundaries not found'
-  if (!/exports\.apply = apply/.test(body)) return 'the sliced body lost its exports map'
-  if (!client.includes(normaliseVendor(body))) return 'the bundle does not carry the normalised body'
-  if (normaliseVendor(body) === body) {
-    return 'the normalisation changed nothing, so this check cannot tell a re-vendor from a no-op'
-  }
-  return /移植自 dsh-session-eva-status v0\.1\.0/.test(client) ||
-    'the provenance marker is gone from the bundle'
-})
-
-/* D78 (2026-10-09): the rail is the one vendored block the theme patches by hand, so the
-   three patches are pinned here. cli.23 only checks the provenance markers, not the body:
-   a refresh of the upstream copy (D29/D77) that silently drops a patch would be a silent
-   performance regression. This is a tripwire for those three spots, not a hash. */
-checks.check('cli.27', 'the vendored rail still carries its three theme-side patches', () => {
-  const patches = [
-    ['the frame-coalesced schedule', /frame = window\.requestAnimationFrame\(\(\) => \{/],
-    ['the compare-then-write pin attribute',
-      /if \(row\.getAttribute\(PIN_ATTR\) !== 'true'\) row\.setAttribute\(PIN_ATTR, 'true'\)/],
-    ['the disposal of the pending frame', /window\.cancelAnimationFrame\(frame\)/],
-  ]
-  const missing = patches.filter(([, re]) => !re.test(client)).map(([name]) => name)
-  return missing.length === 0 || `the vendored rail lost its patches: ${missing.join(', ')}`
-})
+/* 2026-10-31: the second vendor is gone. `build/session-eva-status.js` was the upstream
+   client bundle of the user's own `dsh-session-eva-status` v0.1.0, copied byte for byte
+   and sliced into the theme; it painted the session list's left rail (waiting on you /
+   selected / unread completion) and the pinned row's rainbow. The user asked for all of
+   it to be removed ("全部删除，包括指定，我们自己重新设计"), so the file, the slice in
+   tools/build-client.mjs, the call in src/client.js and the five checks that guarded the
+   copy all went: cli.23 (provenance), cli.24 (service reads + exports.inject), vend.2
+   (re-slice equivalence), cli.27 (the three hand patches) and their sliceVendor /
+   normaliseVendor helpers. The checks are deleted rather than disabled on purpose: a gate
+   that cannot fail is worse than no gate, because it still reads like coverage. The theme
+   now paints no session status of its own; a replacement is designed separately. */
 /* Round 39 (2026-10-09): the workspace pin control. It is the theme's own code, so it is
    held to the theme's own standard: the row hook it selects on is the official data
    attribute's real shape (a workspace row keys itself on its own id, and the ungrouped

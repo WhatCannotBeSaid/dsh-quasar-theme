@@ -115,9 +115,6 @@ const cssPaint = css.replace(/\/\*[\s\S]*?\*\//g, '')
  *
  * Why the JS half is stripped too: these files are interpolated with the template hole
  * into a module factory, so their comments are compiled and discarded on every load.
- * The VENDORED file (build/session-eva-status.js) is deliberately NOT stripped: its
- * comments are the provenance evidence that cli.23 pins ("移植自 …"), so removing
- * them would destroy a contract.
  * src/client.js was left out here in round 5 because cli.21 asserted the shipped bundle
  * still contains its header comment; round 6 made that gate change and now strips it too
  * (see P5d below, and docs/perf-report-4-2026-10-16.md).
@@ -225,6 +222,9 @@ const cssPaint = css.replace(/\/\*[\s\S]*?\*\//g, '')
  * wrappers are template text, so they ship: 25,792 − 306 = 25,486, which is the measured
  * bundle delta (764,027 -> 738,541). Full report: docs/perf-report-5-2026-10-16.md. */
 // normaliseJs / compressJs are imported; historical rationale remains above.
+// 2026-10-31: the second vendored body (session-eva-status) was removed at the user's
+// request, so "two" above now reads as one. normaliseJs has no caller left here; the
+// import stays so the wrapper contract above still describes a real transform.
 
 /* P5c (2026-10-15, performance round 5): whitespace minimisation, applied to the three
  * sheets only — never to a JS input, where a newline is sometimes significant (ASI) and
@@ -467,55 +467,6 @@ const declarations = [
   `  --cp-brand-mark: url("data:image/png;base64,${brandMark}");`,
   '}',
 ].join('\n')
-/* ------------------------------------------- vendored: session status rail
- * 2026-10-09: the same treatment for the user's other plugin, `dsh-session-eva-status`
- * v0.1.0 (MIT, same author) — the session list's left rail: one colour per state, a
- * breathing track while a session waits on the user, and the static rainbow on a pinned
- * row. It is VENDORED, not rewritten, for the reason D29 gives for the switch (the code
- * is tested; a hand copy would introduce silent behavioural drift), and the mechanical
- * handling below is the switch's, repeated rather than shared so each copy stays
- * readable on its own:
- *   · the factory body is sliced between its own boundaries — the cutter throws rather
- *     than guessing if either boundary is missing;
- *   · it is wrapped in an IIFE, because its top level owns module, exports, apply,
- *     PLUGIN_ID, STYLE_ID and a dozen more names that must not reach the theme's;
- *   · it is interpolated with `${…}` — verbatim — so its own backticks and `${` need no
- *     escaping (same lesson as the switch: escaping is only for text written literally
- *     inside a template, never for a value handed to it).
- * Its `apply(ctx, rawConfig)` registers its own `ctx.effect` disposer, so the theme
- * calls it once. The row in its own cordis.patch.yml carried exactly one config value,
- * hideOfficialDot: true, which is resolveConfig()'s own default, so the call passes
- * nothing. Refresh it by copying the new lib/client.js over the copy. */
-const VENDOR_STATUS_OPEN = 'factory: () => {'
-const VENDOR_STATUS_TAIL = 'return module.exports'
-const statusSrc = readFileSync(join(ROOT, 'build', 'session-eva-status.js'), 'utf8')
-const statusOpenAt = statusSrc.indexOf(VENDOR_STATUS_OPEN)
-const statusTailAt = statusSrc.indexOf(VENDOR_STATUS_TAIL)
-if (statusOpenAt < 0 || statusTailAt < statusOpenAt) {
-  throw new Error('build/session-eva-status.js: factory boundaries not found — re-vendor it')
-}
-const statusBody = statusSrc.slice(statusOpenAt + VENDOR_STATUS_OPEN.length, statusTailAt)
-if (!/function apply\(ctx, rawConfig\)/.test(statusBody)) {
-  throw new Error('build/session-eva-status.js: the factory body has no apply(ctx, rawConfig)')
-}
-/* The cut has to land after the exports map: a body that still ended in
- * `return module.exports` would not hand back `apply` at all, and the bundle would
- * fail at load time rather than here. */
-if (!/exports\.apply = apply/.test(statusBody)) {
-  throw new Error('build/session-eva-status.js: the tail cut landed before the exports map')
-}
-const sessionEvaStatusJs = [
-  '    /* --- 移植自 dsh-session-eva-status v0.1.0（MIT，同一作者）---',
-  '     * 原样 vendor：下面这段是它 factory 的主体，只做了两处机械处理 ——',
-  '     * 包进 IIFE（它顶层有 module / exports / apply / PLUGIN_ID 等名字，',
-  '     * 不包会与主题自己的名字撞车），以及用 ${…} 直接插值。',
-  '     * 它自己的 apply(ctx) 用 ctx.effect 注册清理，主题只负责调用一次。',
-  '     * P5e (round 7, 2026-10-16) 追加第三处：主体本身过 normaliseJs，',
-  '     * 由 selfcheck 的 vend.2 以重新切片证明等价。 */',
-  '    var applySessionEvaStatus = (function () {',
-  normaliseJs(statusBody),
-  '    ; return apply })()',
-].join('\n')
 
 /* ------------------------------------------------ brand-mark stylesheet (2026-10-27)
  * The mark is the user's ink-brush artwork. The component (src/runtime/brand-logo.js) only
@@ -645,14 +596,7 @@ const banner = `/**
  *      reads batches, not the whole document: records outside its own row are dropped
  *      before any query runs.
  *
- *   8. build/session-eva-status.js — the user's other plugin, vendored byte for byte
- *      (MIT, same author) and wrapped in an IIFE. It registers the last disposer
- *      and paints the session list's left rail (waiting on you / selected / unread
- *      completion, plus the pinned row's rainbow). Its own apply() reads the uiSession,
- *      sessions and workspaces services, which is why the exports map below names all
- *      three in its inject list.
- *
- * Eight is pinned by tools/selfcheck.mjs (cli.11d), so another effect cannot slip in
+ * Seven is pinned by tools/selfcheck.mjs (cli.11d), so another effect cannot slip in
  * unnoticed.
  *
  * The effect disposers are the whole uninstall story: the theme is one removable
@@ -686,7 +630,6 @@ window.__ModuleLoader__.load({
     var BRAND_LOGO_CSS = ${JSON.stringify(BRAND_LOGO_CSS)}
 ${compressJs(bootJs)}
 ${compressJs(pickerJs)}
-${sessionEvaStatusJs}
 ${compressJs(clientJs)}
   },
 })

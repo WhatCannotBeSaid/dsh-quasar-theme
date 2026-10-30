@@ -93,6 +93,14 @@ behavior is covered by tools/runtime.test.mjs. No pristine upstream checkout/has
 was available for this change; this does not claim byte equivalence to upstream.
 Refreshing the file from upstream must re-apply and test the listed patches.
 
+Removed 2026-10-31: build/session-eva-status.js was taken out of this repository at
+the user's request (moved to the recycle bin; it is not shipped anywhere and no part
+of it reaches client.js any more). The theme now paints no session status of its own;
+a replacement is designed separately. What went with the file: the slice and IIFE in
+tools/build-client.mjs, the applySessionEvaStatus call in src/client.js, and the four
+gates that guarded the copy in tools/selfcheck.mjs (cli.23, cli.24, vend.2, cli.27).
+The paragraphs above stay as the record of what was vendored while it was here.
+
 Removed 2026-10-25 (eva-inspired-theme 1.3.0): build/plugin-toggle.js was dropped
 from this repository. dsh-disable-unofficial-plugins is published on its own now,
 so the theme no longer vendors, patches or ships any part of it; install it

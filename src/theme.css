@@ -2122,8 +2122,9 @@ body [data-composer-placeholder] {
  * ask_user_question 里点名为「提问」卡（同一缺口的另两张 —— 计划待审 / 等待审批 —— 本轮不动）。
  *
  * 「待处理状态」的来历：本表不产生这个词，官方包里它只作 todo 状态用；把它指成这张卡的是
- * 主题自己的状态轨 `build/session-eva-status.js:12`「pending 有待处理的交互（批准 / 提问 /
- * 计划评审）」，即官方的 `pendingInteraction` —— main 区域那时显示的正是这三张卡片之一。
+ * 官方 `pendingInteraction` —— main 区域那时显示的正是「批准 / 提问 / 计划评审」三张卡片之一。
+ * （2026-10-31 补注：这句原先引的是本主题曾内置的状态轨 `build/session-eva-status.js`，该文件
+ * 已按用户要求整份移除，判断所依据的事实改为直接引用官方字段。）
  *
  * 根因（源码位置，不是观感推断）：三张卡片的填充都是
  * `background: var(--dsw-specific-input-major)`（提问卡见
