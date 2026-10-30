@@ -407,6 +407,7 @@
         }
       }, 'universe: page backgrounds')
       ctx.effect(() => mountLiquidGlass(), 'universe: liquid glass')
+      ctx.effect(() => mountHoverLens(), 'universe: hover lens')
 
       ctx.effect(() => {
         if (typeof document === 'undefined') return

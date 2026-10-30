@@ -2263,3 +2263,313 @@ body [data-composer-placeholder] {
   padding-right: 8px;
 }
 
+/* ------------------------------------------------------------------------
+ * 视界引力（2026-10-30，第四十七轮）
+ *
+ * 用户原话：「重新设计悬停效果，现在还是有背景色和边框，我要的是完全无背景和
+ * 无边框」。此前两版都被否：1px 实线环、暖金 box-shadow 光晕。原因是同一个——
+ * 只要效果围着元素矩形画出来，不管它叫 border 还是 box-shadow，眼睛一律读成
+ * 边框。所以这一版把载体从「矩形」换成「几何」。
+ *
+ * 经 /grilling 八问定稿：底座是纯几何的向心塌陷——悬停时元素整体缩到 0.97
+ * （纯图标按钮 0.90）。矩形上不写 border、不写 background、不写 box-shadow、
+ * 不建伪元素、不发光。会话行再叠一层重力透镜（src/runtime/lens.js 已在跑）。
+ *
+ * 为什么只能是缩放：它是唯一既不生成盒子、又不改布局、还不往矩形上画东西的
+ * 通道。用的是独立的 scale 属性而不是 transform —— 实测宿主的发送键自己带
+ * translateY(-2px)，往 transform 里写会把它吃掉。代价有两个，都在落码后实测：
+ *   ① 缩放同样会重建 absolute/fixed 后代的包含块、创建层叠上下文（实测这 84
+ *      个元素内部 0 个绝对/固定定位后代，暂不触发）；
+ *   ② 缩放会连带改命中区，鼠标停在最外 2% 边上可能来回抖。
+ *
+ * 幅度为什么分两档：同一个百分比在大面和小面上不是一回事。发送键 34px 缩
+ * 0.96 只有 1.4px，肉眼看不出来；会话行 256px 用同一比例要缩掉 10px，边界
+ * 会跳。图标按钮走 0.90，其余走 0.97。
+ *
+ * 节奏：进入 220ms、离开 160ms，缓动 cubic-bezier(0.2, 0.85, 0.15, 1) ——
+ * 前段快、尾段收，读作被引力拽了一下然后停住。
+ *
+ * 底色：只压「透明面悬停时凭空浮出的那层 6%」（官方 --dsw-alias-interactive-
+ * bg-hover）。实心面（发送键的蓝、新建会话的白卡、添加文件的浅灰圆）保留宿主
+ * 自己的填充深浅 —— 它们本来就有底色，悬停只是同色变化，不产生多出来的背景。
+ *
+ * 选中态一律不碰（[aria-selected='true'] 排除在外），与 2026-10-07 的定案
+ * 一致。亮暗两档同一条规则：塌陷与颜色无关，不需要分档。
+ * ------------------------------------------------------------------------ */
+
+/* 静止态只声明过渡，不声明缩放值 —— 宿主若自带 transform（实测发送键就是
+   translateY(-2px)），这里不去覆盖它；所以缩放走独立的 scale 属性，而不是往
+   transform 里拼，两者会各自合成，宿主的位移不会被吃掉。
+   none 到 0.97 的插值由浏览器按 1 处理。
+   transition 里补的三条是宿主原本就有的淡变（实测 84 个元素里 7 个带
+   color/border-color/background 的 0.12s 过渡），不补会被这一条覆盖掉。 */
+body[data-uni-motion] button,
+body[data-uni-motion] [role='button'],
+body[data-uni-motion] [data-row-key],
+body[data-uni-motion] [data-dockkit-tab],
+body[data-uni-motion] [data-dsh-panel-entry],
+body[data-uni-motion] [data-disclosure-row],
+body[data-uni-motion] [data-sidebar-right-guide-entry],
+body[data-uni-motion] [data-uni-ws-pin-button],
+body[data-uni-motion] [role='menuitem'],
+body[data-uni-motion] [role='menuitemcheckbox'],
+body[data-uni-motion] [role='menuitemradio'],
+body[data-uni-motion] [role='option'],
+body[data-uni-motion] [role='tab'],
+body[data-uni-motion] [role='radio'],
+body[data-uni-motion] [role='checkbox'],
+body[data-uni-motion] [role='switch'],
+body[data-uni-motion] [role='combobox'],
+body[data-uni-motion] [role='treeitem'] {
+  transform-origin: 50% 50%;
+  transition: scale 160ms cubic-bezier(0.2, 0.85, 0.15, 1), color 120ms, border-color 120ms, background-color 120ms;
+  /* 透明面悬停时凭空浮出的那层 6% 底色，是宿主用这支令牌画的。把令牌就地改
+     成 transparent，等于让官方那条规则自己画不出东西 —— 比逐个元素写
+     background-color: transparent 更准：实心面（发送键的蓝、白卡）悬停时改的
+     是自己的填充色，不经过这支令牌，所以不会被误伤。实测：图标按钮悬停底色
+     从 rgba(38,49,72,0.06) 回到透明，发送键仍是 rgb(65,118,230)。
+     accent 那支是同一件事的高亮版（菜单项、列表项悬停走它，实测下拉菜单里
+     `[role='menuitem']` 悬停就是这支），一并压掉；solid / danger / active 三支
+     不动 —— solid 是实心面自己的深浅、danger 是危险操作的红色语义、active 是
+     选中态，压掉会伤状态表达，与「实心面保留宿主填充」「选中态一律不碰」两条
+     定案冲突。
+
+     下面四支是 2026-10-30 补的第二批：宿主不是所有悬停都走 generic 那支。设置
+     面板左侧导航走 `--dsw-specific-sidebar-nav-item-hover`（实测悬停立刻浮出一块
+     实心 rgb(241,243,245)，正是用户说的「设置还是默认背景」），工具条按钮走
+     `-button-tool-bar-hover`，对话轮触发器走 `-turn-trigger-bg-hover`，中性填充
+     面走 `-fill-hover`。这四支在整张表里**只出现在 background 声明里**（逐个扫
+     过 styleSheets 确认，无一处用于 color），所以就地压成 transparent 不会把文
+     字一起弄没。`-button-floating-hover` 与 `-button-primary-hover` 不动：它们
+     是浮动/主按钮自己的填充深浅，属「实心面保留宿主填充」。 */
+  --dsw-alias-interactive-bg-hover: transparent;
+  --dsw-alias-interactive-bg-hover-accent: transparent;
+  --dsw-alias-fill-hover: transparent;
+  --dsw-alias-button-tool-bar-hover: transparent;
+  --dsw-specific-sidebar-nav-item-hover: transparent;
+  --dsw-alias-turn-trigger-bg-hover: transparent;
+}
+
+/* 悬停：向心塌陷。元素整体缩向中心，边界向内收，读作被引力抓住、正在落向
+   视界。矩形上依旧什么都没有。
+   transform-origin 钉回 50% 50%：实测宿主给这些元素留了各不相同的像素原点
+   （有的 108px 12px、有的 14px 14px），不钉死就变成"朝某个角缩"。
+   行不在这条里 —— 行走下面的「父级悬停」，理由见那里；所以 [role='treeitem']
+   也只进静态那条（拿令牌压制与过渡），不进这条（否则行的边缘抖动会回来）。
+   角色那批是 2026-10-30 补的覆盖面：设置面板、插件列表、模型选择弹层、权限
+   弹层的行不是 button 也不是 [data-row-key]，是 menuitem / option / tab 这类
+   角色，漏了它们，那些界面悬停就还是官方那层淡色底。 */
+body[data-uni-motion] button:not(:has([data-slot='sidebar.brand.name'])):hover,
+body[data-uni-motion] [role='button']:not([aria-selected='true']):hover,
+body[data-uni-motion] [data-dockkit-tab]:hover,
+body[data-uni-motion] [data-dsh-panel-entry]:hover,
+body[data-uni-motion] [data-disclosure-row]:hover,
+body[data-uni-motion] [data-sidebar-right-guide-entry]:hover,
+body[data-uni-motion] [data-uni-ws-pin-button]:hover,
+body[data-uni-motion] [role='menuitem']:not([aria-selected='true']):hover,
+body[data-uni-motion] [role='menuitemcheckbox']:hover,
+body[data-uni-motion] [role='menuitemradio']:hover,
+body[data-uni-motion] [role='option']:not([aria-selected='true']):hover,
+body[data-uni-motion] [role='tab']:not([aria-selected='true']):hover,
+body[data-uni-motion] [role='radio']:hover,
+body[data-uni-motion] [role='checkbox']:hover,
+body[data-uni-motion] [role='switch']:hover,
+body[data-uni-motion] [role='combobox']:hover {
+  scale: 0.97;
+  transform-origin: 50% 50%;
+  transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1), color 120ms, border-color 120ms, background-color 120ms;
+}
+
+/* 纯图标按钮（发送键、添加文件、侧栏折叠）尺寸天然小，同一比例看不出位移，
+   单独走 0.90。:has() 的权重按最具体的参数算，所以这条压得住上一条。
+   2026-10-30 跟着作用域一起放到 body[data-uni-motion]：设置面板、浮层里的关闭
+   按钮同样是小图标，留在 root 里会让它们只缩 3%，与侧栏那批不一致。 */
+body[data-uni-motion] button:has(> svg:only-child):hover {
+  scale: 0.9;
+}
+
+/* 品牌三件套（Logo / WHALE-01 / SYSTEM）没有各自的外层包装，三者同在一个
+   button 里：Logo 与字标是两个 SPAN，SYSTEM 是主题自己用 button::after 画的
+   标签，没有对应元素。所以「父级悬停」这套隔离用不上 —— 它们的最近共同祖先
+   就是那条 216px 的按钮，挂上去等于三者一起缩，正是要修掉的连坐。
+   只能各挂各的：
+   · Logo → 承载它的 SPAN 自己缩到 0.90。它是 24×17.66，命中区只内移 0.36px，
+     指针停在边上也不会抖。
+   · WHALE-01 → 承载它的 SPAN 自己缩到 0.97。这个 SPAN 同时是宿主的「新会话」
+     点击区，命中区与点击区一致，没有凭空多出来的触发范围。
+   · SYSTEM → 缩 button::after 本身。伪元素的缩放不改按钮的盒子，命中区稳定；
+     另补一条抑制规则：指针落在任一 SPAN 上时把标签还原。
+   抑制用「高权重规则写回 scale: 1」而不是 :not(:has(…:hover)) —— 实测后者在
+   指针从 SPAN 移进标签区时不重算，标签会一直停在被抑制的状态（读到 none）。
+   通用那条 button:hover 已用 :not(:has([data-slot='sidebar.brand.name'])) 把
+   品牌按钮排除在外，所以这里三者互不连坐，也不带动整条按钮。 */
+body [data-slot='root'] span:has(> [data-slot='sidebar.brand.mark']),
+body [data-slot='root'] span:has(> [data-slot='sidebar.brand.name']),
+body [data-slot='root'] button:has([data-slot='sidebar.brand.name'])::after {
+  transform-origin: 50% 50%;
+  transition: scale 160ms cubic-bezier(0.2, 0.85, 0.15, 1);
+}
+
+body [data-slot='root'] span:has(> [data-slot='sidebar.brand.mark']):hover {
+  scale: 0.9;
+  transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1);
+}
+
+body [data-slot='root'] span:has(> [data-slot='sidebar.brand.name']):hover {
+  scale: 0.97;
+  transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1);
+}
+
+body [data-slot='root'] button:has([data-slot='sidebar.brand.name']):hover::after {
+  scale: 0.9;
+  transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1);
+}
+
+body [data-slot='root'] button:has([data-slot='sidebar.brand.name']):has(> :hover)::after {
+  scale: 1;
+}
+
+/* 行的塌陷、底色压制与透镜，一律挂在「父级」悬停上。父级是每行专属的包装
+   （实测 15 行都是同尺寸 SPAN，:only-child 正好把它们挑出来），它不参与缩放，
+   所以指针停在行边缘时命中状态稳定。
+   为什么不能直接写在行上：行缩到 0.97 后左右各内移 4px，指针若落在这 4px 里，
+   命中就 hover→unhover→hover 无限循环 —— 实测光标停在左边 2px 处，scale 在
+   0.97 与 1.0 之间连续振荡，肉眼就是边缘持续抽搐。 */
+body [data-slot='root'] *:has(> [data-row-key]:only-child):hover > [data-row-key]:not([aria-selected='true']) {
+  scale: 0.97;
+  background-color: transparent;
+  border-color: transparent;
+}
+
+/* 主角透镜的位移图由 src/runtime/lens.js 在挂载时算好，CSS 只负责在悬停时接
+   上。行是透明底，透镜直接透到天空画布；与塌陷同时发生，读作空间被压弯、物
+   体被吸近。 */
+body [data-slot='root'] *:has(> [data-row-key^='session:']:only-child):hover > [data-row-key^='session:']:not([aria-selected='true']) {
+  backdrop-filter: url(#uni-lens-row);
+}
+
+/* 「更多」弹出层里的行没有专属包装（父级同时装 7–8 行，用父级悬停会连坐整
+   列），只能退回元素自身悬停；边缘抖动仍在，但只影响这个弹出层。 */
+body [data-slot='root'] [data-row-key]:not(:only-child):not([aria-selected='true']):hover {
+  scale: 0.97;
+  background-color: transparent;
+  border-color: transparent;
+}
+
+/* reduced-motion：不播塌陷，悬停直接落在终态。这里必须 !important —— 悬停
+   那条多了 :not([aria-selected='true']):hover 两级，权重高过本条的静态规则，
+   不加会被它写回的 220ms 盖掉。 */
+body[data-uni-motion='reduced'] button,
+body[data-uni-motion='reduced'] [role='button'],
+body[data-uni-motion='reduced'] [data-row-key],
+body[data-uni-motion='reduced'] [data-dockkit-tab],
+body[data-uni-motion='reduced'] [data-dsh-panel-entry],
+body[data-uni-motion='reduced'] [data-disclosure-row],
+body[data-uni-motion='reduced'] [data-sidebar-right-guide-entry],
+body[data-uni-motion='reduced'] [role='menuitem'],
+body[data-uni-motion='reduced'] [role='menuitemcheckbox'],
+body[data-uni-motion='reduced'] [role='menuitemradio'],
+body[data-uni-motion='reduced'] [role='option'],
+body[data-uni-motion='reduced'] [role='tab'],
+body[data-uni-motion='reduced'] [role='radio'],
+body[data-uni-motion='reduced'] [role='checkbox'],
+body[data-uni-motion='reduced'] [role='switch'],
+body[data-uni-motion='reduced'] [role='combobox'],
+body[data-uni-motion='reduced'] [role='treeitem'],
+body[data-uni-motion='reduced'] span:has(> [data-slot='sidebar.brand.mark']),
+body[data-uni-motion='reduced'] span:has(> [data-slot='sidebar.brand.name']),
+body[data-uni-motion='reduced'] button:has([data-slot='sidebar.brand.name'])::after,
+body[data-uni-motion='reduced'] [data-uni-ws-pin-button] {
+  transition: none !important;
+}
+
+/* ============================================================================
+ * 选中态：引力透镜 + 多普勒红移（2026-10-30，第四十八轮）
+ * ----------------------------------------------------------------------------
+ * 与上面「视界引力」悬停是两套独立现象，不共享链：悬停 = 元素向心塌陷，
+ * 选中 = 字形本身被光线改变。选中态一律不位移（scale 不动），只动
+ * text-shadow，所以布局零影响。
+ *
+ * 现象一 · 引力透镜（设置导航、模型列表当前项、权限列表当前项、会话标签页、
+ * 停靠面板标签、右侧栏指南条目）
+ *   物理模型：非奇异等温球（NIS）透镜。偏折角随碰撞参数上升并饱和：
+ *     α(θ) = θE · ( √(θ² + s²) − s ) / θ
+ *   θ → 0 时 α → 0，字形中心不受偏折，所以字芯清晰；θ ≫ s 时 α → θE，
+ *   字形边缘达到饱和偏折。取核心尺度 s = 1.1px（约等于 12px 字号的笔画
+ *   半宽），边界饱和偏折 θE = 0.5px。
+ *   渲染：CSS 无法真正弯曲字形几何，于是按「两级像」画法实现 —— 主像在
+ *   边界处偏折 θE，用 ±0.5px 的极淡副本贴轮廓压出折射边；次级像位于
+ *   3.2θE ≈ 1.6px 处，用 30% 的副本画成与字芯分离的极细重影。原字形始终
+ *   在最上层，所以字芯完全清晰，只有边缘多出一圈重影。
+ *   消色差：副本一律用 currentColor（字形自身颜色），不做任何色相偏移。
+ *   引力透镜对可见光是消色差的 —— 弯曲改变光程，不改变波长。
+ *
+ * 现象二 · 多普勒红移（侧栏会话行，[data-row-key^='session:'] 且 aria-selected）
+ *   物理模型：吸积盘绕转，视线方向速度 β = v/c。相对论多普勒频移
+ *     λ_obs / λ_emit = √( (1+β) / (1−β) )
+ *   取 β = 0.045（约 1.35 万 km/s，黑洞吸积盘内区的量级）：
+ *     远离侧 √(1.045 / 0.955) = 1.046 → 波长拉长 4.6%
+ *     朝向侧 √(0.955 / 1.045) = 0.956 → 波长压缩 4.4%
+ *   盘的一侧朝观察者运动（蓝移），另一侧远离（红移），所以渲染成横向
+ *   光谱分离：左侧 −0.62px 青（短波端）、右侧 +0.62px 红（长波端），
+ *   再各加一层 −1.35px / +1.35px 的淡层做渐次衰减。
+ *   青取 brand-primary（#87cbd5 / #006874），红取 state-error-primary
+ *   （#f1938c / #ab413e），两支都是主题令牌，不写字面色值。
+ *
+ * 禁止项（用户规格）：背景、边框、下划线全部不许有。凡是宿主用底色或
+ * 下划线表达「选中」的，就地压成 transparent / none，锚点交给字形本身。
+ *
+ * 参与范围：只有主文字。会话行里图标位（第 1 个子元素）、时间戳与行操作区
+ * （第 3、4 个子元素）全部 reset 掉 text-shadow —— 图标是 svg 本就不吃
+ * text-shadow，时间戳和操作区需要显式清。
+ *
+ * 无动画：选中是即时状态，不加 transition（也避免和悬停的 220ms 打架）。
+ * ========================================================================= */
+
+body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'],
+body[data-uni-motion] [aria-current='true'],
+body[data-uni-motion] [role='menuitemradio'][aria-checked='true'],
+body[data-uni-motion] [role='menuitem'][class*='_selected_'],
+body[data-uni-motion] [role='tab'][aria-selected='true'],
+body[data-uni-motion] [data-dockkit-tab][aria-selected='true'],
+body[data-uni-motion] [data-sidebar-right-guide-entry][aria-selected='true'] {
+  background-color: transparent;
+  border-color: transparent;
+  text-decoration-line: none;
+}
+
+/* 引力透镜：两级像。
+   近层 ±0.5px 是主像在字形边界处的偏折量 θE（18%/14%），贴着轮廓走，
+   只把边缘压出一点折射边；远层 ±1.6px 是次级像，位移 3.2θE，透明度 30%
+   —— 与字芯分离约 1.6px，所以读作「重影」而不是「加粗」。
+   只取水平方向：偏折沿透镜径向，文字是横向排布，径向分量主要落在水平轴上；
+   竖直方向留 0.5px 的极淡一圈，避免边缘断掉。
+   currentColor 保证消色差，跟着主题文字色（暗档浅、亮档深）自动变。 */
+body[data-uni-motion] [aria-current='true'],
+body[data-uni-motion] [role='menuitemradio'][aria-checked='true'],
+body[data-uni-motion] [role='menuitem'][class*='_selected_'],
+body[data-uni-motion] [role='tab'][aria-selected='true'],
+body[data-uni-motion] [data-dockkit-tab][aria-selected='true'],
+body[data-uni-motion] [data-sidebar-right-guide-entry][aria-selected='true'] {
+  text-shadow:
+    -1.6px 0 0 color-mix(in srgb, currentColor 30%, transparent),
+    1.6px 0 0 color-mix(in srgb, currentColor 30%, transparent),
+    -0.5px 0 0 color-mix(in srgb, currentColor 18%, transparent),
+    0.5px 0 0 color-mix(in srgb, currentColor 18%, transparent),
+    0 0.5px 0 color-mix(in srgb, currentColor 14%, transparent),
+    0 -0.5px 0 color-mix(in srgb, currentColor 14%, transparent);
+}
+
+/* 多普勒：左蓝移（朝观察者）、右红移（远离），β = 0.045 → Δλ/λ = ±4.6%。 */
+body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] {
+  text-shadow:
+    -0.62px 0 0 color-mix(in srgb, var(--dsw-alias-brand-primary) 84%, transparent),
+    0.62px 0 0 color-mix(in srgb, var(--dsw-alias-state-error-primary) 80%, transparent),
+    -1.35px 0 0 color-mix(in srgb, var(--dsw-alias-brand-primary) 36%, transparent),
+    1.35px 0 0 color-mix(in srgb, var(--dsw-alias-state-error-primary) 32%, transparent);
+}
+
+/* 只主文字参与：时间戳与行操作区不带色散（图标位是 svg，本就不受影响）。 */
+body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] > span:nth-child(n+3) {
+  text-shadow: none;
+}
