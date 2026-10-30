@@ -1,9 +1,12 @@
 /* Original ASCII thin-disk renderer. No third-party code or font copied.
  * Geometry: Schwarzschild null geodesics in Cartesian form, x'' = -3 L^2 x / r^5,
- * G=M=c=1, from a fixed 60M observer. Capture is analytic (impact parameter
- * under 3*sqrt(3)), so the shadow is exact and costs no integration; the disk is
- * the first crossing of the y=0 plane inside 6M..20M, with the photon ring
- * drawn from rays that graze the critical impact parameter.
+ * G=M=c=1, from a fixed 60M observer. Capture is decided by the integration
+ * (r < CAPTURE_R); it is not an analytic impact-parameter test, and the traced
+ * capture edge only matches b = 3*sqrt(3) to the tolerances pinned in the tests.
+ * The disk terminates at the first crossing of the y=0 plane inside 6M..16M.
+ * The bright ring is a separate Canvas layer: a narrow Gaussian on the flat
+ * impact parameter |o x v| (RING_CORE, expressed in impact units), not radiation
+ * summed from higher-order disk images.
  * The camera keeps a fixed vertical field of view, so the shadow always spans
  * the same share of the viewport and the disk can be composed around it.
  * On light paper the shadow is painted as solid ink before the disk, because an
@@ -12,7 +15,7 @@
  * Cells are traced once per geometry change; only the orbital phase is
  * recalculated per frame. */
 var UniverseBlackHole = (function () {
-  var GLYPHS = ' .-:;+*o#%@'
+  var GLYPHS = ' .-:;+*o#%@' /* 11 档，索引 0..10；lastGlyph = length - 1 */
   var STROKES = '|-/\\'
   var defaults = { angle: 15, fps: 30, maxCells: 16000, cellWidth: 6, brightness: 1, speed: 1 }
   var DISTANCE = 60
@@ -29,13 +32,17 @@ var UniverseBlackHole = (function () {
   var RING_INK_DARK = '#f3dcae'
   var RING_INK_LIGHT = '#6b3f14'
   var TAN_HALF = B_CRIT / DISTANCE / SHADOW_SHARE
-  var RING_WIDTH = 0.32
+  /* 阴影在屏幕上的半径比例：有限距离临界光线的真实投影，不是 SHADOW_SHARE 的取整。
+     b_c = 3√3 处的平嵌坐标满足 tanψ_c = b_c/√(D² − (1−2/D)·b_c²)，rho_c = tanψ_c/TAN_HALF。
+     SHADOW_SHARE 从此只定视场（TAN_HALF），不再决定阴影画多大。 */
+  var CRIT_RATIO = B_CRIT / Math.sqrt(DISTANCE * DISTANCE - (1 - 2 / DISTANCE) * B_CRIT * B_CRIT) / TAN_HALF
+  /* 有限距离观察者的 √(1−2/D)：只用来把 r 处的频移换算成观察者测到的总频移。 */
+  var SQRT_FD = Math.sqrt(1 - 2 / DISTANCE)
   /* 光子环的可见性（第八阶段）：几何照旧，只收紧映射。
-     RING_CORE 把高斯重新归一化到原先的峰值强度（exp(0)=1），所以临界线上的环还是那么亮；
-     变窄的是两侧的衰减 —— 0.32 的 σ 折到屏幕约 20px 的软过渡，比字符格宽两倍，线被摊成雾。
-     RING_GAIN 是环项单独吃的增益，让它在高字形区独占：盘即使有 0.5 的亮度也抢不到 '%'。 */
+     RING_CORE 是 impact 参数空间里的高斯 σ（与 |o x v| 同单位，M），不是屏幕半径的比例，
+     也不随视口缩放；高斯峰值仍为 1（exp(0)），所以临界线上的环还是那么亮。
+     环权重只喂 Canvas 层：它既不是完整的辐射输运，也不参与 ASCII 盘的亮度。 */
   var RING_CORE = 0.15
-  var RING_GAIN = 3.1
   var SWIRL = 16
   /* 静止态的自转：盘相位是「角向位置 - time * SWIRL / r^1.5」，只有这一项时整盘是一张固定
      的花纹在滑行，读不出「洞在转」。这里补三件逐帧便宜的事：
@@ -85,11 +92,12 @@ var UniverseBlackHole = (function () {
     var t = Math.min(1, Math.max(0, (x - lo) / (hi - lo)))
     return t * t * (3 - 2 * t)
   }
-  /* Trace one ray. The disk is sampled on every crossing of the y=0 plane, so
-     the half in front of the hole is drawn too; only a ray that actually falls
-     inside the photon sphere becomes shadow. The impact parameter is kept as a
-     sky glow so the critical curve stays a crisp ring. */
-  function trace(u, v, angle) {
+  /* 相机初值与光子环权重。trace() 与环层烘焙共用这一份公式：烘焙先用它筛掉不可能
+     达到 ring > .004 的像素，再去积分，算出来的权值仍是 trace() 里那一个。
+     初速度按欧氏范数归一（|v|=1），所以 L=|o×v| 是角动量模长，不是 L/E。能量归一化
+     E0=√(1−2L²/D³) 放到 trace 入口算一次，不放进这里 —— 环预筛要为每个被丢弃的像素
+     调用 launch，这里多一次开方就多一份白算。b=Jy0/E0 才是无量纲的轴向角动量比。 */
+  function launch(u, v, angle) {
     var a = angle * Math.PI / 180, sa = Math.sin(a), ca = Math.cos(a)
     var ox = 0, oy = DISTANCE * sa, oz = DISTANCE * ca
     var vx = u * TAN_HALF, vy = -sa + v * TAN_HALF * ca, vz = -ca - v * TAN_HALF * sa
@@ -97,44 +105,183 @@ var UniverseBlackHole = (function () {
     var lx = oy * vz - oz * vy, ly = oz * vx - ox * vz, lz = ox * vy - oy * vx
     var l2 = lx * lx + ly * ly + lz * lz
     var impact = Math.sqrt(l2)
-    /* 光子环权重：窄高斯，峰值仍为 1。RING_WIDTH 保留为「名义宽度」，实际曲线用 RING_CORE
-       —— 见上方常量的说明。 */
-    var ring = Math.exp(-Math.pow((impact - B_CRIT) / RING_CORE, 2))
-    var x = ox, y = oy, z = oz, px = vx, py = vy, pz = vz
-    for (var i = 0; i < 420; i++) {
-      var r2 = x * x + y * y + z * z, r = Math.sqrt(r2)
-      if (r < 2.05) return { captured: true }
-      if (r > 108 && x * px + y * py + z * pz > 0) break
-      var h = Math.min(2.6, Math.max(.06, r * .07))
-      var k = -3 * l2 / (r2 * r2 * r)
-      var nx = x + px * h + .5 * k * x * h * h
-      var ny = y + py * h + .5 * k * y * h * h
-      var nz = z + pz * h + .5 * k * z * h * h
-      var nr2 = nx * nx + ny * ny + nz * nz, nk = -3 * l2 / (nr2 * nr2 * Math.sqrt(nr2))
-      if (y * ny <= 0) {
-        var f = y / (y - ny), qx = x + (nx - x) * f, qz = z + (nz - z) * f
-        var dr = Math.sqrt(qx * qx + qz * qz)
-        if (dr >= INNER && dr <= OUTER) {
-          var dx = px + .5 * (k * x + nk * nx) * h, dy = py + .5 * (k * y + nk * ny) * h,
-            dz = pz + .5 * (k * z + nk * nz) * h
-          var toward = (qz * dx - qx * dz) / (dr * Math.sqrt(dx * dx + dy * dy + dz * dz))
-          var beta = Math.sqrt(1 / (dr - 2))
-          var shift = Math.sqrt(1 - 2 / dr) * Math.sqrt(1 - beta * beta) / (1 - beta * toward)
-          return { radius: dr, phi: Math.atan2(qz, qx), boost: Math.min(1.7, Math.max(.4, Math.pow(shift, 1.8))), ring: ring, impact: impact }
+    /* 光子环权重：impact 空间的窄高斯，峰值仍为 1；σ 是 RING_CORE，见上方说明。 */
+    return { x: ox, y: oy, z: oz, px: vx, py: vy, pz: vz, l2: l2, impact: impact,
+      ring: Math.exp(-Math.pow((impact - B_CRIT) / RING_CORE, 2)) }
+  }
+  /* 积分与事件参数。原来的变步长 velocity-Verlet 只有二阶精度、盘面交点用线性插值、
+     420 步耗尽与正常逃逸返回同一个结果，近临界光线（临界曲线两侧约 1e-3 的屏幕带）
+     因此既漏盘也误判终态。这里换成自适应 DP5(4)：局部位移误差按分量相对量控制，
+     盘面交点用三次 Hermite 求根，资源耗尽单独成为一种终态。 */
+  /* 单步相对误差上限：6 个分量各自除以 1+|状态| 后取最大。1e-9 是实测选的：再用 1e-7 时
+     (0,.34125) 的首个盘内交点偏 4.25e-3M，1e-8 偏 5.7e-4M，1e-9 偏 3.0e-5M，1e-11 偏
+     9.0e-7M。误差随 tol 收紧而单调下降，说明那 4e-3 是可复现的容差不足、不是临界混沌；
+     但收敛**不是**严格的线性关系 —— 相邻两档的误差比在 7.5 / 19 / 33 之间变动，所以不能拿
+     「tol 小一个量级就准一个量级」去外推别的目标或别的角度。1e-9 的步数只比 1e-7 多三成。 */
+  var STEP_TOL = 1e-9
+  var STEP_MAX = 2.6       /* 单步上限，与原来的 h 上限一致 */
+  var STEP_BUDGET = 2400   /* 单条射线的步数预算（含被拒绝的尝试） */
+  /* 单步方位角上限。它只是在步首按当时的 r 估计一步该走多少：h·L/r² ≤ 0.4 时取整步。
+     r 在步内继续下降时，实际扫过的方位角会比这个估计值大，所以它不是「一步内最多一个
+     y=0 交点」的保证 —— 那个保证没有证明过，事件检测也不依赖它。 */
+  var ANGLE_CAP = .4
+  var CAPTURE_R = 2.05     /* 落到 2.05M 以内：必然继续下落 */
+  var ESCAPE_R = 108       /* 已远且仍在向外 */
+  var DP_A = [
+    [1 / 5],
+    [3 / 40, 9 / 40],
+    [44 / 45, -56 / 15, 32 / 9],
+    [19372 / 6561, -25360 / 2187, 64448 / 6561, -212 / 729],
+    [9017 / 3168, -355 / 33, 46732 / 5247, 49 / 176, -5103 / 18656],
+    [35 / 384, 0, 500 / 1113, 125 / 192, -2187 / 6784, 11 / 84]
+  ]
+  var DP_B = [35 / 384, 0, 500 / 1113, 125 / 192, -2187 / 6784, 11 / 84, 0]
+  var DP_E = [-71 / 57600, 0, 71 / 16695, -71 / 1920, 17253 / 339200, -22 / 525, 1 / 40]
+  /* 7 个阶段的导数缓冲与工作向量。trace() 不重入（网格与环层都是串行调用），
+     复用同一块内存，免得每条射线都扔一堆短命数组给 GC。 */
+  var K = [], S = [0, 0, 0, 0, 0, 0], NEXT = [0, 0, 0, 0, 0, 0], ERR = [0, 0, 0, 0, 0, 0]
+  var HV = [0, 0]
+  for (var kInit = 0; kInit < 42; kInit++) K.push(0)
+  /* 一步 DP5(4)：s 是 6 维状态 [x,y,z,px,py,pz]，结果写进 out，局部位移误差写进 err。 */
+  function dpStep(s, h, l2, out, err) {
+    var i, j, c, w, x, y, z, px, py, pz, r2, k, sum, esum
+    for (i = 0; i < 7; i++) {
+      x = s[0]; y = s[1]; z = s[2]; px = s[3]; py = s[4]; pz = s[5]
+      if (i > 0) {
+        var row = DP_A[i - 1]
+        for (j = 0; j < row.length; j++) {
+          w = h * row[j]; c = j * 6
+          if (w === 0) continue
+          x += w * K[c]; y += w * K[c + 1]; z += w * K[c + 2]
+          px += w * K[c + 3]; py += w * K[c + 4]; pz += w * K[c + 5]
         }
       }
-      px += .5 * (k * x + nk * nx) * h
-      py += .5 * (k * y + nk * ny) * h
-      pz += .5 * (k * z + nk * nz) * h
-      x = nx; y = ny; z = nz
+      r2 = x * x + y * y + z * z
+      k = -3 * l2 / (r2 * r2 * Math.sqrt(r2))
+      c = i * 6
+      K[c] = px; K[c + 1] = py; K[c + 2] = pz
+      K[c + 3] = k * x; K[c + 4] = k * y; K[c + 5] = k * z
     }
-    return { captured: false, ring: ring, impact: impact }
+    for (i = 0; i < 6; i++) {
+      sum = 0; esum = 0
+      for (j = 0; j < 7; j++) { sum += DP_B[j] * K[j * 6 + i]; esum += DP_E[j] * K[j * 6 + i] }
+      out[i] = s[i] + h * sum; err[i] = h * esum
+    }
   }
-  /* Brightness is a flux in [0,1): the disk carries lanes and knots advected by
-     the Keplerian phase, the photon ring adds a fixed thin annulus. */
+  /* 三次 Hermite：用两端的位置与切向插值 y=0 的穿越位置。切线取 h*y'，
+     于是插值在两端与积分器的高阶解同值同导，比线性插值少一个量级的定位误差。 */
+  function hermite(t, h, p0, m0, p1, m1, out) {
+    var t2 = t * t, t3 = t2 * t
+    var h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t
+    var h01 = -2 * t3 + 3 * t2, h11 = t3 - t2
+    out[0] = h00 * p0 + h10 * h * m0 + h01 * p1 + h11 * h * m1
+    out[1] = ((6 * t2 - 6 * t) * p0 + (3 * t2 - 4 * t + 1) * h * m0 +
+      (-6 * t2 + 6 * t) * p1 + (3 * t2 - 2 * t) * h * m1) / h
+  }
+  /* 二分求 y=0 的穿越时刻。端点约定：y1 恰为 0 时交点就是本步终点，返回 1；y0 恰为 0 时交点
+     属于上一步终点（那一步已经计过），返回 -1；其余只有严格异号才有根。
+     这里只认「异号」或「端点恰为 0」，因此一步内同号的多个根（偶数个）不会被发现，
+     一步内奇数次穿越时二分也只收敛到其中一个。ANGLE_CAP 让实际扫过角通常小于 π，
+     实践中很难落到这些情形，但代码没有证明它不会发生，也不做多根拆分。 */
+  function crossFraction(y0, m0, y1, m1, h) {
+    if (y0 === 0) return -1
+    if (y1 === 0) return 1
+    if (!(y0 * y1 < 0)) return -1
+    var lo = 0, hi = 1, t, f
+    for (var i = 0; i < 48; i++) {
+      t = (lo + hi) * .5
+      hermite(t, h, y0, m0, y1, m1, HV)
+      f = HV[0]
+      if (f * y0 > 0) lo = t; else hi = t
+    }
+    return (lo + hi) * .5
+  }
+  /* 盘面交点：落在 6M..16M 环带里才算命中，否则这条射线继续往外走。
+     频移按圆形轨道物质的引力红移＋多普勒算：
+       g = √(1−3/r) / [√(1−2/D) · (1 − r^−1.5 · b)]
+     b 是初始轴向角动量比 Jy0/E0（有符号，随盘面旋转方向），不是事件处的坐标切向；
+     √(1−3/r) 里已经含了轨道时间膨胀 √(1−β²)，不必再乘 √(1−2/r)。
+     命中记录只存未夹限的 g⁴（第二十九阶段）：发射项的频移权重就是 g⁴，在构建命中记录时
+     用四次乘法算一次，逐帧不再出现 pow/sqrt，也没有积分。旧的 ^1.8 显示映射与 [0.4,1.7]
+     限幅已整体移除，不保留 boost 兼容字段 —— 盘亮度随 g⁴ 走，不再为复刻旧亮度二次归一。 */
+  function diskHit(qx, qz, ring, impact, steps, axialB) {
+    var dr = Math.sqrt(qx * qx + qz * qz)
+    if (!(dr >= INNER && dr <= OUTER)) return null
+    var g = Math.sqrt(1 - 3 / dr) / (SQRT_FD * (1 - Math.pow(dr, -1.5) * axialB))
+    var g4 = g * g * g * g
+    return { radius: dr, phi: Math.atan2(qz, qx),
+      g4: g4,
+      ring: ring, impact: impact, captured: false, terminal: 'disk', steps: steps }
+  }
+  /* Trace one ray. The disk terminates at the first crossing of the y=0 plane
+     that falls inside 6M..16M; a crossing outside that band does not stop the
+     ray, so a higher-order image can still be reached later. Only a ray that
+     actually falls inside CAPTURE_R becomes shadow. The flat-coordinate impact
+     parameter |o x v| is kept as the ring weight for the Canvas layer, whose
+     crisp edge is painted separately; it is not a sky glow.
+     返回的 terminal 区分四种结局：'disk' 命中首个盘内交点、'capture' 落入、
+     'escape' 逃逸、'exhausted' 步数预算耗尽 —— 耗尽不是逃逸，它只说明这次没算完，
+     调用方据此既不能把它当成物理终态，也不该静默当成成功。
+     budget 可覆盖单条射线的步数预算（不传或非正数＝STEP_BUDGET）。它只给耗尽注入与
+     网格的有限重试用，不改变初值、容差与任何几何。 */
+  function trace(u, v, angle, budget) {
+    var cam = launch(u, v, angle)
+    var ring = cam.ring, impact = cam.impact, l2 = cam.l2
+    /* 首个守恒量：初速度按 |v|=1 归一，故 E0=√(1−2L²/D³)；轴向角动量 Jy0 就是 launch
+       里的 ly = oz·vx − ox·vz。b=Jy0/E0 无量纲，有符号，符号随盘面旋转方向。 */
+    var energy0 = Math.sqrt(1 - 2 * l2 / (DISTANCE * DISTANCE * DISTANCE))
+    var axialB = energy0 > 0 ? (cam.z * cam.px - cam.x * cam.pz) / energy0 : 0
+    var inverse = l2 > 0 ? 1 / Math.sqrt(l2) : 0
+    var limit = budget > 0 ? budget : STEP_BUDGET
+    var s = S
+    s[0] = cam.x; s[1] = cam.y; s[2] = cam.z
+    s[3] = cam.px; s[4] = cam.py; s[5] = cam.pz
+    var h = .25, tries = 0
+    for (;;) {
+      var x = s[0], y = s[1], z = s[2], px = s[3], py = s[4], pz = s[5]
+      var r2 = x * x + y * y + z * z, r = Math.sqrt(r2)
+      if (r < CAPTURE_R) return { captured: true, terminal: 'capture', ring: ring, impact: impact, steps: tries }
+      if (r > ESCAPE_R && x * px + y * py + z * pz > 0) {
+        return { captured: false, terminal: 'escape', ring: ring, impact: impact, steps: tries }
+      }
+      if (tries >= limit) {
+        return { captured: false, terminal: 'exhausted', ring: ring, impact: impact, steps: tries }
+      }
+      var hh = h
+      if (inverse && hh > ANGLE_CAP * r2 * inverse) hh = ANGLE_CAP * r2 * inverse
+      if (hh > STEP_MAX) hh = STEP_MAX
+      dpStep(s, hh, l2, NEXT, ERR)
+      tries++
+      /* 误差范数：分量相对量（1+|状态| 作尺度）取最大，只有全部达标才接受这一步。 */
+      var scale = 0
+      for (var i = 0; i < 6; i++) {
+        var err = Math.abs(ERR[i]) / (STEP_TOL * (1 + Math.max(Math.abs(s[i]), Math.abs(NEXT[i]))))
+        if (err > scale) scale = err
+      }
+      if (!(scale <= 1)) { h = hh * Math.max(.1, .9 * Math.pow(scale, -.2)); continue }
+      /* 事件判定：严格异号，或这一步恰好落在 y=0 上（NEXT[1] === 0）而本步起点不在盘面上。
+         端点交点交给 crossFraction 的端点约定处理（y1===0 → 1），下一步从 y=0 起步时
+         y0===0 返回 -1，同一个交点不会被相邻两步各计一次。 */
+      if (y * NEXT[1] < 0 || (NEXT[1] === 0 && y !== 0)) {
+        var f = crossFraction(y, py, NEXT[1], NEXT[4], hh)
+        var hit = null
+        if (f > 0) {
+          hermite(f, hh, x, px, NEXT[0], NEXT[3], HV); var qx = HV[0]
+          hermite(f, hh, z, pz, NEXT[2], NEXT[5], HV); var qz = HV[0]
+          hit = diskHit(qx, qz, ring, impact, tries, axialB)
+        }
+        if (hit) return hit
+      }
+      s[0] = NEXT[0]; s[1] = NEXT[1]; s[2] = NEXT[2]
+      s[3] = NEXT[3]; s[4] = NEXT[4]; s[5] = NEXT[5]
+      h = hh * (scale > 0 ? Math.min(4, Math.max(.2, .9 * Math.pow(scale, -.2))) : 4)
+    }
+  }
   /* Brightness is a flux in [0,1): a smooth radial profile times a slow two-arm
      spiral, so neighbouring cells stay close in value and the glyphs read as a
-     surface instead of noise. The photon ring adds a thin fixed annulus. */
+     surface instead of noise. The artificial ring weight does not enter this
+     flux (phase 15 moved it to the Canvas layer), and that weight is not a
+     radiative-transfer result. */
   /* spin 是可选的第三层相位（见 SPIN）：不传等于 0，退回只按开普勒相位转，
      trace 出来的半径 / 方位角一个都不改，所以不传的调用点画面与以前逐位相同。
      要整盘旋起来就显式传 SPIN —— 唯一调用点（draw 里）就是这么传的。 */
@@ -161,7 +308,7 @@ var UniverseBlackHole = (function () {
          叠成双重压暗，r=15 那一档 460 个格里 325 个直接退化成空格，外围半环读不出字。
          物理内外缘仍是 INNER=6 / OUTER=16，这里只改「亮度怎么收到 0」。 */
       var edge = smooth(INNER - .2, INNER + .8, r) * (1 - smooth(14.5, 16.2, r))
-      flux += edge * Math.pow(INNER / r, 2) * arms * (band + knots) * breathe * ray.boost * 3.2
+      flux += edge * Math.pow(INNER / r, 2) * arms * (band + knots) * breathe * ray.g4 * 3.2
     }
     if (!(flux > 0)) return 0
     return 1 - Math.exp(-flux * brightness)
@@ -171,16 +318,18 @@ var UniverseBlackHole = (function () {
      而字符格高将近 10px —— ASCII 网格再密也表达不出一条连续细环，只会读成断续的亮点。
      这里不再走字符，改为在「环可能出现的那一圈」里按像素采样 trace() 的 impact，
      把 ring 权重烘成一张透明遮罩，逐帧只贴这张遮罩。
-     烘焙只在初始化 / 视口变化 / 相关配置变化时做一次，逐帧零测地线积分。 */
+     烘焙只在初始化 / 视口变化 / 相关配置变化时做一次，逐帧零测地线积分。
+     返回的 state 只有 'ready' 与 'incomplete'：只要有一条参与烘焙的射线步数耗尽，
+     整张遮罩就不发布（canvas 为 null、drawn 计数保留），由调用方决定怎么处理。 */
   function bakeRing(w, h, angle) {
     /* 测试桩与精简 DOM 里可能没有 createElement / getContext / createImageData：
        没有精细环层就退回纯 ASCII，不能让整个渲染器挂掉。 */
     if (!document || typeof document.createElement !== 'function') return null
     var short = Math.max(1, Math.min(w, h))
-    var horizon = SHADOW_SHARE * short / 2
+    var horizon = CRIT_RATIO * short / 2
     /* 采样窗口：环峰随方位角在 140..215px 之间移动（下方被前景盘拉出一段外扩），
        窗口必须按实测最外环峰留余量，不能只贴阴影半径。
-       映射与 buildGrid 的 :387 完全一致：分母是 short，不是本窗口边长。 */
+       映射与网格构建（chunk 里那次 trace 调用）完全一致：分母是 short，不是本窗口边长。 */
     var outer = horizon * 1.75
     var size = Math.ceil(outer) * 2
     if (!(size > 0) || size > 4096) return null
@@ -194,7 +343,24 @@ var UniverseBlackHole = (function () {
     var data = image.data
     var cx = size / 2, cy = size / 2
     var start = performance.now()
-    var peak = 0
+    var peak = 0, attempted = 0, drawn = 0, exhausted = 0, retried = 0, unresolved = 0
+    var pending = []
+    /* 一个像素的落笔：终态未定、被捕获、权重不够的一律不写。抽成函数是为了让
+       「首轮」与「有限重试」共用同一段判据，重试不会因为漏抄一个条件而写出不同的像素。 */
+    function plot(row, col, rad, ray) {
+      if (ray.terminal === 'exhausted') return false
+      if (ray.captured) return false
+      var weight = ray.ring
+      if (!(weight > .004)) return false
+      /* 跨越内切边缘的一像素做线性淡入，避免硬切出一道新的圆边。 */
+      if (rad < horizon + 1.5) weight *= (rad - horizon - .5)
+      if (weight > peak) peak = weight
+      var i4 = (row * size + col) * 4
+      data[i4] = 255; data[i4 + 1] = 255; data[i4 + 2] = 255
+      data[i4 + 3] = 255 * Math.pow(weight, 1.7)
+      drawn++
+      return true
+    }
     for (var row = 0; row < size; row++) {
       var sy = cy - row - .5
       for (var col = 0; col < size; col++) {
@@ -206,20 +372,41 @@ var UniverseBlackHole = (function () {
            画：形状、粗细与径向外沿仍完全由 trace() 的 ring 值决定，切掉的只是被判为
            已经进入阴影的那部分。 */
         if (rad < horizon + .5 || rad > outer) continue
-        var ray = trace((2 * sx) / short, (2 * sy) / short, angle)
-        if (ray.captured) continue
-        var weight = ray.ring
-        if (!(weight > .004)) continue
-        /* 跨越内切边缘的一像素做线性淡入，避免硬切出一道新的圆边。 */
-        if (rad < horizon + 1.5) weight *= (rad - horizon - .5)
-        if (weight > peak) peak = weight
-        var i4 = (row * size + col) * 4
-        data[i4] = 255; data[i4 + 1] = 255; data[i4 + 2] = 255
-        data[i4 + 3] = 255 * Math.pow(weight, 1.7)
+        var u = (2 * sx) / short, v = (2 * sy) / short
+        /* 先用同一份 launch() 公式筛掉注定 ring ≤ .004 的像素，再审积分：环峰只占这一圈
+           里约 1/14 的面积，其余像素的积分结果最后都会被这一个判定丢掉。判定顺序没变
+           （先 captured 后权重），输出与逐像素全积分逐位相同。 */
+        if (!(launch(u, v, angle).ring > .004)) continue
+        attempted++
+        var ray = trace(u, v, angle)
+        /* 步数耗尽的射线没有终态：既不能当成「逃逸所以环在这里」，也不能静默丢掉像素 ——
+           丢掉的像素会在遮罩上留下空洞，而调用方完全看不到这件事。 */
+        if (ray.terminal === 'exhausted') { exhausted++; pending.push([row, col, rad, u, v]); continue }
+        plot(row, col, rad, ray)
       }
     }
+    /* 与网格同一条有限恢复策略：只重算耗尽的那几格，预算翻倍一次，不做第二次。
+       网格能在翻倍预算下救回的射线，环层也不该因为同一条射线整张作废；
+       仍然算不完才整张不发布。 */
+    if (pending.length) {
+      for (var pi = 0; pi < pending.length; pi++) {
+        var p = pending[pi]
+        retried++
+        var again = trace(p[3], p[4], angle, STEP_BUDGET * 2)
+        if (again.terminal === 'exhausted') unresolved++
+        else plot(p[0], p[1], p[2], again)
+      }
+    }
+    var ms = performance.now() - start
+    /* 有射线没算完，遮罩就整体不发布：state 与计数一起返回，调用方据此知道环层为什么缺，
+       而不是拿到一张看着正常、实际上缺了像素的图。 */
+    if (unresolved) return { canvas: null, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak,
+      ms: ms, state: 'incomplete', attempted: attempted, drawn: drawn, exhausted: exhausted,
+      retried: retried, unresolved: unresolved }
     octx.putImageData(image, 0, 0)
-    return { canvas: off, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak, ms: performance.now() - start }
+    return { canvas: off, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak, ms: ms,
+      state: 'ready', attempted: attempted, drawn: drawn, exhausted: exhausted,
+      retried: retried, unresolved: 0 }
   }
   /* 阴影描边曾在这里给被捕获格写 stroke 字符。第十五阶段已整体移除：
      它既不随时间动（只在 buildGrid 里算一次），也不属于吸积盘，
@@ -234,16 +421,38 @@ var UniverseBlackHole = (function () {
     if (!ctx) throw Error('Canvas 2D unavailable')
     var disposed = false, raf = 0, buildTimer = 0, generation = 0, elapsed = 0, previous = 0, lastDraw = -Infinity
     var visible = true, frames = 0, totalPaint = 0, maxPaint = 0, buildCpu = 0, w = 0, h = 0, cols = 0, rows = 0, grid = [], cw = 8, ch = 12, ready = false, mode = 'dark', applied = false, arcAlpha = 1, modeHook = null
+    /* 最近一次网格构建的诊断：state 只可能是 ready / failed / building / 空（还没建过）。
+       rays 是格数，exhausted 是首次耗尽格数，retried 是重算过的格数，unresolved 是重算后
+       仍然耗尽的格数，budget 是首次预算。 */
+    var buildDiag = null
     /* dpr 必须在 create() 这一层：draw() 用它算位移变换，resize() 用它定缓冲区尺寸，
        以前它只活在 resize() 里，位移那行一跑到就是 ReferenceError。 */
     var dpr = 1
-    /* 环遮罩缓存：只在视口尺寸或仰角变化时重烘一次，逐帧零成本。 */
-    var bakedRing = null, bakedFor = ''
+    /* 环遮罩缓存：只在视口尺寸或仰角变化时重烘一次，逐帧零成本。
+       ringDiag 是环层的诊断：bakeRing 返回 incomplete / 不可用时不发布遮罩，原因留在这里。 */
+    var bakedRing = null, bakedFor = '', ringDiag = null
     function ensureRing() {
       var key = w + 'x' + h + '@' + config.angle
       if (bakedRing && bakedFor === key) return
       bakedFor = key
-      bakedRing = w > 0 && h > 0 ? bakeRing(w, h, config.angle) : null
+      var baked = w > 0 && h > 0 ? bakeRing(w, h, config.angle) : null
+      /* 只有完整烘完的遮罩才进缓存。incomplete 的遮罩整张作废：贴上去等于静默发布缺像素的环。 */
+      if (baked && baked.state === 'ready' && baked.canvas) {
+        bakedRing = baked
+        ringDiag = { state: 'ready', size: baked.size, attempted: baked.attempted,
+          drawn: baked.drawn, exhausted: baked.exhausted, retried: baked.retried,
+          unresolved: baked.unresolved, peak: baked.peak, ms: baked.ms }
+      } else {
+        bakedRing = null
+        /* drawn 记的是「真正发布出去」的像素数，所以失败分支永远是 0；
+           烘到一半才被作废的那些像素记在 discarded 上，两个数分开，
+           否则从 stats 上看不出整张遮罩是被丢弃的、也看不出丢了多少。 */
+        ringDiag = baked
+          ? { state: baked.state, size: baked.size, attempted: baked.attempted, drawn: 0,
+            discarded: baked.drawn, exhausted: baked.exhausted, retried: baked.retried,
+            unresolved: baked.unresolved, peak: baked.peak, ms: baked.ms }
+          : { state: 'unavailable' }
+      }
       tintedRing = {}
     }
     /* 遮罩是白色 + alpha，贴图前按档染一次色：同一张遮罩只染一次，逐帧不再重绘。
@@ -268,7 +477,7 @@ var UniverseBlackHole = (function () {
     function draw() {
       if (disposed || !w || !h || !ready) return
       var start = performance.now(), light = mode === 'light'
-      var horizon = SHADOW_SHARE * Math.min(w, h) / 2
+      var horizon = CRIT_RATIO * Math.min(w, h) / 2
       /* 圆心从 viewOf() 拿：它已经含了位移，而位移要靠 setTransform 生效，所以下面画字之前
          必须把「含位移的圆心」减去位移换回未平移的画布坐标。直接拿 view.x 当画布坐标只在
          viewX = 0 时成立 —— 对话页一让洞出画，整个盘的格子就会被再推一次位移，整片跑到右边去。 */
@@ -300,8 +509,9 @@ var UniverseBlackHole = (function () {
          所以这里在盘字之前补一枚实心圆，把阴影先把地占住；盘字随后照常画在上面，穿过盘的
          前景一半（y=0 平面在观察者与洞之间的那半）就落在圆上，遮挡关系不变。
          圆心取未平移坐标（baseX/baseY）而不是视图圆心：位移由上面那句 setTransform 施加，
-         这里再按视图坐标画就会把洞推第二遍。半径沿用同一个 horizon 公式，实测与网格里
-         captured 格的边缘相差 0.12px（653 格最大半径 139.69，horizon 139.57）。
+         这里再按视图坐标画就会把洞推第二遍。半径沿用同一个 horizon 公式；1256×821 的
+         网格里 capture 格的最大格心半径 139.88px，与本阶段 horizon 140.0787px 相差约
+         0.20px（旧取整半径 139.57px 时约 0.31px），阴影圆与网格判据仍对齐在 1px 内。
          颜色按档分开：暗档 SHADOW_INK 比 html 底色再深一档，才读得出是「洞」而不是底色；
          亮档维持 HORIZON_INK，浅纸上不铺墨的阴影会被当成空白。 */
       ctx.beginPath()
@@ -334,11 +544,19 @@ var UniverseBlackHole = (function () {
       for (var i = 0; i < grid.length; i++) {
         var cell = grid[i], glyph = '', value = 0, bucket = 0
         if (cell.radius) {
-          /* 环带内不落任何字符：环由 bakeRing 的精细层独占，字符压在环上会把闭环打断。
-             上界 150 是环层实际可见的最外半径（360 方向实测 147.6px，留 2.4px 余量）。 */
-          var gx = (i % cols + .5) * cw - baseX, gy = (((i / cols) | 0) + .5) * ch - baseY
-          var gd = Math.sqrt(gx * gx + gy * gy)
-          if (gd >= horizon - 1 && gd <= 150) continue
+          /* 盘格一律照常显影：这里以前有一条 "if (gd >= horizon - 1 && gd <= 150) continue"，
+             拿「环层肉眼可见的最外半径」150px 当遮罩，把阴影外整条环带里的盘格一起跳过，
+             好让 Canvas 环层不被字符打断。但那条带子里本来就有一半是有效前景盘（近侧盘面
+             压在洞前），而 150 是个跟窗口无关的固定像素 —— 1256×821 只挡掉 2.6%，
+             800×400 挡掉 65%，全是同一批几何没道理地被吃掉。
+             现在环带里照常落字：环层仍在上一步整张画好，字符压在其上，洞外没有盘交点的地方
+             照旧只有环、没有字。注意字符是稀疏的 ASCII 格，环仍会从字缝里透出来 ——
+             视觉上得到的是「环上叠字」，不是严格意义上的「盘把环挡住」。要让环在盘后真正
+             消失，就得按逐像素的盘命中再生成一条遮罩去削环层；但那条遮罩并不只覆盖「有效
+             前景盘」—— 环带里凡是射线命中盘面的像素都会被削，其中既有近侧前景盘，也有盘在
+             洞后方那一段（它同样在环的位置上），还有本来靠环自身贡献信号的像素，所以它不是
+             一次纯粹的「前景盘遮住环」。本阶段明确不做，也没有做。
+             遮挡没有放松：被捕获的格子没有 radius，依旧一个字都不落。 */
           value = shade(cell, t, ink, SPIN)
           if (value > .004) {
             /* (value * 12) | 0 与 Math.floor(value * 12) 在 value ∈ [0,1) 上逐位相同，
@@ -404,6 +622,7 @@ var UniverseBlackHole = (function () {
       rows = Math.max(1, Math.floor(h / (cw * 1.5))); ch = h / rows
       var next = new Array(cols * rows), row = 0, short = Math.max(1, Math.min(w, h))
       buildCpu = 0
+      buildDiag = { state: 'building', rays: 0, exhausted: 0, retried: 0, unresolved: 0, budget: STEP_BUDGET }
       canvas.dataset.blackHoleState = 'building'
       function chunk() {
         buildTimer = 0
@@ -416,8 +635,39 @@ var UniverseBlackHole = (function () {
           row++
         } while (row < rows && performance.now() - start < 6)
         buildCpu += performance.now() - start
-        if (row < rows) buildTimer = setTimeout(chunk, 0)
-        else { silhouette(next, cols, rows); grid = next; ready = true; canvas.dataset.blackHoleState = 'ready'; sync() }
+        if (row < rows) { buildTimer = setTimeout(chunk, 0); return }
+        finishBuild(next, short)
+      }
+      function finishBuild(next, short) {
+        var i, q
+        /* 耗尽格先做一次有限恢复：只重算耗尽的那几格，预算翻倍（2400 → 4800），不改变初值、
+           容差与几何，也不做第二次重试。仍然耗尽的格让整张网格失败闭合。
+           重试也是构建成本，必须计进 buildCpu，否则 stats 上的构建耗时会漏掉这一段。 */
+        var retryStart = performance.now()
+        var bad = []
+        for (i = 0; i < next.length; i++) if (next[i] && next[i].terminal === 'exhausted') bad.push(i)
+        for (i = 0; i < bad.length; i++) {
+          q = bad[i]
+          var qr = (q / cols) | 0, qc = q - qr * cols
+          next[q] = trace((2 * (qc + .5) * cw - w) / short, (h - 2 * (qr + .5) * ch) / short, config.angle, STEP_BUDGET * 2)
+        }
+        var left = 0
+        for (i = 0; i < next.length; i++) if (next[i] && next[i].terminal === 'exhausted') left++
+        buildCpu += performance.now() - retryStart
+        buildDiag = { state: left ? 'failed' : 'ready', rays: next.length, exhausted: bad.length,
+          retried: bad.length, unresolved: left, budget: STEP_BUDGET }
+        if (left) {
+          /* 没算完的射线不能伪装成逃逸、捕获或命中：整张网格作废，画布明确置为失败态并清空。
+             ready 保持 false，所以 draw() / tick() 都不会再把这张网格当成可用结果。 */
+          grid = []; ready = false
+          canvas.dataset.blackHoleState = 'failed'
+          stop()
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+          ctx.clearRect(0, 0, w, h)
+          return
+        }
+        silhouette(next, cols, rows); grid = next; ready = true
+        canvas.dataset.blackHoleState = 'ready'; sync()
       }
       if (w > 0 && h > 0) buildTimer = setTimeout(chunk, 0)
     }
@@ -464,7 +714,7 @@ var UniverseBlackHole = (function () {
       pose: function (next) { config = options(Object.assign({}, config, next)) },
       view: function () {
         var v = viewOf(w, h, config)
-        return { x: v.x, y: v.y, radius: SHADOW_SHARE * Math.min(w, h) / 2, width: w, height: h }
+        return { x: v.x, y: v.y, radius: CRIT_RATIO * Math.min(w, h) / 2, width: w, height: h }
       },
       setMode: function (next) {
         applied = true
@@ -481,7 +731,9 @@ var UniverseBlackHole = (function () {
       },
       isLight: function () { return mode === 'light' },
       onMode: function (fn) { modeHook = typeof fn === 'function' ? fn : null },
-      stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, rAFGapMs: rAFGap, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config) } },
+      stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, rAFGapMs: rAFGap, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config),
+        build: buildDiag ? Object.assign({}, buildDiag) : null,
+        ring: ringDiag ? Object.assign({}, ringDiag) : null } },
       resize: function () { resize() },
       dispose: function () {
         if (disposed) return
