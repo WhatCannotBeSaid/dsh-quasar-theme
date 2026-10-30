@@ -28,12 +28,14 @@ const BUILT_PATH = new URL('../client.js', import.meta.url)
 const BUILT = existsSync(BUILT_PATH) ? readFileSync(BUILT_PATH, 'utf8') : ''
 
 /* 视口 1256 × 900；左栏 280，对话列 976，所以对话列中心在 280 + 976 / 2 = 768。
-   半径按短边：0.34 × 900 / 2 = 153px。 */
+   半径按短边：阶段26 起用有限距离临界投影 rho_c = 0.34123924246684356
+   （0.34 × 900 / 2 = 153 的旧值偏小 0.3645%），故 900 短边时约 153.56px。 */
 const VIEWPORT = { width: 1256, height: 900 }
 const COLUMN_LEFT = 280
 const COLUMN_WIDTH = 976
 const COLUMN_CENTER = COLUMN_LEFT + COLUMN_WIDTH / 2
-const RADIUS = 0.34 * Math.min(VIEWPORT.width, VIEWPORT.height) / 2
+const RHO_C = 0.34123924246684356
+const RADIUS = RHO_C * Math.min(VIEWPORT.width, VIEWPORT.height) / 2
 /* 对话页只露左半边：洞心正好压在视口右缘，右半出画。
    2026-10-29 用户两次点名：「黑洞在左边会挡住左侧栏的文字，挪到右边」→「只显示左半边黑洞」。 */
 const ARC_X = VIEWPORT.width / 2
