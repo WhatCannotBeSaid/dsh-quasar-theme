@@ -52,6 +52,21 @@
      * 身后是从出生点到该点的完整尾迹（用户 m00999 同轮定案：静态帧要能读出那条向内收紧
      * 的螺旋，只留一个孤点等于什么也没说）。
      *
+     * 第六十轮（用户 m01412：「绿点从最外圈进到内圈后消失，然后外圈重新出现绿点……
+     * 看起来突然从内圈跳到外圈」）。这是单粒子的固有代价：同一时刻只有一个亮点，且它要从
+     * 最里圈瞬移回最外圈，眼睛会后退着跟一次 saccade。亮度上怎么留底都盖不住，因为盖不住
+     * 的是「位置的主体」。grilling 定下的解法（m01416 选 B）：只在交接处交叠 —— 一轮走完后，
+     * 上一轮的整幅终态（六段螺旋 + 中心的点）在画面上多留 UNI_ACC_HANDOFF 轮，同时新一轮的
+     * 点已经从外圈亮起来。于是交接那段里画面上有「一颗刚落到中心、一颗刚从外圈起步」两个
+     * 主体，不存在瞬移。时序上新点先按 78ms 快速登场（读作「又落进来一颗」），旧点保持原亮
+     * 度再淡出（m01423 选 A）；不做总亮度守恒，那是交叉淡入，会被读成「点从中心滑向外圈」，
+     * 与吸积语义相反。旧一代的尾流在窗口里乘 UNI_ACC_HANDOFF_DIM（m01426 选 B），退成背景
+     * 纹理，否则 16px 下两条同亮度的螺旋会糊成一团。
+     *
+     * 终态那一幅不需要每帧重算：它就是 u = 1 时的六段折线，几何永远是同一条曲线，所以在
+     * uniAccretionGhostD 里算一次缓存起来；窗口里只改整组 opacity。第一轮不画它 —— 进站
+     * 之前没有「上一轮」可以留。
+     *
      * 挂在哪：复用现有 universe: paint layer 那个 effect（cli.11d 钉了恰好九个），
      * 不新增 effect。官方那两枚圆在样式表里藏掉，这一格的字形全部由这里写。
      */
@@ -92,8 +107,16 @@
     /* 点的登场段：占一轮的前 6%（约 78ms）。它从 floor 长到满亮，正好接住上一轮落在 floor
        上的那一点 —— 出生与落底用的是同一个亮度，交接处不跳。 */
     var UNI_ACC_BORN = 0.06
+    /* 交接窗口：一轮走完之后，上一轮的终态在画面上多留这么多（0.22 轮 ≈ 286ms），同时新一轮
+       的点已经从外圈起步。这就是「两代同屏」的全部时长 —— 其余时间仍然只有一颗点在内旋。 */
+    var UNI_ACC_HANDOFF = 0.22
+    /* 窗口里旧一代尾流的亮度系数：只压六段尾巴，不压它的点。退成背景纹理，16px 下才不会
+       两条同亮度的螺旋糊在一起。 */
+    var UNI_ACC_HANDOFF_DIM = 0.45
     /* 整条曲线的路径串缓存（见 uniAccretionFullD）。 */
     var UNI_ACC_FULL_D = null
+    /* 终态六段折线的路径串缓存（见 uniAccretionGhostD）。 */
+    var UNI_ACC_GHOST_D = null
 
     /* 纯几何，无副作用：tests 直接 eval 这一个文件后调用它来钉参数。
        返回 14px 设计坐标下的点。 */
@@ -235,6 +258,30 @@
         return UNI_ACC_FULL_D
     }
 
+    /* 终态那六段折线（u = 1 时整条螺旋按年龄切成的六截）。交接窗口里旧一代画的就是这一幅，
+       几何每轮都一样，所以算一次缓存起来；窗口里只改整组 opacity，不进 d 的重算。 */
+    function uniAccretionGhostD() {
+        if (UNI_ACC_GHOST_D === null) {
+            var full = uniAccretionTrail(1)
+            var total = uniAccretionLength(full)
+            var out = []
+            for (var i = 0; i < UNI_ACC_BANDS; i += 1) {
+                out.push(uniAccretionSlice(full, total * (i / UNI_ACC_BANDS), total * ((i + 1) / UNI_ACC_BANDS)))
+            }
+            UNI_ACC_GHOST_D = out
+        }
+        return UNI_ACC_GHOST_D
+    }
+
+    /* 交接窗口里旧一代还剩多少（0..1，整组乘子）。elapsed 是这一行已经跑过的圈数 ——
+       第一圈之前没有「上一轮」可以留，所以不进窗口。u 是新一轮的相位：窗口占一轮的前
+       UNI_ACC_HANDOFF，线性淡出。 */
+    function uniAccretionGhost(u, elapsed) {
+        if (!(elapsed >= 1)) return 0
+        if (u >= UNI_ACC_HANDOFF) return 0
+        return 1 - u / UNI_ACC_HANDOFF
+    }
+
     function mountAccretion() {
         if (typeof document === 'undefined' || typeof window === 'undefined') return undefined
         if (typeof window.requestAnimationFrame !== 'function') return undefined
@@ -283,6 +330,26 @@
            需要往同一个 svg 里追加；宿主复用节点时靠 rows 里的记录认出同一行，不会重复装配。 */
         var attach = function (svg) {
             var g = make('g', { class: 'uni-acc', transform: 'scale(' + UNI_ACC_K + ')' })
+            /* 旧一代的终态：交接窗口里先画它、压在最下层，让新一轮的亮线盖在上面。几何写死
+               （u = 1 的六段）+ 落在中心的那颗点，窗口里只改整组 opacity。 */
+            var ghost = make('g', { class: 'uni-acc-ghost' })
+            var ghostTails = []
+            var ghostD = uniAccretionGhostD()
+            for (var k = 0; k < UNI_ACC_BANDS; k += 1) {
+                var ghostBand = make('path', { class: 'uni-acc-t' + k, d: ghostD[k] })
+                ghostTails.push(ghostBand)
+                ghost.appendChild(ghostBand)
+            }
+            var landed = uniAccretionAt(1)
+            var ghostDot = make('circle', {
+                class: 'uni-acc-dot',
+                r: UNI_ACC_DOT,
+                cx: landed.x.toFixed(2),
+                cy: landed.y.toFixed(2)
+            })
+            ghost.appendChild(ghostDot)
+            ghost.style.display = 'none'
+            g.appendChild(ghost)
             /* 残影先入组、排在六段尾巴下面：它画的是上一轮走完的整条曲线，几何固定不变。 */
             var residue = make('path', { class: 'uni-acc-residue', d: uniAccretionFullD() })
             g.appendChild(residue)
@@ -295,7 +362,17 @@
             var dot = make('circle', { class: 'uni-acc-dot', r: UNI_ACC_DOT })
             g.appendChild(dot)
             svg.appendChild(g)
-            return { svg: svg, g: g, residue: residue, tails: tails, dot: dot, born: nowMs() }
+            return {
+                svg: svg,
+                g: g,
+                ghost: ghost,
+                ghostTails: ghostTails,
+                ghostDot: ghostDot,
+                residue: residue,
+                tails: tails,
+                dot: dot,
+                born: nowMs()
+            }
         }
 
         /* 每行自己的出生时刻：用户要的是「绿点从出现到消失」的一整轮，所以行的相位必须
@@ -328,13 +405,33 @@
 
         /* 一轮的进度 → 两件事：整体的淡入（进场的 0.06）与熄灭进度 death（0.8 之后）。
            整组 opacity 从 floor 起步而不是 0：上一轮结尾留在出生点的那抹余温正好是 floor，
-           两者对齐，交接处没有跳变也没有黑场。 */
-        var paint = function (row, u) {
+           两者对齐，交接处没有跳变也没有黑场。
+           elapsed 是这一行跑过的圈数 —— 交接窗口只在第一圈之后出现。 */
+        var paint = function (row, u, elapsed) {
             var death = u <= UNI_ACC_FADE_FROM ? 0 : (u - UNI_ACC_FADE_FROM) / (1 - UNI_ACC_FADE_FROM)
             /* 整组不再压 opacity：亮度全部由逐段的 stroke-opacity、点的 opacity 与残影的
                opacity 表达。整组再压一层会把「floor 起手」乘成 floor²，交接处反而变暗。 */
             row.g.style.opacity = '1'
             draw(row, uniAccretionTrail(u), death > 1 ? 1 : death, u)
+            paintGhost(row, u, elapsed)
+        }
+
+        /* 交接窗口里的旧一代：整组 opacity 线性淡出，六段尾巴统一乘 UNI_ACC_HANDOFF_DIM
+           （退成背景纹理），中心那颗点保持 floor 亮度 —— 与新点的登场是两件事，旧的先亮着
+           再走，不是此消彼长。窗口之外直接把整组 display: none，不参与渲染。 */
+        var paintGhost = function (row, u, elapsed) {
+            var alive = uniAccretionGhost(u, elapsed)
+            if (alive <= 0) {
+                if (row.ghost.style.display !== 'none') row.ghost.style.display = 'none'
+                return
+            }
+            if (row.ghost.style.display !== '') row.ghost.style.display = ''
+            row.ghost.style.opacity = alive.toFixed(3)
+            var band = (UNI_ACC_HANDOFF_DIM * floor).toFixed(3)
+            for (var i = 0; i < row.ghostTails.length; i += 1) {
+                row.ghostTails[i].setAttribute('stroke-opacity', band)
+            }
+            row.ghostDot.style.opacity = floor.toFixed(3)
         }
 
         /* 兜底形态：不跑时间轴，直接给一帧静态 —— 停在轨迹上的 u = 0.6（r = 3.08），
@@ -345,6 +442,9 @@
             row.g.style.opacity = '1'
             draw(row, uniAccretionTrail(UNI_ACC_STILL_U), 0, UNI_ACC_STILL_U)
             row.residue.style.opacity = '0'
+            /* 静止帧只画一颗点（用户 m01429 选 B）：两颗点会读成两个彼此无关的墨点，破坏
+               小尺寸下的可读性。交接窗口里的旧一代同样不画。 */
+            row.ghost.style.display = 'none'
             /* 动态形态里点的亮度由散场权重写（满亮时是头部年龄亮度 .55）；静态帧没有下一轮
                要交棒，点画满，别跟着那条 .55 的规则一起被压暗。 */
             row.dot.style.opacity = '1'
@@ -380,8 +480,12 @@
             for (var i = 0; i < rows.length; i += 1) {
                 var row = rows[i]
                 if (row.svg.isConnected === false) continue
-                if (still) paintStill(row)
-                else paint(row, ((now - row.born) % UNI_ACC_CYCLE) / UNI_ACC_CYCLE)
+                if (still) {
+                    paintStill(row)
+                } else {
+                    var age = now - row.born
+                    paint(row, (age % UNI_ACC_CYCLE) / UNI_ACC_CYCLE, age / UNI_ACC_CYCLE)
+                }
             }
             /* 静态形态只需要一帧；动态形态一直排下去。 */
             if (!still) raf = window.requestAnimationFrame(tick)

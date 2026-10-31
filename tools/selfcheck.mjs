@@ -364,7 +364,11 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
     ['UNI_ACC_FADE_STAGGER', '0.45'],
     ['UNI_ACC_BANDS', '6'],
     /* 第五十七轮（用户 m01092 选 A）：盒子 14 → 16px，整套几何乘 16/14。 */
-    ['UNI_ACC_BOX', '16']
+    ['UNI_ACC_BOX', '16'],
+    /* 第六十轮（用户 m01416 选 B、m01426 选 B）：只在交接处交叠 —— 旧一代的终态多留
+       0.22 轮（约 286ms），尾流乘 0.45 退成背景纹理。 */
+    ['UNI_ACC_HANDOFF', '0.22'],
+    ['UNI_ACC_HANDOFF_DIM', '0.45']
   ]
   for (const [name, value] of want) {
     const found = new RegExp('var ' + name + ' = ([0-9.]+)').exec(accretionJs)
@@ -400,6 +404,18 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
   }
   if (!/class: 'uni-acc-residue'/.test(accretionJs)) return 'the residue path is never attached'
   if (!/\.uni-acc-residue\s*\{[^}]*stroke-width/.test(css)) return 'the residue layer has no stroke width'
+  /* 第六十轮（用户 m01412「看起来突然从内圈跳到外圈」）：交接窗口里旧一代的终态必须还在
+     画面上，否则单粒子交接永远是一次瞬移。 */
+  if (!/function uniAccretionGhost\(u, elapsed\)/.test(accretionJs)) {
+    return 'the hand-off ghost is gone, so the dot teleports back to the rim'
+  }
+  if (!/row\.ghost\.style\.opacity = alive\.toFixed\(3\)/.test(accretionJs)) {
+    return 'paintGhost never drives the ghost opacity'
+  }
+  if (!/class: 'uni-acc-ghost'/.test(accretionJs)) return 'the ghost group is never attached'
+  if (!/row\.ghostTails\[i\]\.setAttribute\('stroke-opacity', band\)/.test(accretionJs)) {
+    return 'the ghost bands are not dimmed, so two spirals fight for the same ink'
+  }
   /* 第五十五轮（用户 m00993 选 B）：1.25 圈 → 1.5 圈。落程从 3.8 涨到 5.2，圈数不加
      则相邻两趟的径向间隔会松到读不成螺旋。 */
   if (!/Math\.PI \* 2 \* 1\.5/.test(accretionJs)) return 'the 540-degree total turn is missing'

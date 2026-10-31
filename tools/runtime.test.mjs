@@ -650,3 +650,58 @@ test('A6: the residue carries the finished spiral across the seam, so the shape 
     }
   }
 })
+
+test('A7: the finished cycle lingers while the next one enters, so the dot never teleports', () => {
+  /* 用户 m01412：「绿点从最外圈进到内圈后消失，然后外圈重新出现绿点……看起来突然从内圈
+     跳到外圈」。单粒子必然要瞬移，因为同一时刻只有一个主体。交接窗口里让上一轮的终态多留
+     一会儿（它此刻正停在中心），新一轮的点已经从外圈亮起来 —— 两个主体同时在场，眼睛不会
+     后退着跟踪一次瞬移。这条钉的是窗口本身与它的静态几何。 */
+  const source = read('src/runtime/accretion.js')
+  const api = vm.runInNewContext(
+    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ ghost: uniAccretionGhost, ds: uniAccretionGhostD, at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, handoff: UNI_ACC_HANDOFF, dim: UNI_ACC_HANDOFF_DIM, bands: UNI_ACC_BANDS })',
+    { Math }
+  )
+
+  assert.equal(api.handoff, 0.22, 'the hand-off window is not the one that was approved')
+  assert.equal(api.dim, 0.45, 'the ghost dim factor is not the one that was approved')
+
+  /* 第一圈之前没有「上一轮」可以留：新挂上来的行不该先画出一条它没走过的螺旋。 */
+  assert.equal(api.ghost(0, 0), 0, 'a brand new row must not show a ghost')
+  assert.equal(api.ghost(0, 0.5), 0, 'the ghost appeared before the first cycle finished')
+  /* 一圈走完、新一轮起手：整幅可见，随后在窗口里线性淡出。 */
+  assert.equal(api.ghost(0, 1), 1, 'the finished cycle must linger at full strength')
+  assert.equal(api.ghost(api.handoff, 2), 0, 'the ghost overstays its window')
+  let previous = 2
+  for (let u = 0; u < api.handoff; u += api.handoff / 22) {
+    const value = api.ghost(u, 3)
+    assert.ok(value <= previous + 1e-12, 'the ghost brightened again while leaving')
+    assert.ok(value > 0 && value <= 1, `ghost alpha escaped (0,1]: ${value}`)
+    previous = value
+  }
+  /* 窗口之外彻底不画 —— 其余时间仍然只有一颗点在内旋。 */
+  for (const u of [api.handoff, 0.5, 0.99]) {
+    assert.equal(api.ghost(u, 2), 0, `the ghost is still visible at u = ${u}`)
+  }
+
+  /* 终态那六段折线：几何就是整条曲线，首尾相接，合起来等于整条轨迹。 */
+  const ds = api.ds()
+  assert.equal(ds.length, api.bands)
+  const numbers = band => band.slice(1).split('L').map((part) => {
+    const [x, y] = part.split(' ').map(Number)
+    return { x, y }
+  })
+  const full = api.trail(1)
+  let total = 0
+  let first = null
+  for (let i = 0; i < ds.length; i += 1) {
+    assert.ok(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)+$/.test(ds[i]), `ghost band ${i} is not a polyline`)
+    const pts = numbers(ds[i])
+    if (first === null) first = pts[0]
+    for (let k = 1; k < pts.length; k += 1) {
+      total += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y)
+    }
+  }
+  assert.ok(Math.abs(total - api.len(full)) < 0.06, `the ghost does not cover the curve: ${total} vs ${api.len(full)}`)
+  assert.ok(Math.hypot(first.x - api.at(1).x, first.y - api.at(1).y) < 0.02, 'the ghost must start where the dot lands')
+})
