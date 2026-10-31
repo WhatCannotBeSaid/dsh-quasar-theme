@@ -86,6 +86,14 @@
     var UNI_ACC_FADE_STAGGER = 0.45
     /* 兜底那一帧的相位（14px 设计坐标）：u = 0.6 即 r = 3.08。 */
     var UNI_ACC_STILL_U = 0.6
+    /* 残影层淡出的长度：占一轮的前 55%（约 715ms）。再长就变成常驻螺旋，再短则新一轮的
+       亮线还没来得及盖住内圈就先暗掉，衔接又断。 */
+    var UNI_ACC_RESIDUE_FADE = 0.55
+    /* 点的登场段：占一轮的前 6%（约 78ms）。它从 floor 长到满亮，正好接住上一轮落在 floor
+       上的那一点 —— 出生与落底用的是同一个亮度，交接处不跳。 */
+    var UNI_ACC_BORN = 0.06
+    /* 整条曲线的路径串缓存（见 uniAccretionFullD）。 */
+    var UNI_ACC_FULL_D = null
 
     /* 纯几何，无副作用：tests 直接 eval 这一个文件后调用它来钉参数。
        返回 14px 设计坐标下的点。 */
@@ -106,16 +114,17 @@
         return left > 0 ? left : 0
     }
 
-    /* 某一段在熄灭进度 death 时的有效不透明度（0..1）。前五段是「年龄亮度 × 级联权重」；
-        最老那段不掉到零，而是从年龄亮度升到 floor —— 它停在出生点上，正好把手交给下一轮
-        的新头，中间不留黑场（用户 m01091 指出的那一瞬间全黑）。 */
+    /* 某一段在熄灭进度 death 时的有效不透明度（0..1）。写法是「在 floor 与年龄亮度之间按
+        级联权重插值」：weight = 1 时就是年龄亮度，weight = 0 时落到 floor。级联仍在（头部
+        先走、越老越晚），但每一段最终都停在 floor 上，不再有任何一段归零 —— 一轮结束时留在
+        画面上的是整条螺旋，不是一个孤零零的外圈小点。
+        注意必须先插值再乘：写成「年龄 × 权重，再加 floor」的话，头部那段会先掉到 floor × 0.55
+        再回升，读起来是闪一下。 */
     function uniAccretionBandAlpha(index, death, floor) {
         var last = UNI_ACC_BANDS - 1
         var pick = index < 0 ? 0 : index > last ? last : index
-        var age = UNI_ACC_AGE[pick]
-        if (pick === last) return age + (floor - age) * death
         var rank = last > 0 ? pick / last : 0
-        return age * uniAccretionWeight(death, rank)
+        return floor + (UNI_ACC_AGE[pick] - floor) * uniAccretionWeight(death, rank)
     }
 
     /* 光点自己的散场：尾迹按 rank 级联（头段先熄），点不能跟着头段一起归零 —— 它是这一轮
@@ -123,10 +132,31 @@
         一路收到 floor，正好落在出生点那抹余温的同一个亮度上；下一轮的新点又从 floor 起，
         于是「点灭」与「点生」在同一个位置、同一个亮度上交接，中间没有黑帧。
         它和 uniAccretionBandAlpha 不是一套规则：段是「被吞掉的尾巴」，点是被吞掉的粒子。 */
-    function uniAccretionDotAlpha(death, floor) {
+    /* 光点自己的散场 / 登场：两头都停在 floor 上，中间才有满亮的头部亮度。
+        尾巴按 rank 级联（头段先熄），点不能跟着头段一起归零 —— 它是这一轮唯一的粒子，也是
+        用户眼里唯一在动的东西，必须一路亮到落底。但只做到「收场收到 floor」还不够：新一轮
+        第一帧如果又从满亮起步，交接处就变成一次亮度跳变（用户 m01308「没有连贯感」）。
+        所以两个方向都压到 floor：出生时从 floor 长到满亮，落底时从满亮回到 floor，中途取
+        两者较小者，保证任意时刻都是「刚好那一档」。 */
+    function uniAccretionDotAlpha(u, death, floor) {
         var age = UNI_ACC_AGE[0]
-        var out = age + (floor - age) * death
+        var born = u < UNI_ACC_BORN ? u / UNI_ACC_BORN : 1
+        var dying = 1 - death
+        var lit = born < dying ? born : dying
+        var out = floor + (age - floor) * lit
         return out < 0 ? 0 : out > 1 ? 1 : out
+    }
+
+    /* 残影层：上一轮走完的那条螺旋，在新一轮开头仍留在画面上，从 floor 起步淡出。
+        没有它，交接处就是一次「几何清零」—— 点走到中心，下一帧整条折线的 d 变成空串，
+        螺旋瞬间消失、再从头长出来，那正是用户 m01308 说的「没有连贯感、还是有中断」。
+        残影的几何是整条曲线，每帧只改一条 opacity，不进 d 的重算，代价几乎为零。
+        u = 0 时它正好等于上一轮 u = 1 时整条尾巴停住的亮度（都是 floor），而两条曲线是
+        同一条曲线、同一组坐标 —— 于是交接那一帧的画面完全不变，只有点在换位置。 */
+    function uniAccretionResidueAlpha(u, floor) {
+        if (u >= UNI_ACC_RESIDUE_FADE) return 0
+        var left = 1 - u / UNI_ACC_RESIDUE_FADE
+        return floor * left * left
     }
 
     /* 局部线速度（px / 单位相位）：把采样步长换算成固定的弧长间隔。内圈走得快，步长就得
@@ -195,6 +225,16 @@
         return d
     }
 
+    /* 整条曲线的路径串。残影层要它，而每一轮的曲线完全相同（同一个 r(u) 与 φ(u)），所以只
+       算一次就够，不必每帧重建 —— 这也是残影层几乎不占预算的原因。 */
+    function uniAccretionFullD() {
+        if (UNI_ACC_FULL_D === null) {
+            var full = uniAccretionTrail(1)
+            UNI_ACC_FULL_D = uniAccretionSlice(full, 0, uniAccretionLength(full))
+        }
+        return UNI_ACC_FULL_D
+    }
+
     function mountAccretion() {
         if (typeof document === 'undefined' || typeof window === 'undefined') return undefined
         if (typeof window.requestAnimationFrame !== 'function') return undefined
@@ -243,6 +283,9 @@
            需要往同一个 svg 里追加；宿主复用节点时靠 rows 里的记录认出同一行，不会重复装配。 */
         var attach = function (svg) {
             var g = make('g', { class: 'uni-acc', transform: 'scale(' + UNI_ACC_K + ')' })
+            /* 残影先入组、排在六段尾巴下面：它画的是上一轮走完的整条曲线，几何固定不变。 */
+            var residue = make('path', { class: 'uni-acc-residue', d: uniAccretionFullD() })
+            g.appendChild(residue)
             var tails = []
             for (var i = 0; i < UNI_ACC_BANDS; i += 1) {
                 var band = make('path', { class: 'uni-acc-t' + i })
@@ -252,7 +295,7 @@
             var dot = make('circle', { class: 'uni-acc-dot', r: UNI_ACC_DOT })
             g.appendChild(dot)
             svg.appendChild(g)
-            return { svg: svg, g: g, tails: tails, dot: dot, born: nowMs() }
+            return { svg: svg, g: g, residue: residue, tails: tails, dot: dot, born: nowMs() }
         }
 
         /* 每行自己的出生时刻：用户要的是「绿点从出现到消失」的一整轮，所以行的相位必须
@@ -263,41 +306,45 @@
                 : Date.now()
         }
 
-        var draw = function (row, points, death) {
+        var draw = function (row, points, death, u) {
             var total = uniAccretionLength(points)
             for (var i = 0; i < row.tails.length; i += 1) {
                 var from = total * (i / row.tails.length)
                 var to = total * ((i + 1) / row.tails.length)
                 row.tails[i].setAttribute('d', total < 0.4 ? '' : uniAccretionSlice(points, from, to))
                 /* 有效不透明度全部在这里写：样式表那层年龄段亮度已经搬进 UNI_ACC_AGE，
-                   最老那段还要在退场时升到 floor，所以不能再靠「CSS × stroke-opacity」。 */
+                   而且退场时每一段都要落到 floor 上，所以不能再靠「CSS × stroke-opacity」。 */
                 row.tails[i].setAttribute('stroke-opacity', uniAccretionBandAlpha(i, death, floor).toFixed(3))
             }
+            /* 残影只改一条 opacity：几何是写死的整条曲线，不进每帧的 d 重算。 */
+            row.residue.style.opacity = uniAccretionResidueAlpha(u, floor).toFixed(3)
             var head = points[0]
             row.dot.setAttribute('cx', head.x.toFixed(2))
             row.dot.setAttribute('cy', head.y.toFixed(2))
-            /* 头部是 rank = 0，先熄的是它负责的那一段尾巴；点本身不跟着熄 —— 它要一直亮到
-               落底，收场时收到 floor，与下一轮出生的新点同亮度（见 uniAccretionDotAlpha）。 */
-            row.dot.style.opacity = uniAccretionDotAlpha(death, floor).toFixed(3)
+            /* 头部段按 rank 0 最先熄，但点本身不跟着熄 —— 它要一路亮到落底，
+               收场收到 floor、出生也从 floor 起（见 uniAccretionDotAlpha）。 */
+            row.dot.style.opacity = uniAccretionDotAlpha(u, death, floor).toFixed(3)
         }
 
         /* 一轮的进度 → 两件事：整体的淡入（进场的 0.06）与熄灭进度 death（0.8 之后）。
            整组 opacity 从 floor 起步而不是 0：上一轮结尾留在出生点的那抹余温正好是 floor，
            两者对齐，交接处没有跳变也没有黑场。 */
         var paint = function (row, u) {
-            var fadeIn = u < 0.06 ? u / 0.06 : 1
             var death = u <= UNI_ACC_FADE_FROM ? 0 : (u - UNI_ACC_FADE_FROM) / (1 - UNI_ACC_FADE_FROM)
-            row.g.style.opacity = (floor + (1 - floor) * fadeIn).toFixed(3)
-            draw(row, uniAccretionTrail(u), death > 1 ? 1 : death)
+            /* 整组不再压 opacity：亮度全部由逐段的 stroke-opacity、点的 opacity 与残影的
+               opacity 表达。整组再压一层会把「floor 起手」乘成 floor²，交接处反而变暗。 */
+            row.g.style.opacity = '1'
+            draw(row, uniAccretionTrail(u), death > 1 ? 1 : death, u)
         }
 
         /* 兜底形态：不跑时间轴，直接给一帧静态 —— 停在轨迹上的 u = 0.6（r = 3.08），
            身后是从出生点一路走到这里的完整尾迹。留着整条尾迹，静态帧才还能读出那条向内
            收紧的螺旋；只留一个孤点等于什么也没说。它仍然是同一条曲线，不是另画的圆。
-           静态帧不参与轮转，所以整组不压 opacity、点的散场权重也不压。 */
+           静态帧不参与轮转，所以整组不压 opacity、点的散场权重也不压、也不画残影。 */
         var paintStill = function (row) {
             row.g.style.opacity = '1'
-            draw(row, uniAccretionTrail(UNI_ACC_STILL_U), 0)
+            draw(row, uniAccretionTrail(UNI_ACC_STILL_U), 0, UNI_ACC_STILL_U)
+            row.residue.style.opacity = '0'
             /* 动态形态里点的亮度由散场权重写（满亮时是头部年龄亮度 .55）；静态帧没有下一轮
                要交棒，点画满，别跟着那条 .55 的规则一起被压暗。 */
             row.dot.style.opacity = '1'

@@ -561,17 +561,22 @@ test('A4: the last breath of a turn hands off to the next, so nothing goes black
     for (let i = 0; i <= last; i += 1) {
       assert.ok(Math.abs(api.alpha(i, 0, floor) - api.age[i]) < 1e-12, `band ${i} is dimmed before the exit`)
     }
-    /* death = 1：最老那段停在 floor 上（这就是交给下一轮的那一抹），其余全部归零。 */
-    assert.ok(Math.abs(api.alpha(last, 1, floor) - floor) < 1e-12, 'the oldest band must land on the floor')
-    for (let i = 0; i < last; i += 1) {
-      assert.equal(api.alpha(i, 1, floor), 0, `band ${i} must be out by the end of the turn`)
+    /* death = 1：六段全部停在 floor 上 —— 一轮结束时留在画面上的是「整条螺旋」，不是一个
+       孤零零的外圈小点；下一轮的残影层正好从同一个亮度把它接过去。 */
+    for (let i = 0; i <= last; i += 1) {
+      assert.ok(Math.abs(api.alpha(i, 1, floor) - floor) < 1e-12, `band ${i} must land on the floor`)
     }
-    /* 收尾那段是单调升上去的：death 越大越亮，读作「余温」而不是第二颗点。 */
-    let previous = -1
-    for (let d = 0; d <= 20; d += 1) {
-      const value = api.alpha(last, d / 20, floor)
-      assert.ok(value >= previous, 'the floor must rise, never flicker')
-      previous = value
+    /* 每一段都朝 floor 单调走：高于 floor 的往下、低于 floor 的往上，中途不回头 ——
+       阶梯式的死亡读作「被吞」，忽明忽暗读作闪烁。 */
+    for (let i = 0; i <= last; i += 1) {
+      let previous = api.alpha(i, 0, floor)
+      const up = previous < floor
+      for (let d = 1; d <= 20; d += 1) {
+        const value = api.alpha(i, d / 20, floor)
+        if (up) assert.ok(value >= previous - 1e-12, `band ${i} fell on its way up`)
+        else assert.ok(value <= previous + 1e-12, `band ${i} rose on its way down`)
+        previous = value
+      }
     }
     /* 任何时刻都不越界 —— stroke-opacity 超出 [0,1] 会被浏览器截断，读起来就是一次跳变。 */
     for (let d = 0; d <= 20; d += 1) {
@@ -583,32 +588,65 @@ test('A4: the last breath of a turn hands off to the next, so nothing goes black
   }
 })
 
-test('A5: the particle itself never blinks out, so the hand-off has no dark frame', () => {
-  /* 用户 m01217：「还是有一瞬的全黑」。A4 只让尾巴留了底 —— 点自己仍挂在 rank 0 的级联权重
-     上，death 走到 0.55（u ≈ 0.91）就归零，收尾那 117ms 里屏幕上只剩最外一小段 .22 的弧，
-     16px 下读作黑。这条测试钉的就是「点有别于尾巴的散场规则：一路收到 floor，从不归零」。 */
+test('A5: the dot arrives on the floor and leaves from the same floor, so the seam is one level', () => {
+  /* 用户 m01217「还是有一瞬的全黑」与 m01308「没有连贯感」。点必须两头都压在 floor 上：
+     落底时收到 floor，出生时又从 floor 长回满亮，中间才是满亮的头部亮度。 */
   const source = read('src/runtime/accretion.js')
   const api = vm.runInNewContext(
     between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ dot: uniAccretionDotAlpha, age: UNI_ACC_AGE })',
+    '\n({ dot: uniAccretionDotAlpha, age: UNI_ACC_AGE, born: UNI_ACC_BORN })',
     { Math }
   )
 
   for (const floor of [0.34, 0.42]) {
-    /* 满亮时就是头部年龄亮度：点不该比尾巴的头段更亮，也不该更暗。 */
-    assert.ok(Math.abs(api.dot(0, floor) - api.age[0]) < 1e-12, 'the dot starts at the head brightness')
-    /* 落底时正好等于留底值 —— 下一轮的新点从同一个数长起来，交接处亮度连续。 */
-    assert.ok(Math.abs(api.dot(1, floor) - floor) < 1e-12, 'the dot must land on the floor, not on zero')
+    /* 出生第一帧就停在 floor 上 —— 与上一轮落底那一档相等。 */
+    assert.ok(Math.abs(api.dot(0, 0, floor) - floor) < 1e-12, 'the dot must appear on the floor')
+    /* 一轮中段是满亮的头部亮度。 */
+    assert.ok(Math.abs(api.dot(0.5, 0, floor) - api.age[0]) < 1e-12, 'the dot never reaches full brightness')
+    /* 落底那一帧也是 floor。 */
+    assert.ok(Math.abs(api.dot(1, 1, floor) - floor) < 1e-12, 'the dot must land on the floor, not on zero')
+    /* 交接的连续性：这一轮的最后一帧与下一轮的第一帧必须是同一个数。 */
+    assert.ok(Math.abs(api.dot(1, 1, floor) - api.dot(0, 0, floor)) < 1e-12, 'the seam jumps between cycles')
+    /* 全程落在 [floor, 头部亮度] 里：既不掉到黑，也不越过满亮。 */
+    for (let d = 0; d <= 20; d += 1) {
+      for (let u = 0; u <= 1; u += 0.05) {
+        const value = api.dot(u, d / 20, floor)
+        assert.ok(value >= floor - 1e-12, `the dot dropped below the floor at u ${u}`)
+        assert.ok(value <= api.age[0] + 1e-12, `the dot outran full brightness at u ${u}`)
+      }
+    }
+  }
+})
 
+test('A6: the residue carries the finished spiral across the seam, so the shape never blinks', () => {
+  /* 用户 m01308「没有连贯感、还是有中断」。真正的断点不是亮度，是几何：一轮走完，六段折线的
+     d 变成空串，整条螺旋瞬间消失再重新长出来。残影层用一条固定的整条曲线把那一帧接上。 */
+  const source = read('src/runtime/accretion.js')
+  const api = vm.runInNewContext(
+    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ residue: uniAccretionResidueAlpha, alpha: uniAccretionBandAlpha, bands: UNI_ACC_BANDS, fade: UNI_ACC_RESIDUE_FADE })',
+    { Math }
+  )
+  const last = api.bands - 1
+
+  for (const floor of [0.34, 0.42]) {
+    /* u = 0 的残影亮度必须等于上一轮尾巴停住的亮度，否则交接处会闪一下。 */
+    assert.ok(Math.abs(api.residue(0, floor) - floor) < 1e-12, 'the residue must start at the floor')
+    for (let i = 0; i <= last; i += 1) {
+      assert.ok(
+        Math.abs(api.alpha(i, 1, floor) - api.residue(0, floor)) < 1e-12,
+        `band ${i} ends on a different level than the residue starts on`
+      )
+    }
+    /* 单调淡出，且在 fade 之后彻底让位给亮线。 */
+    assert.ok(api.fade > 0 && api.fade < 1, 'the residue fade window must sit inside one cycle')
+    assert.equal(api.residue(api.fade, floor), 0, 'the residue must be gone by the end of its window')
     let previous = 2
-    for (let d = 0; d <= 40; d += 1) {
-      const value = api.dot(d / 40, floor)
-      /* 单调不升：一路暗下去，不会在收尾时忽然亮一下。 */
-      assert.ok(value <= previous + 1e-12, 'the dot brightened again on its way in')
+    for (let u = 0; u <= 1; u += 0.02) {
+      const value = api.residue(u, floor)
+      assert.ok(value <= previous + 1e-12, 'the residue brightened again while fading')
       previous = value
-      /* 全程 ≥ floor：这就是「没有黑帧」的数学形式。 */
-      assert.ok(value >= floor - 1e-12, `the dot dropped below the floor at death ${d / 40}`)
-      assert.ok(value >= 0 && value <= 1, `dot alpha escaped [0,1]: ${value}`)
+      assert.ok(value >= 0 && value <= 1, `residue alpha escaped [0,1]: ${value}`)
     }
   }
 })

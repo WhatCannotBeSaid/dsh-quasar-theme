@@ -8,6 +8,25 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Changed
 
+- **会话行 running 的中断是几何清零，改用残影层接上（2026-10-31 第五十九轮）。**
+  用户逐字：「还是不对，现在没有连贯感，我想要的是视觉连贯，现在还是有中断。」上一轮修的是
+  亮度，这一轮找到的是形状：一轮走完，六段折线的 `d` 变成空串 —— 整条螺旋在同一帧里消失、
+  下一帧再从零长出来，同时点从中心跳回外圈。亮度连续挡不住这个跳变，因为画面上根本没有了
+  一条连续的线。① 新增残影层 `.uni-acc-residue`：几何固定写死为整条曲线（`uniAccretionFullD`
+  只算一次），每帧只改 `opacity`，在一轮的前 `55%`（约 715ms）里从 floor 二次方淡出到 0。
+  它排在六段之下、笔宽 `.62`，所以「上一轮结尾」与「下一轮残影」是同一亮度、同一条曲线，
+  交接那一帧画面完全不变，只有点在换位置。② 六段尾巴不再有任何一段归零：`uniAccretionBandAlpha`
+  改成在 floor 与年龄亮度之间按级联权重插值（`floor + (age - floor) * weight`），`death = 1`
+  时六段全部落在 floor 上。先乘后加会写错 —— 「年龄 × 权重 + floor」会让头段先掉到
+  `floor × 0.55` 再回升，读作闪一下。③ 点也两头压在 floor 上：`uniAccretionDotAlpha` 改成
+  `(u, death, floor)`，用 `born = u / UNI_ACC_BORN`（`0.06`）与 `dying = 1 - death` 取较小值，
+  `dot(0, 0) === dot(1, 1) === floor`，接缝处是同一个数。④ 整组不再压 `opacity`：`paint` 里
+  `row.g.style.opacity` 固定为 `1`，否则 floor 起手会被乘成 `floor²`，交接处反而变暗。
+  `css.18`、`acc.2` 相应钉住残影层的类名、笔宽与 `uniAccretionResidueAlpha` 的接线，A4 重写为
+  「六段都落到 floor、每段朝 floor 单调」、A5 重写为「两头上限一致、接缝不跳」、新增 A6 钉
+  「残影从上一轮的亮度起手、单调淡出、窗口之后为 0」。门禁：`selfcheck` 123 断言 0 失败、
+  `node --test` 五套 68 通过、`build-client --check` 与 src 一致（230059 chars）。
+
 - **会话行 running 的黑帧真的修掉了：绿点自己也留底，不只尾巴（2026-10-31 第五十八轮）。**
   用户逐字：「还是有一瞬的全黑」。上一轮只让最老那段尾巴留底，漏了点本身 —— 点的亮度挂在
   `rank = 0` 的级联权重上，`death` 走到 `0.55`（即 `u ≈ 0.91`）就归零，收尾那 117ms 里屏幕

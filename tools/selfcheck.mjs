@@ -383,13 +383,23 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
     return 'draw never calls the band alpha helper'
   }
   /* 用户 m01217「还是有一瞬的全黑」：尾巴留底不够，点本身也在 rank 0 上归零，于是收尾那
-     一百多毫秒里屏幕上只剩最外一小段暗弧。点必须按自己的落程收到 floor，与尾巴分开放。 */
-  if (!/function uniAccretionDotAlpha\(death, floor\)/.test(accretionJs)) {
+     一百多毫秒里屏幕上只剩最外一小段暗弧。点必须两头都压在 floor 上，与尾巴分开放。 */
+  if (!/function uniAccretionDotAlpha\(u, death, floor\)/.test(accretionJs)) {
     return 'the dot has no floor of its own, so it still blinks out before it lands'
   }
-  if (!/row\.dot\.style\.opacity = uniAccretionDotAlpha\(death, floor\)/.test(accretionJs)) {
+  if (!/row\.dot\.style\.opacity = uniAccretionDotAlpha\(u, death, floor\)/.test(accretionJs)) {
     return 'draw still kills the dot with the cascade weight'
   }
+  /* 用户 m01308「没有连贯感、还是有中断」：真正的断点是几何清零 —— 一轮走完，折线的 d 变成
+     空串，螺旋瞬间消失再长出来。残影层用固定的整条曲线把这一帧接上，只在开头淡出。 */
+  if (!/function uniAccretionResidueAlpha\(u, floor\)/.test(accretionJs)) {
+    return 'the residue layer is gone, so the spiral still blinks out between cycles'
+  }
+  if (!/row\.residue\.style\.opacity = uniAccretionResidueAlpha\(u, floor\)/.test(accretionJs)) {
+    return 'draw never drives the residue opacity'
+  }
+  if (!/class: 'uni-acc-residue'/.test(accretionJs)) return 'the residue path is never attached'
+  if (!/\.uni-acc-residue\s*\{[^}]*stroke-width/.test(css)) return 'the residue layer has no stroke width'
   /* 第五十五轮（用户 m00993 选 B）：1.25 圈 → 1.5 圈。落程从 3.8 涨到 5.2，圈数不加
      则相邻两趟的径向间隔会松到读不成螺旋。 */
   if (!/Math\.PI \* 2 \* 1\.5/.test(accretionJs)) return 'the 540-degree total turn is missing'
