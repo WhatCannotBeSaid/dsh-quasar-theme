@@ -399,11 +399,11 @@ test('A1: the accretion geometry is the spec, not a lookalike', () => {
     { Math })
   const TAU = Math.PI * 2
 
-  /* Radius: 6.2px at spawn, 2.4 at the centre, always shrinking. 2026-10-31 第五十四轮：
-     用户看过真机说「又小又细」，盒子不动的前提下把盒画满 —— 外径 12.4px（官方环 11.08px），
-     内径 4.8px，落程 3.8px。 */
+  /* Radius: 6.2px at spawn, 1.0 at the end, always shrinking. 第五十四轮把盒画满（外径
+     12.4px，官方环 11.08px）；第五十五轮撤掉中心暗核后落点收到 1.0 —— 没有实体挡在
+     中心，点要一直落到虚空里再熄灭。 */
   assert.equal(api.at(0).r, 6.2)
-  assert.equal(api.at(1).r, 2.4)
+  assert.equal(api.at(1).r, 1)
   let previous = Infinity
   for (let i = 0; i <= 64; i += 1) {
     const r = api.at(i / 64).r
@@ -411,9 +411,10 @@ test('A1: the accretion geometry is the spec, not a lookalike', () => {
     previous = r
   }
 
-  /* Angle: one and a quarter turns in total, never reversing. */
+  /* Angle: one and a half turns in total, never reversing. 第五十五轮：落程从 3.8 涨到
+     5.2 之后圈数必须跟着加，否则相邻两趟的径向间隔松到读不成螺旋。 */
   assert.equal(api.at(0).phi, -Math.PI / 2)
-  assert.ok(Math.abs((api.at(1).phi - api.at(0).phi) - TAU * 1.25) < 1e-9)
+  assert.ok(Math.abs((api.at(1).phi - api.at(0).phi) - TAU * 1.5) < 1e-9)
   let last = -Infinity
   for (let i = 0; i <= 64; i += 1) {
     const phi = api.at(i / 64).phi
@@ -492,4 +493,44 @@ test('A2: the trail is every pixel the dot has travelled, sliced without gaps', 
     }
   }
   assert.ok(Math.abs(joined - total) < 0.05, `bands do not cover the trail: ${joined} vs ${total}`)
+})
+
+test('A3: the tail dies head first, so the centre reads as something that swallows', () => {
+  /* 用户 m00999 选 B：级联熄灭 —— 头先熄、越老越晚熄，最后整条归零。整条一起淡会被读成
+     「整个图标闪了一下」，所以这条钉的是顺序，不是好看。 */
+  const source = read('src/runtime/accretion.js')
+  const api = vm.runInNewContext(
+    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ weight: uniAccretionWeight, fadeFrom: UNI_ACC_FADE_FROM, stagger: UNI_ACC_FADE_STAGGER, bands: UNI_ACC_BANDS })',
+    { Math })
+
+  /* 熄灭从 u = 0.8 开始，之前一切照旧。 */
+  assert.equal(api.fadeFrom, 0.8)
+  assert.equal(api.weight(0, 0), 1)
+  assert.equal(api.weight(0, 1), 1)
+
+  /* 同一时刻：头部已经掉下去一大半，最老那段还一点没动。 */
+  assert.ok(api.weight(0.3, 0) < 0.5, 'the head should be going out first')
+  assert.equal(api.weight(0.3, 1), 1, 'the oldest band should not have moved yet')
+
+  /* 任何时刻，越老的段剩得越多 —— 这就是「被吞」而不是「一起灭」。 */
+  for (const death of [0.1, 0.5, 0.9]) {
+    let keep = -1
+    for (let i = 0; i < api.bands; i += 1) {
+      const w = api.weight(death, i / (api.bands - 1))
+      assert.ok(w >= keep, `band ${i} outlives a younger one at death=${death}`)
+      keep = w
+    }
+  }
+
+  /* 收尾：death = 1 时整条归零，且权重从不越出 [0, 1]。 */
+  for (let i = 0; i < api.bands; i += 1) {
+    assert.equal(api.weight(1, i / (api.bands - 1)), 0, `band ${i} survives the end of the turn`)
+  }
+  for (let d = 0; d <= 20; d += 1) {
+    for (const rank of [0, 0.5, 1]) {
+      const w = api.weight(d / 20, rank)
+      assert.ok(w >= 0 && w <= 1, `weight escaped [0,1]: ${w}`)
+    }
+  }
 })

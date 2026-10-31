@@ -1,9 +1,9 @@
 /* Private factory input; concatenated by CLIENT_FILES, not a public module. */
-    /* 会话行 Running —— 吸积流（2026-10-31 第五十三轮，第二稿）
+    /* 会话行 Running —— 吸积流（2026-10-31 第五十三轮，第三稿）
      *
-     * 用户规格（m00361 第八节，参数逐字）：一枚黑洞、一个绿点，尾流必须由绿点自己走过的
-     * 轨迹实时生成 —— 不许预绘螺旋、圆环、吸积盘、光晕。这一条直接判掉了 CSS 关键帧：
-     * 关键帧能做的只是把一张画好的图整体 rotate + scale，尾巴永远是假的。
+     * 用户规格（m00361 第八节，参数逐字）：一个绿点，尾流必须由绿点自己走过的轨迹实时
+     * 生成 —— 不许预绘螺旋、圆环、吸积盘、光晕。这一条直接判掉了 CSS 关键帧：关键帧能做
+     * 的只是把一张画好的图整体 rotate + scale，尾巴永远是假的。
      *
      * 第二稿（用户 m00391）：「我要的是绿点从出现到消失的所有轨迹」。于是尾巴不再是固定
      * 4px，而是每帧从头部一路采回 u = 0（本轮出生点），重生瞬间归零重画；轨迹按弧长均分
@@ -11,23 +11,33 @@
      * 头部仍是唯一亮点。「越靠近中心越亮」不是另外画上去的渐变：半径本来就随 u 单调减小，
      * 弧长即年龄。
      *
+     * 第三稿（用户 m00986，隐式吸积中心）：**中心不画任何东西**。原本画在 svg background
+     * 上的 2px 暗核撤掉，中心点 (7, 7) 只剩一个约定 —— 没有圆心实体，引力中心完全由
+     * 「点越转越快、越转越靠内、最后被吃掉」这一个动作暗示。落点因此收到 r = 1.0：没有
+     * 暗核挡在中心，点可以一直落到虚空中再熄灭，2.4 那个悬空小圈不能留。
+     *
      * 坐标系：官方那枚 svg 显示 14×14、viewBox 0 0 24 24，两枚圆 r=9.5 都在 24 空间里。
      * 图元画在一个 transform: scale(24/14) 的 g 里，组内 1 单位正好等于 14px 下的 1px，
      * 所以下面所有数字都可以直接按「屏幕像素」读。
      *
-     * 尺寸（2026-10-31 第五十四轮，用户 m00896 选 A）：第一稿照抄 m00361 的 r 5→2、
-     * 点 1.8、尾宽 0.7，装上真机后被指出「又小又细」—— 官方那环在 14px 下外径 11.08px、
-     * 线宽 1.17px，而第一稿外径 10px、线宽只有 0.7 起。盒子是官方尺寸、主题不改，所以
-     * 只能在盒内画满：外半径 6.2、内半径 2.4、点直径 2.2、尾宽 1.15 → 0.5。外径 12.4px
-     * 略大于官方环，线宽与它齐平，读起来是同一个眼熟的尺寸。
+     * 尺寸（2026-10-31 第五十四轮，用户 m00896 选 A）：官方那环在 14px 下外径 11.08px、
+     * 线宽 1.17px，第一稿外径 10px、线宽只有 0.7 起，装上去被指出「又小又细」。盒子是
+     * 官方尺寸、主题不改，所以只能在盒内画满：外半径 6.2、点直径 2.2、尾宽 1.15 → 0.5。
+     * 外径 12.4px 略大于官方环，线宽与它齐平，读起来是同一个眼熟的尺寸。
      *
-     * 运动：r(u) = 6.2 − 3.8u 线性内落；方位角 φ(u) = 2π·1.25·(0.35u + 0.65u²)，全程 450°，
-     * 且角速度随内落变快（φ′ 从 0.35 长到 1.65）。匀速整圈转是 pending 的语言，这里必须
-     * 越接近中心越快 —— 两个状态在 14px 下的分界就在这里。
+     * 运动：r(u) = 6.2 − 5.2u 线性落到 r = 1.0；方位角 φ(u) = 2π·1.5·(0.35u + 0.65u²)，
+     * 全程 540°，且角速度随内落变快（φ′ 从 0.35 长到 1.65）。匀速整圈转是 pending 的
+     * 语言，这里必须越接近中心越快 —— 两个状态在 14px 下的分界就在这里。
+     *
+     * 退场（用户 m00999 选 B）：u 进到 0.8 之后按年龄级联熄灭 —— 头部先熄，越老的尾段
+     * 越晚熄，最后整条归零。整条一起淡会被读成「整个图标闪了一下」，级联才读成「被吞」。
+     * 熄灭只压不透明度，宽度与颜色不动；熄灭的不透明度用 stroke-opacity 属性去乘样式表
+     * 给的那一层年龄段不透明度，两者是乘法关系，互不覆盖。
      *
      * 兜底：prefers-reduced-motion 或主题动效开关关掉时（client.js 写成
-     * body[data-uni-motion='reduced']）不跑 rAF，只画一帧 —— 绿点停在轨迹上的 u = 0.6
-     * （r = 3.92、φ ≈ 110°），身后一条 2px 短尾，姿态与动态同源（用户 m00373：按照默认的来）。
+     * body[data-uni-motion='reduced']）不跑 rAF，只画一帧 —— 绿点停在轨迹上的 u = 0.6，
+     * 身后是从出生点到该点的完整尾迹（用户 m00999 同轮定案：静态帧要能读出那条向内收紧
+     * 的螺旋，只留一个孤点等于什么也没说）。
      *
      * 挂在哪：复用现有 universe: paint layer 那个 effect（cli.11d 钉了恰好九个），
      * 不新增 effect。官方那两枚圆在样式表里藏掉，这一格的字形全部由这里写。
@@ -37,24 +47,40 @@
     var UNI_ACC_K = 24 / 14
     var UNI_ACC_CYCLE = 1300
     var UNI_ACC_R0 = 6.2
-    var UNI_ACC_R1 = 2.4
+    /* 第三稿的落点：没有暗核挡在中心，点要一直落到虚空里再熄灭。 */
+    var UNI_ACC_R1 = 1
     var UNI_ACC_DOT = 1.1
-    /* 采样上限：全程轨迹约 31px，按 0.9px 一段正好 36 点上下，留三成余量。 */
-    var UNI_ACC_SAMPLES = 48
+    /* 采样上限：全程 540°、落程 5.2px，实测轨迹 28.96px、34 点（大步长时更少），
+       留足余量给内圈那段更密的采样。 */
+    var UNI_ACC_SAMPLES = 56
     var UNI_ACC_STEP = 0.9
     /* 六段就是六个年龄段。宽度与不透明度写在样式表里（uni-acc-t0 … t5），淡下去靠
        不透明度，不是换颜色 —— 整个状态只有一枚绿色令牌。 */
     var UNI_ACC_BANDS = 6
-    /* 兜底那一帧的相位与短尾长度（14px 设计坐标）：u = 0.6 即 r = 3.92。 */
+    /* 级联熄灭：u 过 0.8 开始收，头部立刻走，最老那段晚 UNI_ACC_FADE_STAGGER 才起步。
+       每段各自的熄灭进度 = (death − rank·stagger) / (1 − stagger)，所以 death = 1 时整条为零。 */
+    var UNI_ACC_FADE_FROM = 0.8
+    var UNI_ACC_FADE_STAGGER = 0.45
+    /* 兜底那一帧的相位（14px 设计坐标）：u = 0.6 即 r = 3.08。 */
     var UNI_ACC_STILL_U = 0.6
-    var UNI_ACC_STILL_TAIL = 2
 
     /* 纯几何，无副作用：tests 直接 eval 这一个文件后调用它来钉参数。
        返回 14px 设计坐标下的点。 */
     function uniAccretionAt(u) {
         var r = UNI_ACC_R0 + (UNI_ACC_R1 - UNI_ACC_R0) * u
-        var phi = Math.PI * 2 * 1.25 * (0.35 * u + 0.65 * u * u) - Math.PI / 2
+        var phi = Math.PI * 2 * 1.5 * (0.35 * u + 0.65 * u * u) - Math.PI / 2
         return { u: u, r: r, phi: phi, x: 7 + r * Math.cos(phi), y: 7 + r * Math.sin(phi) }
+    }
+
+    /* 某一老段在熄灭进度 death 时还剩多少。rank = 0 是头部，rank = 1 是最老的那段。
+       头部从 death = 0 就开始掉，最老那段等到 death = STAGGER 才动，两者同速走到 death = 1
+       一起归零 —— 于是最后消失的是外圈那一点余痕，读作「流已经被吞完」。 */
+    function uniAccretionWeight(death, rank) {
+        if (death <= 0) return 1
+        var start = rank * UNI_ACC_FADE_STAGGER
+        if (death <= start) return 1
+        var left = 1 - (death - start) / (1 - UNI_ACC_FADE_STAGGER)
+        return left > 0 ? left : 0
     }
 
     /* 局部线速度（px / 单位相位）：把采样步长换算成固定的弧长间隔。内圈走得快，步长就得
@@ -175,32 +201,38 @@
                 : Date.now()
         }
 
-        var draw = function (row, points, alpha) {
+        var draw = function (row, points, death) {
             var total = uniAccretionLength(points)
             for (var i = 0; i < row.tails.length; i += 1) {
                 var from = total * (i / row.tails.length)
                 var to = total * ((i + 1) / row.tails.length)
                 row.tails[i].setAttribute('d', total < 0.4 ? '' : uniAccretionSlice(points, from, to))
+                /* 熄灭按年龄分流：样式表那层 opacity 是年龄段自己的亮度，这里用
+                   stroke-opacity 再乘一个退场权重 —— 两个 opacity 相乘，不互相覆盖。 */
+                var rank = row.tails.length > 1 ? i / (row.tails.length - 1) : 0
+                row.tails[i].setAttribute('stroke-opacity', uniAccretionWeight(death, rank).toFixed(3))
             }
             var head = points[0]
             row.dot.setAttribute('cx', head.x.toFixed(2))
             row.dot.setAttribute('cy', head.y.toFixed(2))
-            /* 整组一起进退场：只淡出绿点会留下一截没有头、却还停在原地的轨迹。 */
-            row.g.style.opacity = alpha.toFixed(3)
+            /* 头部是 rank = 0，永远第一个熄 —— 点没了、尾还在收，才读得出「被吞」。 */
+            row.dot.style.opacity = uniAccretionWeight(death, 0).toFixed(3)
         }
 
+        /* 一轮的进度 → 两件事：整体的淡入（进场的 0.06）与熄灭进度 death（0.8 之后）。
+           整组 opacity 只管进场；退场交给逐段的 stroke-opacity，两者不打架。 */
         var paint = function (row, u) {
-            /* 从外侧重生、在中心消散：0.06 淡入、最后 0.12 淡出。 */
-            var alpha = Math.min(1, u / 0.06, (1 - u) / 0.12)
-            draw(row, uniAccretionTrail(u), alpha < 0 ? 0 : alpha)
+            var fadeIn = u < 0.06 ? u / 0.06 : 1
+            var death = u <= UNI_ACC_FADE_FROM ? 0 : (u - UNI_ACC_FADE_FROM) / (1 - UNI_ACC_FADE_FROM)
+            row.g.style.opacity = fadeIn.toFixed(3)
+            draw(row, uniAccretionTrail(u), death > 1 ? 1 : death)
         }
 
-        /* 兜底形态：不跑时间轴，直接给一帧静态 —— 停在轨迹上的 u = 0.6（r = 3.2），
-           身后 2px 短尾。弧长从头部起算（0 就是绿点本身），所以这 2px 正是紧贴身的那截。
-           短尾是从同一条轨迹上切下来的，所以它不是「另画一个圆环」。 */
+        /* 兜底形态：不跑时间轴，直接给一帧静态 —— 停在轨迹上的 u = 0.6（r = 3.08），
+           身后是从出生点一路走到这里的完整尾迹。留着整条尾迹，静态帧才还能读出那条向内
+           收紧的螺旋；只留一个孤点等于什么也没说。它仍然是同一条曲线，不是另画的圆。 */
         var paintStill = function (row) {
-            var points = uniAccretionTrail(UNI_ACC_STILL_U)
-            draw(row, uniAccretionSlice(points, 0, UNI_ACC_STILL_TAIL), 1)
+            draw(row, uniAccretionTrail(UNI_ACC_STILL_U), 0)
         }
 
         var sync = function () {

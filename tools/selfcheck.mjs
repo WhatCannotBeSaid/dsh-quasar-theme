@@ -293,13 +293,14 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
   return /data-uni-black-hole/.test(sheet) || 'the canvas is not scoped to the black-hole page'
 })
 
-/* 2026-10-31（第五十三轮）：会话行 running 从「预画的四层」重做成「黑洞 + 一个绿点 +
- * 实时生成的尾流」。用户规格的直接后果是**运动搬进了 runtime**，所以这里钉的是：
+/* 2026-10-31（第五十三轮）：会话行 running 从「预画的四层」重做成「一个绿点 + 实时生成的
+ * 尾流」。用户规格的直接后果是**运动搬进了 runtime**，所以这里钉的是：
  *   css.18  官方那圈 loading 环必须藏起来；绿点与六段尾巴必须有自己的颜色/宽度/不透明度；
+ *           中心不许再有任何实体（第五十五轮撤掉暗核后，这一条改成反向断言）；
  *           这一格不许漏到 pending 或完成未读
  *   acc.1   采样循环挂进现有 paint layer effect 并随它一起撤走，不新增 effect（cli.11d 钉九个）
- *   acc.2   参数逐字照抄用户第八节：周期 1300ms、半径 5→2、点直径 1.8、兜底短尾 2px、总转
- *           450°；轨迹必须一路采回 u = 0（用户第二轮：要的是从出现到消失的全部轨迹）
+ *   acc.2   参数逐字照抄用户定稿：周期 1300ms、半径 6.2 → 1、点直径 2.2、总转 540°、
+ *           0.8 起级联熄灭；轨迹必须一路采回 u = 0（用户第二轮：要的是从出现到消失的全部轨迹）
  *   acc.3   不预绘：图元只有 g/path/circle，没有 dasharray 环、没有渐变、没有滤镜 */
 checks.check('css.18', 'the accretion flow binds to the running spinner and nothing else', () => {
   const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
@@ -311,6 +312,12 @@ checks.check('css.18', 'the accretion flow binds to the running spinner and noth
   if (!/:has\(> g\.uni-acc\)/.test(sheet)) {
     return 'the ring is hidden before the accretion group exists, which blanks the icon'
   }
+  /* 第五十五轮（用户 m00986，隐式吸积中心）：中心不画任何东西。这条是反向断言 ——
+     谁再把圆心填回去（background / 伪元素 / 一枚小圆），这里就红。 */
+  if (/svg\[data-state='ongoing'\][^{}]*\{[^}]*background/.test(sheet)) {
+    return 'the svg paints a centre again: the gravity centre must stay invisible'
+  }
+  if (/--uni-acc-core/.test(sheet)) return 'a core token survived the removal'
   if (!/svg\[data-state='ongoing'\] \.uni-acc-dot[^{}]*\{[^}]*fill:/.test(sheet)) {
     return 'the dot has no paint of its own'
   }
@@ -337,12 +344,15 @@ checks.check('acc.1', 'the sampler rides the paint layer effect and leaves with 
 checks.check('acc.2', 'the sampler carries the numbers the user approved', () => {
   const want = [
     ['UNI_ACC_CYCLE', '1300'],
-    /* 2026-10-31 第五十四轮（用户 m00896 选 A）：「又小又细」→ 外半径 5 → 6.2、内半径
-       2 → 2.4、点直径 1.8 → 2.2。盒子仍是官方 14px，所以只能靠这几个数字把盒画满。 */
+    /* 第五十四轮（用户 m00896 选 A）：「又小又细」→ 外半径 5 → 6.2、点直径 1.8 → 2.2。
+       第五十五轮（用户 m00986、m00990 选 A）：中心不再有暗核，落点收到 1.0 ——
+       没有实体挡在中心，点要一直落到虚空里再熄灭。 */
     ['UNI_ACC_R0', '6.2'],
-    ['UNI_ACC_R1', '2.4'],
+    ['UNI_ACC_R1', '1'],
     ['UNI_ACC_DOT', '1.1'],
-    ['UNI_ACC_STILL_TAIL', '2'],
+    /* 第五十五轮（用户 m00999 选 B）：级联熄灭。0.8 起收，最老那段错开 45% 才起步。 */
+    ['UNI_ACC_FADE_FROM', '0.8'],
+    ['UNI_ACC_FADE_STAGGER', '0.45'],
     ['UNI_ACC_BANDS', '6']
   ]
   for (const [name, value] of want) {
@@ -350,10 +360,15 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
     if (found === null) return name + ' is not declared'
     if (Number(found[1]) !== Number(value)) return name + ' is ' + found[1] + ', the spec says ' + value
   }
-  if (!/Math\.PI \* 2 \* 1\.25/.test(accretionJs)) return 'the 450-degree total turn is missing'
+  /* 第五十五轮（用户 m00993 选 B）：1.25 圈 → 1.5 圈。落程从 3.8 涨到 5.2，圈数不加
+     则相邻两趟的径向间隔会松到读不成螺旋。 */
+  if (!/Math\.PI \* 2 \* 1\.5/.test(accretionJs)) return 'the 540-degree total turn is missing'
+  if (/Math\.PI \* 2 \* 1\.25/.test(accretionJs)) return 'the old 450-degree turn is back'
   /* 第二稿的要害：尾巴量到出生点为止，不许再出现「往回走固定 4px」那种截断。 */
   if (!/uniAccretionAt\(0\)/.test(accretionJs)) return 'the trail never reaches u = 0'
   if (/UNI_ACC_TAIL\b/.test(accretionJs)) return 'the fixed-length tail is back'
+  /* 兜底帧不再只截 2px：静态形态要能读出整条向内收紧的螺旋。 */
+  if (/UNI_ACC_STILL_TAIL/.test(accretionJs)) return 'the still frame is back to a stub tail'
   return true
 })
 checks.check('acc.3', 'nothing is pre-drawn: no ring, no spiral, no glow', () => {
