@@ -35,12 +35,16 @@
      *
      * 第五十七轮（用户 m01091：「光点消失到再出现会有一瞬间全黑」）：级联不再归零。最后一圈
      * 里第 i 段的亮度 = 年龄亮度 × 级联权重，只有最老那段例外 —— 它从年龄亮度 .04 一路升到
-     * --uni-acc-floor（暗档 .22 / 亮档 .30），正好停在出生点上；下一轮整组的进场淡入又从
-     * 同一个 floor 起步，于是「外圈那抹余温」直接交给新出生的头。两头数值对齐、位置重合，
-     * 中间那一百多毫秒的黑场就没有了。
+     * --uni-acc-floor，正好停在出生点上；下一轮整组的进场淡入又从同一个 floor 起步。
+     *
+     * 但只做这一条不够：头段归零时点也一起归零（weight 的 rank 0），于是 u ≈ 0.91 之后
+     * 117ms 里屏幕上只剩最老那段 5.5px 长、0.7px 宽、亮度 .22 的弧 —— 16px 下读不出东西，
+     * 用户当场回报「还是有一瞬的全黑」（m01217）。第二稿只让尾巴留底，忘了粒子本身也在
+     * 归零。所以现在分开算：段按级联熄（谁先被吞），点按自己的落程收到 floor（粒子一直
+     * 亮到落底）—— 点与出生点那抹余温在同位置、同亮度交接，这才是真正的无缝。
      *
      * 为什么亮度全部改由这里写：floor 没法用「样式表 .04 × stroke-opacity ≤ 1」表达（要
-     * .22 就得乘 5.5）。所以样式表只管笔宽与颜色，每段的有效不透明度一律由这个文件算，
+     * .34 就得乘 8.5）。所以样式表只管笔宽与颜色，每段的有效不透明度一律由这个文件算，
      * 年龄段亮度表就是下面的 UNI_ACC_AGE。
      *
      * 兜底：prefers-reduced-motion 或主题动效开关关掉时（client.js 写成
@@ -73,9 +77,9 @@
     /* 年龄段亮度（头 → 尾）。第五十七轮之前这六个数在样式表的 opacitiy 里，现在搬到这里，
        因为最老那段要能在结束时升到 floor，而「素材 × 权重」这种乘法表达不了抬升。 */
     var UNI_ACC_AGE = [0.55, 0.34, 0.2, 0.12, 0.07, 0.04]
-    /* 留底亮度：样式表 --uni-acc-floor 是唯一真源（暗 .22 / 亮 .30），这里只是拿不到
+    /* 留底亮度：样式表 --uni-acc-floor 是唯一真源（暗 .34 / 亮 .42），这里只是拿不到
        计算值时的兜底。readFloor 在装配与主题切换时读一次。 */
-    var UNI_ACC_FLOOR_FALLBACK = 0.22
+    var UNI_ACC_FLOOR_FALLBACK = 0.34
     /* 级联熄灭：u 过 0.8 开始收，头部立刻走，最老那段晚 UNI_ACC_FADE_STAGGER 才起步。
        每段各自的熄灭进度 = (death − rank·stagger) / (1 − stagger)，所以 death = 1 时整条为零。 */
     var UNI_ACC_FADE_FROM = 0.8
@@ -112,6 +116,17 @@
         if (pick === last) return age + (floor - age) * death
         var rank = last > 0 ? pick / last : 0
         return age * uniAccretionWeight(death, rank)
+    }
+
+    /* 光点自己的散场：尾迹按 rank 级联（头段先熄），点不能跟着头段一起归零 —— 它是这一轮
+        唯一的粒子，也是用户眼里唯一在动的东西，必须在落到底之前一直亮着。所以它从头部亮度
+        一路收到 floor，正好落在出生点那抹余温的同一个亮度上；下一轮的新点又从 floor 起，
+        于是「点灭」与「点生」在同一个位置、同一个亮度上交接，中间没有黑帧。
+        它和 uniAccretionBandAlpha 不是一套规则：段是「被吞掉的尾巴」，点是被吞掉的粒子。 */
+    function uniAccretionDotAlpha(death, floor) {
+        var age = UNI_ACC_AGE[0]
+        var out = age + (floor - age) * death
+        return out < 0 ? 0 : out > 1 ? 1 : out
     }
 
     /* 局部线速度（px / 单位相位）：把采样步长换算成固定的弧长间隔。内圈走得快，步长就得
@@ -261,8 +276,9 @@
             var head = points[0]
             row.dot.setAttribute('cx', head.x.toFixed(2))
             row.dot.setAttribute('cy', head.y.toFixed(2))
-            /* 头部是 rank = 0，永远第一个熄 —— 点没了、尾还在收，才读得出「被吞」。 */
-            row.dot.style.opacity = uniAccretionWeight(death, 0).toFixed(3)
+            /* 头部是 rank = 0，先熄的是它负责的那一段尾巴；点本身不跟着熄 —— 它要一直亮到
+               落底，收场时收到 floor，与下一轮出生的新点同亮度（见 uniAccretionDotAlpha）。 */
+            row.dot.style.opacity = uniAccretionDotAlpha(death, floor).toFixed(3)
         }
 
         /* 一轮的进度 → 两件事：整体的淡入（进场的 0.06）与熄灭进度 death（0.8 之后）。
@@ -282,6 +298,9 @@
         var paintStill = function (row) {
             row.g.style.opacity = '1'
             draw(row, uniAccretionTrail(UNI_ACC_STILL_U), 0)
+            /* 动态形态里点的亮度由散场权重写（满亮时是头部年龄亮度 .55）；静态帧没有下一轮
+               要交棒，点画满，别跟着那条 .55 的规则一起被压暗。 */
+            row.dot.style.opacity = '1'
         }
 
         var sync = function () {

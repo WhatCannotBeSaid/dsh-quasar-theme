@@ -8,6 +8,19 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Changed
 
+- **会话行 running 的黑帧真的修掉了：绿点自己也留底，不只尾巴（2026-10-31 第五十八轮）。**
+  用户逐字：「还是有一瞬的全黑」。上一轮只让最老那段尾巴留底，漏了点本身 —— 点的亮度挂在
+  `rank = 0` 的级联权重上，`death` 走到 `0.55`（即 `u ≈ 0.91`）就归零，收尾那 117ms 里屏幕
+  上只剩最外一小段 5.5px 长、0.71px 宽、亮度 `.22` 的弧，16px 下读作黑。① 新增
+  `uniAccretionDotAlpha(death, floor)`：点从头部亮度 `.55` 一路收到 `floor`，从不归零；它与
+  尾巴的级联不是同一套规则 —— 段是「被吞掉的尾巴」，点是被吞掉的粒子。② 留底亮度抬档：
+  暗 `.22 → .34`、亮 `.30 → .42`（`--uni-acc-floor` 两处，JS 兜底同步到 `.34`），`.22` 在绿
+  底上仍偏弱。③ 静态帧把点补回满亮（动态里 `.55` 是「即将交接」的亮度，兜底帧没有下一轮，
+  不该跟着压暗）。`css.18` 改钉两档新 floor，`acc.2` 加 `uniAccretionDotAlpha` 的存在与调用
+  断言，新增 A5 钉「点单调收到 floor、全程不低于 floor、不越界」，A4 的 floor 换成新值。
+  门禁：`selfcheck` 123 断言 0 失败、`node --test` 67 通过、`build-client --check` 与 src
+  一致（229232 chars）。
+
 - **会话行 running 放大到 16px 盒子，并让一轮的末尾不再全黑（2026-10-31 第五十七轮）。**
   用户逐字两句：「光点消失到再出现会有一瞬间全黑」＋「动画能不能再大点？现在我感觉还是
   很小，还是没有官方默认的大」。① 盒子：官方那枚 `svg` 是 14px，改成 `width/height: 16px`

@@ -548,15 +548,15 @@ test('A4: the last breath of a turn hands off to the next, so nothing goes black
   const source = read('src/runtime/accretion.js')
   const api = vm.runInNewContext(
     between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ alpha: uniAccretionBandAlpha, age: UNI_ACC_AGE, bands: UNI_ACC_BANDS, fallback: UNI_ACC_FLOOR_FALLBACK })',
+    '\n({ alpha: uniAccretionBandAlpha, dot: uniAccretionDotAlpha, age: UNI_ACC_AGE, bands: UNI_ACC_BANDS, fallback: UNI_ACC_FLOOR_FALLBACK })',
     { Math })
   const last = api.bands - 1
 
-  /* 起步与收尾都与用户定的那一档一致：暗档 .22、亮档 .30 由样式表给，兜底值必须等于暗档。 */
-  assert.equal(api.fallback, 0.22)
+  /* 起步与收尾都与用户定的那一档一致：暗档 .34、亮档 .42 由样式表给，兜底值必须等于暗档。 */
+  assert.equal(api.fallback, 0.34)
   assert.deepEqual(Array.from(api.age), [0.55, 0.34, 0.2, 0.12, 0.07, 0.04])
 
-  for (const floor of [0.22, 0.3]) {
+  for (const floor of [0.34, 0.42]) {
     /* death = 0：整条就是年龄亮度本身，没有第二层压暗。 */
     for (let i = 0; i <= last; i += 1) {
       assert.ok(Math.abs(api.alpha(i, 0, floor) - api.age[i]) < 1e-12, `band ${i} is dimmed before the exit`)
@@ -579,6 +579,36 @@ test('A4: the last breath of a turn hands off to the next, so nothing goes black
         const value = api.alpha(i, d / 20, floor)
         assert.ok(value >= 0 && value <= 1, `alpha escaped [0,1]: ${value}`)
       }
+    }
+  }
+})
+
+test('A5: the particle itself never blinks out, so the hand-off has no dark frame', () => {
+  /* 用户 m01217：「还是有一瞬的全黑」。A4 只让尾巴留了底 —— 点自己仍挂在 rank 0 的级联权重
+     上，death 走到 0.55（u ≈ 0.91）就归零，收尾那 117ms 里屏幕上只剩最外一小段 .22 的弧，
+     16px 下读作黑。这条测试钉的就是「点有别于尾巴的散场规则：一路收到 floor，从不归零」。 */
+  const source = read('src/runtime/accretion.js')
+  const api = vm.runInNewContext(
+    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ dot: uniAccretionDotAlpha, age: UNI_ACC_AGE })',
+    { Math }
+  )
+
+  for (const floor of [0.34, 0.42]) {
+    /* 满亮时就是头部年龄亮度：点不该比尾巴的头段更亮，也不该更暗。 */
+    assert.ok(Math.abs(api.dot(0, floor) - api.age[0]) < 1e-12, 'the dot starts at the head brightness')
+    /* 落底时正好等于留底值 —— 下一轮的新点从同一个数长起来，交接处亮度连续。 */
+    assert.ok(Math.abs(api.dot(1, floor) - floor) < 1e-12, 'the dot must land on the floor, not on zero')
+
+    let previous = 2
+    for (let d = 0; d <= 40; d += 1) {
+      const value = api.dot(d / 40, floor)
+      /* 单调不升：一路暗下去，不会在收尾时忽然亮一下。 */
+      assert.ok(value <= previous + 1e-12, 'the dot brightened again on its way in')
+      previous = value
+      /* 全程 ≥ floor：这就是「没有黑帧」的数学形式。 */
+      assert.ok(value >= floor - 1e-12, `the dot dropped below the floor at death ${d / 40}`)
+      assert.ok(value >= 0 && value <= 1, `dot alpha escaped [0,1]: ${value}`)
     }
   }
 })

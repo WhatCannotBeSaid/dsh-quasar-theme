@@ -334,8 +334,8 @@ checks.check('css.18', 'the accretion flow binds to the running spinner and noth
   if (!/svg\[data-state='ongoing'\]\s*\{[^}]*width:\s*16px/.test(sheet)) {
     return 'the running box never grew to 16px, so the mark is still smaller than the official ring'
   }
-  if (!/--uni-acc-floor:\s*\.22/.test(sheet)) return 'the dark-mode floor is gone: the cycle dies to black again'
-  if (!/body:not\(\[data-ds-dark-theme\]\)\s*\{[^}]*--uni-acc-floor:\s*\.3/.test(sheet)) {
+  if (!/--uni-acc-floor:\s*\.34/.test(sheet)) return 'the dark-mode floor is gone: the cycle dies to black again'
+  if (!/body:not\(\[data-ds-dark-theme\]\)\s*\{[^}]*--uni-acc-floor:\s*\.42/.test(sheet)) {
     return 'the light-mode floor is missing, so the hand-off blinks on a pale background'
   }
   if (/data-state='(pending|warning|done|error)'\][^{}]*\{[^}]*uni-acc/.test(sheet)) {
@@ -381,6 +381,14 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
   }
   if (!/uniAccretionBandAlpha\(i, death, floor\)/.test(accretionJs)) {
     return 'draw never calls the band alpha helper'
+  }
+  /* 用户 m01217「还是有一瞬的全黑」：尾巴留底不够，点本身也在 rank 0 上归零，于是收尾那
+     一百多毫秒里屏幕上只剩最外一小段暗弧。点必须按自己的落程收到 floor，与尾巴分开放。 */
+  if (!/function uniAccretionDotAlpha\(death, floor\)/.test(accretionJs)) {
+    return 'the dot has no floor of its own, so it still blinks out before it lands'
+  }
+  if (!/row\.dot\.style\.opacity = uniAccretionDotAlpha\(death, floor\)/.test(accretionJs)) {
+    return 'draw still kills the dot with the cascade weight'
   }
   /* 第五十五轮（用户 m00993 选 B）：1.25 圈 → 1.5 圈。落程从 3.8 涨到 5.2，圈数不加
      则相邻两趟的径向间隔会松到读不成螺旋。 */
