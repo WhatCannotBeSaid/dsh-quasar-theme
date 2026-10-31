@@ -177,14 +177,12 @@ body[data-ds-dark-theme] {
   /* 2026-10-07 用户：「将左上角亮色模式下的Logo替换为暗色模式那张。」
      D33 的分档选择现已取消：生成块里的 `--cp-brand-mark` 直接发布暗档那张图，
      因此两档天然一致，不需要在这里重声明，也没有模式切换时的旧图帧。 */
-  /* 暗色多普勒的两层副影（第五十一轮，2026-10-31）。亮档副影是「深暖金 / 铜」，
-     暗档却是「浅香槟 / 浅琥珀」—— 那两层与暖白主字 #cfd5dc 的亮度太接近，1px
-     尺度上只剩下色相差，读不出分离（用户原话「暗色下再调整下，跟白色的普通文字
-     太接近了」）。这里把两层各自与深色底混一档，关键词从「浅金」变成「铜」：
-     冷暖分离靠色相与明度，不靠更大的光晕。用 color-mix 而不写字面色值，
-     是因为 `css.8` 禁止字面颜色，而令牌本身已经随模式切换。 */
-  --uni-sel-warm-near: color-mix(in srgb, var(--dsw-alias-state-warn-secondary) 70%, var(--dsw-alias-bg-base));
-  --uni-sel-warm-far: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 62%, var(--dsw-alias-bg-base));
+  /* 暗色多普勒的两层副影（第五十一轮加、第五十六轮撤）。原文保留在此，记录那轮
+     为什么把它压深一档：亮档副影是「深暖金 / 铜」，暗档却是「浅香槟 / 浅琥珀」，
+     与暖白主字 #cfd5dc 的亮度太接近，1px 尺度上只剩色相差，读不出分离。当时的
+     做法是与深色底混一档、把关键词从「浅金」改成「铜」，并注册成两支局部变量
+     --uni-sel-warm-near / --uni-sel-warm-far 供 text-shadow 消费。
+     第五十六轮用户定案只留悬停收束，多普勒连同这两支变量一起删除，故此处不再声明。 */
 }
 
 /* --------------------------------------------------------------------------
@@ -465,7 +463,7 @@ body [data-row-key^='session:']:has([class*='pinIndicator']):not([aria-selected=
  *   4. 六段各自的笔宽与不透明度（年龄越老越细越淡，颜色始终只有一枚）
  *
  * 尺寸与坐标：svg 显示 14×14、viewBox 0 0 24 24。图元画在 `scale(24/14)` 的组里，
- * 组内 1 单位 = 14px 下 1px，所以黑洞直径 2px、点直径 1.8px、尾宽 0.7px 都能逐字对上
+ * 组内 1 单位 = 14px 下 1px，所以黑洞直径 2px、点直径 2.2px、尾宽 1.15 → 0.5px 都能逐字对上
  * 用户给的数字，不需要任何换算常量。
  *
  * 与 pending 的分界：pending 是固定椭圆 + 匀速绕行（官方原样，本节不碰）；这里是半径
@@ -504,14 +502,14 @@ body svg[data-state='ongoing'] {
   background-image: radial-gradient(circle at 50% 50%, var(--uni-acc-core-fill) 0 calc(var(--uni-acc-core) - .1px), transparent var(--uni-acc-core));
 }
 
-/* 绿点：直径 1.8px（r=.9）。不做描边、不加发光 —— 用户要的是「点」，不是光球。 */
+/* 绿点：直径 2.2px（r=1.1）。不做描边、不加发光 —— 用户要的是「点」，不是光球。 */
 body svg[data-state='ongoing'] .uni-acc-dot {
   fill: var(--uni-acc-dot);
 }
 
 /* 六段尾流：同一枚绿色，靠宽度与不透明度收细。t0 是头部、t5 是出生点，段号即年龄 ——
  * 每帧的轨迹总长由 JS 按当前弧长均分给这六段，所以尾巴有多长，六段就一起有多长。
- * stroke-linecap: round 让接缝处不出现方角，相邻段宽度只差 0.08，看不出台阶。 */
+ * stroke-linecap: round 让接缝处不出现方角，相邻段宽度只差 0.13 左右，看不出台阶。 */
 body svg[data-state='ongoing'] .uni-acc-t0,
 body svg[data-state='ongoing'] .uni-acc-t1,
 body svg[data-state='ongoing'] .uni-acc-t2,
@@ -524,32 +522,32 @@ body svg[data-state='ongoing'] .uni-acc-t5 {
 }
 
 body svg[data-state='ongoing'] .uni-acc-t0 {
-  stroke-width: .7;
+  stroke-width: 1.15;
   opacity: .55;
 }
 
 body svg[data-state='ongoing'] .uni-acc-t1 {
-  stroke-width: .62;
+  stroke-width: 1.02;
   opacity: .34;
 }
 
 body svg[data-state='ongoing'] .uni-acc-t2 {
-  stroke-width: .54;
+  stroke-width: .88;
   opacity: .2;
 }
 
 body svg[data-state='ongoing'] .uni-acc-t3 {
-  stroke-width: .46;
+  stroke-width: .75;
   opacity: .12;
 }
 
 body svg[data-state='ongoing'] .uni-acc-t4 {
-  stroke-width: .38;
+  stroke-width: .62;
   opacity: .07;
 }
 
 body svg[data-state='ongoing'] .uni-acc-t5 {
-  stroke-width: .3;
+  stroke-width: .5;
   opacity: .04;
 }
 
@@ -2539,6 +2537,12 @@ body[data-uni-motion] [role='treeitem'] {
      过 styleSheets 确认，无一处用于 color），所以就地压成 transparent 不会把文
      字一起弄没。`-button-floating-hover` 与 `-button-primary-hover` 不动：它们
      是浮动/主按钮自己的填充深浅，属「实心面保留宿主填充」。 */
+  /* 第五十六轮（2026-10-31）复核：这段压制**保留**。用户要的是「悬停时只剩引力
+     收束」，而宿主悬停默认会浮出一层底色 —— 压掉这六支令牌，悬停才真的只剩
+     scale 收束。代价是选中态与悬停共用同一支 interactive-bg-hover，令牌被压成
+     transparent 后选中行也画不出底色，所以选中钩子上单独把两支还原回官方比例
+     （见本表末尾「选中态」一节）。这是「悬停无底色 + 选中官方底色」唯一能同时
+     成立的组合。 */
   --dsw-alias-interactive-bg-hover: transparent;
   --dsw-alias-interactive-bg-hover-accent: transparent;
   --dsw-alias-fill-hover: transparent;
@@ -2686,6 +2690,12 @@ body[data-uni-motion='reduced'] [data-uni-ws-pin-button] {
 /* ============================================================================
  * 选中态：引力透镜 + 多普勒红移（2026-10-30 第四十八轮；2026-10-31 第五十轮重做）
  * ----------------------------------------------------------------------------
+ * 【整段已是历史存档】第五十六轮（2026-10-31）用户定案「只保留鼠标悬停时的引力
+ * 收束，其他全部删除，恢复成官方默认效果」，本节描述的所有规则（引力透镜的 SVG
+ * 位移图、多普勒的两条 text-shadow、入场 WAAPI、--uni-sel-k、文字节点标记）都已
+ * 从本表与 selection.js 中删除。下面只保留建模与取值的历史记录，不再对应任何
+ * 现行规则；选中态现在完全由宿主官方样式表达。
+ *
  * 第五十轮（2026-10-31）改了什么，为什么改：
  *   用户当轮逐条给了新规格，与第四十八轮有三处硬冲突，所以两套效果整体重做、
  *   不是调参：
@@ -2752,27 +2762,29 @@ body[data-uni-motion='reduced'] [data-uni-ws-pin-button] {
  * 无动画：选中是即时状态，不加 transition（也避免和悬停的 220ms 打架）。
  * ========================================================================= */
 
-/* 选中态底色归还（第五十五轮，2026-10-31）
+/* 选中态：官方底色（第五十六轮，2026-10-31）
    ----------------------------------------------------------------------------
-   用户定案：「删除相关代码，恢复成 DSH 官方默认的效果。」选的方案是只让**选中**
-   拿回底色，悬停那套透明处理不动。
+   用户定案：「只保留鼠标悬停时的引力收束，其他全部删除，恢复成官方默认效果。」
 
-   为什么不能只删压制块：官方把悬停与选中合成了一条规则 ——
+   本表对选中态只剩这一件事：把两支交互底色令牌在选中钩子上还原成官方比例，让
+   宿主自己那条
      .sessionRow:hover, .sessionRow.selected { background: var(--dsw-alias-interactive-bg-hover) }
-   而这个变量在 body[data-uni-motion] 里被就地改成了 transparent（见下面「悬停底色」
-   一节）。所以选中行即便没有任何主题规则，也画不出底色。要在不动那支压制的前提下
-   让选中恢复，只能在选中钩子上把变量还原。
-
-   还原成什么：调色板里这两支本来就是品牌色/业务色加透明度，实测
+   画得出底色。这不是主题自绘的装饰 —— 还原的正是调色板里这两个令牌本来的值：
      interactive-bg-hover        暗 #87cbd51a = brand-primary 的 10.2%
                                  亮 #00687417 = brand-primary 的 9.0%
      interactive-bg-hover-accent 暗 #aebde22e = state-business-primary 的 18%
                                  亮 #54628624 = state-business-primary 的 14%
-   所以这里用 color-mix 从同一批令牌推回去，不写字面色值（css.8）。
-   百分比差千分之一以内，肉眼与调色板值无差。
+   用 color-mix 从同一批令牌推回去，不写字面色值（css.8）。
 
-   作用域只包选中钩子：未选中的元素仍拿到 transparent，悬停那层浮出的底色照旧不出。
-   --dsw-alias-interactive-bg-active 不在此列 —— 它本来就没被压制。
+   为什么不能干脆删掉「悬停底色」那节的令牌压制：用户要的是悬停时只剩 scale 收束、
+   不要那层淡色底。压制一撤，悬停的底色回来了，与定案冲突。两支令牌被悬停与选中
+   共用，所以只能在选中钩子上把值还回去 —— 这是「悬停无底色 + 选中官方底色」唯一
+   能同时成立的组合。边框、下划线、动作区显隐本来就归宿主，本表不碰。
+
+   历史轨迹（避免再被加回来）：第四十八轮六层对称 text-shadow；第五十至五十二轮
+   SVG 位移图 + feDisplacementMap + ::after 外侧像 + WAAPI 两阶段入场（用户判为
+   「根本没法看」）；第五十三轮放大 1.07 与滚动闸（落地前叫停）；第五十五轮把
+   底色与边框还给官方；第五十六轮删掉多普勒红移与整套入场变量。以上全部撤除。
    ------------------------------------------------------------------------- */
 body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'],
 body[data-uni-motion] [aria-current='true'],
@@ -2814,43 +2826,13 @@ body[data-uni-motion][data-ds-dark-theme] [data-sidebar-right-guide-entry][aria-
    删除：宿主用底色、边框、下划线表达选中的样子全部原样回归，本表不再碰。
    ------------------------------------------------------------------------- */
 
-/* 入场强度系数（第五十轮）：1 = 稳定态，selection.js 用 WAAPI 把它从 PEAK
-   推回 1，所以稳定值必须写在样式表里、动画只负责「那一瞬间」。
-   注册成 <number> 是为了让 WAAPI 能补间 —— 未注册的自定义属性是离散的，
-   动画会变成一次跳变而不是一次偏移。 */
-@property --uni-sel-k {
-  syntax: '<number>';
-  inherits: false;
-  initial-value: 1;
-}
+/* 多普勒红移：已删除（第五十六轮，2026-10-31）
+   ----------------------------------------------------------------------------
+   用户定案「只保留鼠标悬停时的引力收束，其他全部删除」。会话行的暖金副影连同
+   它的驱动变量一起撤除，会话行选中现在只剩宿主官方的底色。
 
-/* 多普勒红移（第五十轮）：只往右侧长波端拖两层暖色副影，越远越淡；左侧干净。
-   物理上红移只有「远离观察者」那一侧，所以是单向递减，不是左右对称的两侧像。
-   颜色取令牌不取字面值：state-warn-secondary 暗档香槟金 / 亮档铜，
-   state-warn-primary 暗档琥珀金 / 亮档深暖金 —— 暗亮适配由令牌层完成。
-   位移量乘 --uni-sel-k：稳定 1，入场峰值由 selection.js 推到 2.4 再落回。 */
-body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] {
-  text-shadow:
-    calc(0.6px * var(--uni-sel-k)) 0 0
-      color-mix(in srgb, var(--dsw-alias-state-warn-secondary) 78%, transparent),
-    calc(1.3px * var(--uni-sel-k)) 0 0
-      color-mix(in srgb, var(--dsw-alias-state-warn-primary) 46%, transparent);
-}
-
-/* 暗色多普勒的偏移量（第五十一轮，2026-10-31）：亮档 0.6/1.3px 的位移在 14px
-   字号上会被字形本身盖住，暗档的副影又更暗，于是两层一起抬到 0.75/1.5px、不透明度
-   抬到 88%/62%。两层颜色来自上面 `body[data-ds-dark-theme]` 里的
-   --uni-sel-warm-near / --uni-sel-warm-far（压深一档的铜色），不是这里的字面值。
-   仍然是纯右侧单向递减：左侧零副影，红移只有「远离观察者」那一侧。 */
-body[data-ds-dark-theme][data-uni-motion] [data-row-key^='session:'][aria-selected='true'] {
-  text-shadow:
-    calc(0.75px * var(--uni-sel-k)) 0 0
-      color-mix(in srgb, var(--uni-sel-warm-near) 88%, transparent),
-    calc(1.5px * var(--uni-sel-k)) 0 0
-      color-mix(in srgb, var(--uni-sel-warm-far) 62%, transparent);
-}
-
-/* 只主文字参与：时间戳与行操作区不带色散（图标位是 svg，本就不受影响）。 */
-body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] > span:nth-child(n+3) {
-  text-shadow: none;
-}
+   撤掉的东西（都在这一轮）：两条 text-shadow 规则（亮档 0.6/1.3px 78%/46%、
+   暗档 0.75/1.5px 88%/62%）、只清时间戳与行操作区的 `> span:nth-child(n+3)` 复位、
+   `@property --uni-sel-k`（入场强度系数，已无消费方）、以及 body[data-ds-dark-theme]
+   块里的 --uni-sel-warm-near / --uni-sel-warm-far。
+   ------------------------------------------------------------------------- */

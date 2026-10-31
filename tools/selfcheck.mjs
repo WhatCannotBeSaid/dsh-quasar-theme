@@ -334,12 +334,14 @@ checks.check('acc.1', 'the sampler rides the paint layer effect and leaves with 
   }
   return true
 })
-checks.check('acc.2', 'the sampler carries the numbers from the spec verbatim', () => {
+checks.check('acc.2', 'the sampler carries the numbers the user approved', () => {
   const want = [
     ['UNI_ACC_CYCLE', '1300'],
-    ['UNI_ACC_R0', '5'],
-    ['UNI_ACC_R1', '2'],
-    ['UNI_ACC_DOT', '0.9'],
+    /* 2026-10-31 第五十四轮（用户 m00896 选 A）：「又小又细」→ 外半径 5 → 6.2、内半径
+       2 → 2.4、点直径 1.8 → 2.2。盒子仍是官方 14px，所以只能靠这几个数字把盒画满。 */
+    ['UNI_ACC_R0', '6.2'],
+    ['UNI_ACC_R1', '2.4'],
+    ['UNI_ACC_DOT', '1.1'],
     ['UNI_ACC_STILL_TAIL', '2'],
     ['UNI_ACC_BANDS', '6']
   ]

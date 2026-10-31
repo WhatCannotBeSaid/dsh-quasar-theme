@@ -399,9 +399,11 @@ test('A1: the accretion geometry is the spec, not a lookalike', () => {
     { Math })
   const TAU = Math.PI * 2
 
-  /* Radius: five pixels at spawn, two at the centre, always shrinking. */
-  assert.equal(api.at(0).r, 5)
-  assert.equal(api.at(1).r, 2)
+  /* Radius: 6.2px at spawn, 2.4 at the centre, always shrinking. 2026-10-31 第五十四轮：
+     用户看过真机说「又小又细」，盒子不动的前提下把盒画满 —— 外径 12.4px（官方环 11.08px），
+     内径 4.8px，落程 3.8px。 */
+  assert.equal(api.at(0).r, 6.2)
+  assert.equal(api.at(1).r, 2.4)
   let previous = Infinity
   for (let i = 0; i <= 64; i += 1) {
     const r = api.at(i / 64).r
@@ -419,19 +421,21 @@ test('A1: the accretion geometry is the spec, not a lookalike', () => {
     last = phi
   }
 
-  /* Spawns at twelve o'clock, i.e. the top of the 14px box, not somewhere random. */
+  /* Spawns at twelve o'clock, i.e. the top of the orbit: y = 7 − 6.2. */
   assert.ok(Math.abs(api.at(0).x - 7) < 1e-9)
-  assert.ok(Math.abs(api.at(0).y - 2) < 1e-9)
+  assert.ok(Math.abs(api.at(0).y - 0.8) < 1e-9)
 
   /* Angular speed grows inwards: this is what separates a fall from a spin. */
   const dphi = u => (api.at(u + 1e-6).phi - api.at(u).phi) / 1e-6
   assert.ok(dphi(0.9) > dphi(0.1) * 2, 'the inner orbit must turn faster than the outer one')
 
-  /* Everything stays inside the 14x14 box the icon is. */
+  /* Everything stays inside the 14x14 box the icon is — and the widest band (1.15px) still
+     fits between the outer orbit (6.2) and the edge (7), so nothing gets shaved off. */
   for (let i = 0; i <= 128; i += 1) {
     const point = api.at(i / 128)
-    assert.ok(point.x > 1 && point.x < 13 && point.y > 1 && point.y < 13, `escaped the icon at u=${i / 128}`)
+    assert.ok(point.x > 0.5 && point.x < 13.5 && point.y > 0.5 && point.y < 13.5, `escaped the icon at u=${i / 128}`)
   }
+  assert.ok(api.at(0).r + 1.15 / 2 < 7, 'the widest band would be clipped by the 14px box')
 })
 
 test('A2: the trail is every pixel the dot has travelled, sliced without gaps', () => {
