@@ -177,6 +177,14 @@ body[data-ds-dark-theme] {
   /* 2026-10-07 用户：「将左上角亮色模式下的Logo替换为暗色模式那张。」
      D33 的分档选择现已取消：生成块里的 `--cp-brand-mark` 直接发布暗档那张图，
      因此两档天然一致，不需要在这里重声明，也没有模式切换时的旧图帧。 */
+  /* 暗色多普勒的两层副影（第五十一轮，2026-10-31）。亮档副影是「深暖金 / 铜」，
+     暗档却是「浅香槟 / 浅琥珀」—— 那两层与暖白主字 #cfd5dc 的亮度太接近，1px
+     尺度上只剩下色相差，读不出分离（用户原话「暗色下再调整下，跟白色的普通文字
+     太接近了」）。这里把两层各自与深色底混一档，关键词从「浅金」变成「铜」：
+     冷暖分离靠色相与明度，不靠更大的光晕。用 color-mix 而不写字面色值，
+     是因为 `css.8` 禁止字面颜色，而令牌本身已经随模式切换。 */
+  --uni-sel-warm-near: color-mix(in srgb, var(--dsw-alias-state-warn-secondary) 70%, var(--dsw-alias-bg-base));
+  --uni-sel-warm-far: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 62%, var(--dsw-alias-bg-base));
 }
 
 /* --------------------------------------------------------------------------
@@ -370,6 +378,79 @@ canvas[data-uni-black-hole] {
 body[data-uni-motion='reduced'] canvas[data-uni-black-hole] {
   transition: none;
 }
+
+/* --------------------------------------------------------------------------
+ * 会话行：只保留置顶标题的字色（2026-10-31）
+ *
+ * 会话行的状态标记（pending / 完成未读 / running）已在 2026-10-31 全部交回 DSH 官方：
+ * 主题不再写 data-uni-life、不再画任何图形，官方那枚状态点/转圈按原样显示。
+ *
+ * 这里只剩置顶：置顶是**独立属性**，与状态无关，所以它不受上面那条撤走的影响。
+ * 下面没有一条规则写 color 之外的布局属性，也没有任何背景、边框、指示条或动画 ——
+ * 置顶只作用于主标题本身。
+ * ------------------------------------------------------------------------ */
+
+body {
+  /* 置顶标题的香槟金（用户 2026-10-31 给的 #E6C78F 目标 rgb(230,199,143)）。令牌表
+   * 里没有这枚色，css.8 又不许写字面量，所以从两枚既有令牌混出来：warn-secondary
+   * 本身就是这族暖金（#f0c98b），往 caption 灰里收 11.5%，从「提示用的亮金」退成
+   * 一块不那么艳的香槟。落点实测 rgb(230,197,143) —— G 通道比目标低 2/255，其余两个
+   * 通道逐字节相等；这 0.8% 的差是两色线性混色在 8 位色深下的下限（0.1% 步长扫遍
+   * 27 枚不透明令牌的两两组合，没有一个组合能精确命中），肉眼不可分。 */
+  --uni-pin-title: color-mix(in srgb, var(--dsw-alias-state-warn-secondary) 88.5%, var(--dsw-alias-label-caption));
+  --uni-pin-glow: color-mix(in srgb, var(--uni-pin-title) 30%, transparent);
+}
+body:not([data-ds-dark-theme]) {
+  /* 亮档目标是 #89672F（rgb(137,103,47)）—— 一块低饱和古铜，比亮档那两枚暖色令牌
+   * （#855900 / #966a12）更灰更蓝。令牌表里没有任何暖中性色带得出这 47 的蓝通道，
+   * 唯一蓝得动的是 business（#546286 的冷石板蓝），所以拿它 25% 把金色压下来：
+   * 落点 rgb(134,104,47)，R 差 3/255、G 差 1、B 逐字节相等。代价写在这里而不是藏起来：
+   * 这一枚色依赖 business 令牌，日后那枚蓝一动，这里的古铜会跟着漂。 */
+  --uni-pin-title: color-mix(in srgb, var(--dsw-alias-state-warn-secondary) 75%, var(--dsw-alias-state-business-primary));
+  /* 亮档不加辉光：浅底上任何 text-shadow 都读成脏边，用户点名「不添加明显投影」。
+   * 用一个 transparent 的辉光变量而不是在亮档删掉 text-shadow，是为了下面那条规则
+   * 只需要写一次。 */
+  --uni-pin-glow: transparent;
+}
+
+/* pinned —— 图钉保持官方默认（2026-10-31，第五十一轮）：这行尾那枚 pinIndicator
+ * 的图形、尺寸与位置全部交回官方。主题在这行上只接管标题字色，见下方「恒星锚定」
+ * 块；钩子直接读官方元素本身的类名，不再由运行时盖属性。 */
+
+/* pinned —— 恒星锚定：置顶行的**主标题**（2026-10-31，第五十轮）。
+ * ----------------------------------------------------------------------------
+ * 用户规格：香槟金标题 + Semibold 600 + 一层极弱静态辉光（暗色 #E6C78F / 亮色
+ * #89672F）；字号、字间距不动；预览、时间、辅助信息一律不动；不加图标、不加背景、
+ * 不加边框、不加下划线、不加左侧指示条、不加胶囊角标、不加任何动画。
+ *
+ * 钩子为什么是 :has([class*='pinIndicator'])：置顶的唯一事实来源就是官方那枚
+ * pinIndicator，主题不引入第二个来源。用类名而不是精确 class 名，是因为官方那枚
+ * 带 CSS-Modules 后缀，前缀匹配才不会被一次构建改掉。标题排在
+ * 图钉之前，而 CSS 没有「前一个兄弟」选择器，所以只能站在行上往回看。这条选法的
+ * 好处是**取消置顶自动恢复**：属性一撤、规则立即不再匹配，官方字色自己回来，不需要
+ * 任何「原来是什么」的记忆；代价是一旦官方改掉 pinIndicator，标志星与这行字色会一起
+ * 消失，而不是只坏一个 —— 两者本来就该是同一个事实的两面。
+ *
+ * 为什么只落第 2 个子元素且必须是 span：会话行的孩子是 slot / title / time /
+ * pinIndicator / rowActions，标题就是第 2 个（与 D43 同一条结构性选法）。`span` 限定
+ * 让失配的后果是「没有效果」，而不是把颜色泼到别的元素上。
+ *
+ * 为什么只有颜色与字重、没有别的：置顶是**独立属性**，与行首图标格互不相干。用户
+ * 明确点名过「不要让置顶与状态标记争夺图标区域」，所以这里的置顶效果只有字形本身。 */
+body [data-row-key^='session:']:has([class*='pinIndicator']) > span:nth-child(2) {
+  color: var(--uni-pin-title);
+  font-weight: 600;
+}
+
+/* 辉光：只在**未选中**的行上写。
+ * 选中行的 text-shadow 归多普勒（见本表 2749 起那块，β=0.045 的横向色散）：两套效果
+ * 抢的是同一个通道，所以选中行留在多普勒那条，置顶只保留颜色与字重 —— 这才是「不同
+ * 状态各管各的视觉区域」。亮档的 --uni-pin-glow 是 transparent，等于没有投影。
+ * 字号、字间距、行高、内边距一个字没动，所以行尺寸与布局都不变。 */
+body [data-row-key^='session:']:has([class*='pinIndicator']):not([aria-selected='true']) > span:nth-child(2) {
+  text-shadow: 0 0 8px var(--uni-pin-glow);
+}
+
 body::after {
   content: '';
   position: fixed;
@@ -2281,7 +2362,19 @@ body [data-composer-placeholder] {
  * translateY(-2px)，往 transform 里写会把它吃掉。代价有两个，都在落码后实测：
  *   ① 缩放同样会重建 absolute/fixed 后代的包含块、创建层叠上下文（实测这 84
  *      个元素内部 0 个绝对/固定定位后代，暂不触发）；
- *   ② 缩放会连带改命中区，鼠标停在最外 2% 边上可能来回抖。
+ *   ② 缩放会连带改命中区 —— 这条落码后成了真问题，第四十九轮单独修掉，见下。
+ *
+ * 触发面（2026-10-31，第四十九轮）：缩放一并缩小命中区，指针停在最外那 1.5%
+ * （图标按钮 5%）一圈时 :hover 立刻掉线 → 元素弹回原尺寸 → 指针又落回元素上 →
+ * :hover 再次成立，两帧之间无限循环，肉眼就是边缘持续抽搐（实测光标停在左边
+ * 2px 处，scale 在 0.97 与 1.0 之间连续振荡）。病根是「触发状态的那个盒子，同时
+ * 就是收缩的那个盒子」；样式表里唯一稳定的触发面是祖先，而通用元素的祖先里还装
+ * 着别的兄弟，挂上去会连坐（悬停标签就缩按钮）。所以本节所有自缩规则都不再挂
+ * :hover，改挂 data-uni-grav：由 src/runtime/gravity.js 按**未缩放的盒子**记账，
+ * 指针进到元素里挂属性、留在原始盒子里状态不变、离开原始盒子才摘。规则里凡出现
+ * [data-uni-grav] 的地方，属性都由那里写入，样式表不再自己判断悬停。会话行仍用
+ * 「父级悬停」那条（它有专属包装，天然稳定），只有「更多」弹出层里没有包装的行
+ * 跟着属性走。
  *
  * 幅度为什么分两档：同一个百分比在大面和小面上不是一回事。发送键 34px 缩
  * 0.96 只有 1.4px，肉眼看不出来；会话行 256px 用同一比例要缩掉 10px，边界
@@ -2353,29 +2446,31 @@ body[data-uni-motion] [role='treeitem'] {
 
 /* 悬停：向心塌陷。元素整体缩向中心，边界向内收，读作被引力抓住、正在落向
    视界。矩形上依旧什么都没有。
+   触发面是 [data-uni-grav]（src/runtime/gravity.js 按未缩放的盒子记账），不是
+   :hover —— 后者跟着缩放一起丢掉命中区，边缘会无限抽搐，见本节开头。
    transform-origin 钉回 50% 50%：实测宿主给这些元素留了各不相同的像素原点
    （有的 108px 12px、有的 14px 14px），不钉死就变成"朝某个角缩"。
    行不在这条里 —— 行走下面的「父级悬停」，理由见那里；所以 [role='treeitem']
-   也只进静态那条（拿令牌压制与过渡），不进这条（否则行的边缘抖动会回来）。
+   也只进静态那条（拿令牌压制与过渡），不进这条（行的边缘抖动交给父级包装）。
    角色那批是 2026-10-30 补的覆盖面：设置面板、插件列表、模型选择弹层、权限
    弹层的行不是 button 也不是 [data-row-key]，是 menuitem / option / tab 这类
    角色，漏了它们，那些界面悬停就还是官方那层淡色底。 */
-body[data-uni-motion] button:not(:has([data-slot='sidebar.brand.name'])):hover,
-body[data-uni-motion] [role='button']:not([aria-selected='true']):hover,
-body[data-uni-motion] [data-dockkit-tab]:hover,
-body[data-uni-motion] [data-dsh-panel-entry]:hover,
-body[data-uni-motion] [data-disclosure-row]:hover,
-body[data-uni-motion] [data-sidebar-right-guide-entry]:hover,
-body[data-uni-motion] [data-uni-ws-pin-button]:hover,
-body[data-uni-motion] [role='menuitem']:not([aria-selected='true']):hover,
-body[data-uni-motion] [role='menuitemcheckbox']:hover,
-body[data-uni-motion] [role='menuitemradio']:hover,
-body[data-uni-motion] [role='option']:not([aria-selected='true']):hover,
-body[data-uni-motion] [role='tab']:not([aria-selected='true']):hover,
-body[data-uni-motion] [role='radio']:hover,
-body[data-uni-motion] [role='checkbox']:hover,
-body[data-uni-motion] [role='switch']:hover,
-body[data-uni-motion] [role='combobox']:hover {
+body[data-uni-motion] button:not(:has([data-slot='sidebar.brand.name']))[data-uni-grav],
+body[data-uni-motion] [role='button']:not([aria-selected='true'])[data-uni-grav],
+body[data-uni-motion] [data-dockkit-tab][data-uni-grav],
+body[data-uni-motion] [data-dsh-panel-entry][data-uni-grav],
+body[data-uni-motion] [data-disclosure-row][data-uni-grav],
+body[data-uni-motion] [data-sidebar-right-guide-entry][data-uni-grav],
+body[data-uni-motion] [data-uni-ws-pin-button][data-uni-grav],
+body[data-uni-motion] [role='menuitem']:not([aria-selected='true'])[data-uni-grav],
+body[data-uni-motion] [role='menuitemcheckbox'][data-uni-grav],
+body[data-uni-motion] [role='menuitemradio'][data-uni-grav],
+body[data-uni-motion] [role='option']:not([aria-selected='true'])[data-uni-grav],
+body[data-uni-motion] [role='tab']:not([aria-selected='true'])[data-uni-grav],
+body[data-uni-motion] [role='radio'][data-uni-grav],
+body[data-uni-motion] [role='checkbox'][data-uni-grav],
+body[data-uni-motion] [role='switch'][data-uni-grav],
+body[data-uni-motion] [role='combobox'][data-uni-grav] {
   scale: 0.97;
   transform-origin: 50% 50%;
   transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1), color 120ms, border-color 120ms, background-color 120ms;
@@ -2385,7 +2480,7 @@ body[data-uni-motion] [role='combobox']:hover {
    单独走 0.90。:has() 的权重按最具体的参数算，所以这条压得住上一条。
    2026-10-30 跟着作用域一起放到 body[data-uni-motion]：设置面板、浮层里的关闭
    按钮同样是小图标，留在 root 里会让它们只缩 3%，与侧栏那批不一致。 */
-body[data-uni-motion] button:has(> svg:only-child):hover {
+body[data-uni-motion] button:has(> svg:only-child)[data-uni-grav] {
   scale: 0.9;
 }
 
@@ -2398,12 +2493,13 @@ body[data-uni-motion] button:has(> svg:only-child):hover {
      指针停在边上也不会抖。
    · WHALE-01 → 承载它的 SPAN 自己缩到 0.97。这个 SPAN 同时是宿主的「新会话」
      点击区，命中区与点击区一致，没有凭空多出来的触发范围。
-   · SYSTEM → 缩 button::after 本身。伪元素的缩放不改按钮的盒子，命中区稳定；
-     另补一条抑制规则：指针落在任一 SPAN 上时把标签还原。
-   抑制用「高权重规则写回 scale: 1」而不是 :not(:has(…:hover)) —— 实测后者在
-   指针从 SPAN 移进标签区时不重算，标签会一直停在被抑制的状态（读到 none）。
-   通用那条 button:hover 已用 :not(:has([data-slot='sidebar.brand.name'])) 把
-   品牌按钮排除在外，所以这里三者互不连坐，也不带动整条按钮。 */
+   · SYSTEM → 缩 button::after 本身。伪元素的缩放不改按钮的盒子，命中区稳定。
+   触发面与上一节同一个属性：指针落在哪个 SPAN 上，就由哪个 SPAN 拿到
+   [data-uni-grav]（引力引擎取最近的可挂元素，按钮是 SPAN 的祖先，不会被顺带
+   激活）；指针落在 SYSTEM 标签区时命中目标就是按钮自己，属性才落到按钮上。
+   三者因此互不连坐，也不带动整条按钮。
+   原来补的那条 :has(> :hover)::after { scale: 1 } 抑制在改成属性触发后成了
+   死规则 —— 指针在 SPAN 上时按钮根本不带属性 —— 已删。 */
 body [data-slot='root'] span:has(> [data-slot='sidebar.brand.mark']),
 body [data-slot='root'] span:has(> [data-slot='sidebar.brand.name']),
 body [data-slot='root'] button:has([data-slot='sidebar.brand.name'])::after {
@@ -2411,23 +2507,19 @@ body [data-slot='root'] button:has([data-slot='sidebar.brand.name'])::after {
   transition: scale 160ms cubic-bezier(0.2, 0.85, 0.15, 1);
 }
 
-body [data-slot='root'] span:has(> [data-slot='sidebar.brand.mark']):hover {
+body [data-slot='root'] span:has(> [data-slot='sidebar.brand.mark'])[data-uni-grav] {
   scale: 0.9;
   transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1);
 }
 
-body [data-slot='root'] span:has(> [data-slot='sidebar.brand.name']):hover {
+body [data-slot='root'] span:has(> [data-slot='sidebar.brand.name'])[data-uni-grav] {
   scale: 0.97;
   transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1);
 }
 
-body [data-slot='root'] button:has([data-slot='sidebar.brand.name']):hover::after {
+body [data-slot='root'] button:has([data-slot='sidebar.brand.name'])[data-uni-grav]::after {
   scale: 0.9;
   transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1);
-}
-
-body [data-slot='root'] button:has([data-slot='sidebar.brand.name']):has(> :hover)::after {
-  scale: 1;
 }
 
 /* 行的塌陷、底色压制与透镜，一律挂在「父级」悬停上。父级是每行专属的包装
@@ -2435,7 +2527,9 @@ body [data-slot='root'] button:has([data-slot='sidebar.brand.name']):has(> :hove
    所以指针停在行边缘时命中状态稳定。
    为什么不能直接写在行上：行缩到 0.97 后左右各内移 4px，指针若落在这 4px 里，
    命中就 hover→unhover→hover 无限循环 —— 实测光标停在左边 2px 处，scale 在
-   0.97 与 1.0 之间连续振荡，肉眼就是边缘持续抽搐。 */
+   0.97 与 1.0 之间连续振荡，肉眼就是边缘持续抽搐。
+   第四十九轮把其余元素改成了属性记账（gravity.js），这两条不必跟：父级本来
+   就不缩，触发面已经稳定，改成属性反而是多一段没有收益的耦合。 */
 body [data-slot='root'] *:has(> [data-row-key]:only-child):hover > [data-row-key]:not([aria-selected='true']) {
   scale: 0.97;
   background-color: transparent;
@@ -2450,16 +2544,18 @@ body [data-slot='root'] *:has(> [data-row-key^='session:']:only-child):hover > [
 }
 
 /* 「更多」弹出层里的行没有专属包装（父级同时装 7–8 行，用父级悬停会连坐整
-   列），只能退回元素自身悬停；边缘抖动仍在，但只影响这个弹出层。 */
-body [data-slot='root'] [data-row-key]:not(:only-child):not([aria-selected='true']):hover {
+   列），所以只能自己拿属性：行走的就是 gravity.js 那套未缩放盒子记账，指针在
+   原始行框里就一直塌陷，跨出去才还原，边缘不再来回抽搐。 */
+body [data-slot='root'] [data-row-key]:not(:only-child):not([aria-selected='true'])[data-uni-grav] {
   scale: 0.97;
   background-color: transparent;
   border-color: transparent;
 }
 
-/* reduced-motion：不播塌陷，悬停直接落在终态。这里必须 !important —— 悬停
-   那条多了 :not([aria-selected='true']):hover 两级，权重高过本条的静态规则，
-   不加会被它写回的 220ms 盖掉。 */
+/* reduced-motion：不播塌陷，悬停直接落在终态。这里必须 !important —— 属性
+   那条多了 :not([aria-selected='true'])[data-uni-grav] 两级（属性选择器与 :hover
+   同为 class 级权重，不改变这条结论），权重高过本条的静态规则，不加会被它写回
+   的 220ms 盖掉。 */
 body[data-uni-motion='reduced'] button,
 body[data-uni-motion='reduced'] [role='button'],
 body[data-uni-motion='reduced'] [data-row-key],
@@ -2485,11 +2581,33 @@ body[data-uni-motion='reduced'] [data-uni-ws-pin-button] {
 }
 
 /* ============================================================================
- * 选中态：引力透镜 + 多普勒红移（2026-10-30，第四十八轮）
+ * 选中态：引力透镜 + 多普勒红移（2026-10-30 第四十八轮；2026-10-31 第五十轮重做）
  * ----------------------------------------------------------------------------
+ * 第五十轮（2026-10-31）改了什么，为什么改：
+ *   用户当轮逐条给了新规格，与第四十八轮有三处硬冲突，所以两套效果整体重做、
+ *   不是调参：
+ *     ① 多普勒的颜色：旧版是「左品牌青 + 右错误红」的对称双向分离，新规格只要
+ *        暖色副影（香槟金 / 琥珀铜）且要求「有明确方向、不要均匀向四周发光」。
+ *        现在只往右侧长波端拖两层，左侧干净 —— 红移本来就是单侧的。
+ *     ② 引力透镜的形变：旧版是六层对称 text-shadow，本质是「重影」不是「形变」。
+ *        新规格要求「字形局部轮廓非对称弯曲」，所以几何交给
+ *        src/runtime/selection.js 的 #uni-sel-lens（feDisplacementMap + 固定
+ *        径向位移图，光学中心偏右 6% 才有非对称），CSS 这边只留极淡的折射重影。
+ *        位移图不用 feTurbulence —— 随机噪声在文字边缘读作毛刺，规格明确禁止。
+ *     ③ 入场：旧版写死「无动画」。新规格要求选中瞬间一次光谱偏移 / 折射变化，
+ *        由 selection.js 用 WAAPI 跑一次两阶段关键帧（PEAK → 1），CSS 只定义
+ *        稳定值。驱动变量是下面注册的 --uni-sel-k。
+ *   钩子也换了：透镜不再直接挂在六类选中容器上（filter 会连带图标一起扭），
+ *   改挂 selection.js 逐对象找到并标记的文字节点 data-uni-sel-text；找不到文字
+ *   节点的对象整类跳过，宁可没有效果也不整行扭曲。
+ *   多普勒仍只作用于会话行，钩子 [data-row-key^='session:'][aria-selected] 不变。
+ *
+ *   ---
+ *   以下「现象一 / 现象二」两段是第四十八轮的原始描述，记录当时的建模与取值，
+ *   已被第五十轮方案替换；保留以便回溯，不再对应现行规则。
+ *
  * 与上面「视界引力」悬停是两套独立现象，不共享链：悬停 = 元素向心塌陷，
- * 选中 = 字形本身被光线改变。选中态一律不位移（scale 不动），只动
- * text-shadow，所以布局零影响。
+ * 选中 = 字形本身被光线改变。选中态一律不位移（scale 不动），只动字形。
  *
  * 现象一 · 引力透镜（设置导航、模型列表当前项、权限列表当前项、会话标签页、
  * 停靠面板标签、右侧栏指南条目）
@@ -2539,35 +2657,76 @@ body[data-uni-motion] [data-sidebar-right-guide-entry][aria-selected='true'] {
   text-decoration-line: none;
 }
 
-/* 引力透镜：两级像。
-   近层 ±0.5px 是主像在字形边界处的偏折量 θE（18%/14%），贴着轮廓走，
-   只把边缘压出一点折射边；远层 ±1.6px 是次级像，位移 3.2θE，透明度 30%
-   —— 与字芯分离约 1.6px，所以读作「重影」而不是「加粗」。
-   只取水平方向：偏折沿透镜径向，文字是横向排布，径向分量主要落在水平轴上；
-   竖直方向留 0.5px 的极淡一圈，避免边缘断掉。
-   currentColor 保证消色差，跟着主题文字色（暗档浅、亮档深）自动变。 */
-body[data-uni-motion] [aria-current='true'],
-body[data-uni-motion] [role='menuitemradio'][aria-checked='true'],
-body[data-uni-motion] [role='menuitem'][class*='_selected_'],
-body[data-uni-motion] [role='tab'][aria-selected='true'],
-body[data-uni-motion] [data-dockkit-tab][aria-selected='true'],
-body[data-uni-motion] [data-sidebar-right-guide-entry][aria-selected='true'] {
-  text-shadow:
-    -1.6px 0 0 color-mix(in srgb, currentColor 30%, transparent),
-    1.6px 0 0 color-mix(in srgb, currentColor 30%, transparent),
-    -0.5px 0 0 color-mix(in srgb, currentColor 18%, transparent),
-    0.5px 0 0 color-mix(in srgb, currentColor 18%, transparent),
-    0 0.5px 0 color-mix(in srgb, currentColor 14%, transparent),
-    0 -0.5px 0 color-mix(in srgb, currentColor 14%, transparent);
+/* 宿主用 ::after 画选中下划线（实测：会话标签页那条是 26×2、bottom:-1px 的指示条），
+   background-color / border / text-decoration 三条都压不到伪元素，只能单独压。
+   只压 ::after、不碰 ::before：设置导航当前项的 ::before 是 20px 宽的图标底色，
+   压了会把图标一起抹掉。 */
+body[data-uni-motion] [role='tab'][aria-selected='true']::after {
+  background-color: transparent;
 }
 
-/* 多普勒：左蓝移（朝观察者）、右红移（远离），β = 0.045 → Δλ/λ = ±4.6%。 */
+/* 引力透镜（第五十轮）：几何形变由 src/runtime/selection.js 的 #uni-sel-lens
+   承担 —— feDisplacementMap + 固定径向位移图，中心偏折为 0、光学中心偏右 6%，
+   所以字芯不动、轮廓非对称地内折。这里只补「折射重影」：两枚方向与强度都不
+   对称的极淡副本，且跟随 --uni-sel-k 一起参与入场峰值。
+
+   为什么重影左右不等（0.92/0.36 对 0.80/0.30，透明度 30% 对 15%）：均匀四向
+   重影读作「加粗」，规格要求的是局部、非对称。两枚副本方向不同、强度不同，
+   叠在位移图边缘上才读得出「光被弯折后的次级像」。
+
+   第五十一轮（2026-10-31）两次数值修正，都是实拍 diff 定的，不是估的：
+   第一版 0.34/0.16 与 0.42/0.14、透明度 26%/13% 全部落在半个像素以内 —— 拿
+   `Page.captureScreenshot` 拍 filter 开/关两张做 `ImageChops.difference`，2208 个
+   像素里只有 182 个差 >8，12 倍放大后与未选中项肉眼几乎无别（用户原话「引力透镜
+   效果还是差点，不容易看清区别」）。第二版抬到 0.62/0.28 仍不够。
+   现在的 0.92/0.36 是「12 倍放大下能读出双影、原尺寸下字仍干净」的分界点：
+   再往上（试过 0.95/0.42 配 scale 3.6）笔画开始糊成一团，读不出字了。
+
+   data-uni-sel-text 由 selection.js 打在真正的文字节点上；数据结构找不到文字
+   节点的对象整类跳过。currentColor 保证消色差 —— 透镜弯曲改变光程，不改波长。 */
+body [data-uni-sel-text] {
+  filter: url(#uni-sel-lens);
+  text-shadow:
+    calc(0.92px * var(--uni-sel-k)) calc(0.36px * var(--uni-sel-k)) 0
+      color-mix(in srgb, currentColor 30%, transparent),
+    calc(-0.80px * var(--uni-sel-k)) calc(-0.30px * var(--uni-sel-k)) 0
+      color-mix(in srgb, currentColor 15%, transparent);
+}
+
+/* 入场强度系数（第五十轮）：1 = 稳定态，selection.js 用 WAAPI 把它从 PEAK
+   推回 1，所以稳定值必须写在样式表里、动画只负责「那一瞬间」。
+   注册成 <number> 是为了让 WAAPI 能补间 —— 未注册的自定义属性是离散的，
+   动画会变成一次跳变而不是一次偏移。 */
+@property --uni-sel-k {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
+}
+
+/* 多普勒红移（第五十轮）：只往右侧长波端拖两层暖色副影，越远越淡；左侧干净。
+   物理上红移只有「远离观察者」那一侧，所以是单向递减，不是左右对称的两侧像。
+   颜色取令牌不取字面值：state-warn-secondary 暗档香槟金 / 亮档铜，
+   state-warn-primary 暗档琥珀金 / 亮档深暖金 —— 暗亮适配由令牌层完成。
+   位移量乘 --uni-sel-k：稳定 1，入场峰值由 selection.js 推到 2.4 再落回。 */
 body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] {
   text-shadow:
-    -0.62px 0 0 color-mix(in srgb, var(--dsw-alias-brand-primary) 84%, transparent),
-    0.62px 0 0 color-mix(in srgb, var(--dsw-alias-state-error-primary) 80%, transparent),
-    -1.35px 0 0 color-mix(in srgb, var(--dsw-alias-brand-primary) 36%, transparent),
-    1.35px 0 0 color-mix(in srgb, var(--dsw-alias-state-error-primary) 32%, transparent);
+    calc(0.6px * var(--uni-sel-k)) 0 0
+      color-mix(in srgb, var(--dsw-alias-state-warn-secondary) 78%, transparent),
+    calc(1.3px * var(--uni-sel-k)) 0 0
+      color-mix(in srgb, var(--dsw-alias-state-warn-primary) 46%, transparent);
+}
+
+/* 暗色多普勒的偏移量（第五十一轮，2026-10-31）：亮档 0.6/1.3px 的位移在 14px
+   字号上会被字形本身盖住，暗档的副影又更暗，于是两层一起抬到 0.75/1.5px、不透明度
+   抬到 88%/62%。两层颜色来自上面 `body[data-ds-dark-theme]` 里的
+   --uni-sel-warm-near / --uni-sel-warm-far（压深一档的铜色），不是这里的字面值。
+   仍然是纯右侧单向递减：左侧零副影，红移只有「远离观察者」那一侧。 */
+body[data-ds-dark-theme][data-uni-motion] [data-row-key^='session:'][aria-selected='true'] {
+  text-shadow:
+    calc(0.75px * var(--uni-sel-k)) 0 0
+      color-mix(in srgb, var(--uni-sel-warm-near) 88%, transparent),
+    calc(1.5px * var(--uni-sel-k)) 0 0
+      color-mix(in srgb, var(--uni-sel-warm-far) 62%, transparent);
 }
 
 /* 只主文字参与：时间戳与行操作区不带色散（图标位是 svg，本就不受影响）。 */

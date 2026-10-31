@@ -546,9 +546,9 @@ const banner = `/**
  *   ${wallpaperFile}  ${MANIFEST.wallpapers.length} wallpapers (embedded art or URL)${wallpaperNote}
  *   build/fonts.json       ${MANIFEST.fonts.length} font, embedded as an @font-face data URL
  *
- * Nine blocks, ten effects — seven of our own plus the two the vendored switch
- * installs and the one the vendored session-status rail installs — all mounted through \`ctx.effect\` so unloading the plugin retracts
- * everything it added:
+ * Eight blocks, ten effects — every one of them the theme's own since the vendored
+ * session-status rail left on 2026-10-31 — all mounted through \`ctx.effect\` so
+ * unloading the plugin retracts everything it added:
  *
  *   1. theme.overrideTokens — the token layer. The service composes this over the
  *      active theme and writes it as inline custom properties on \`body\`, so it wins
@@ -567,7 +567,11 @@ const banner = `/**
  *      colour but not a stack of composited background layers, so the art and its
  *      veil live in a stylesheet. It writes no colour of its own. Since round 35 it
  *      also opens with the hero face's @font-face (an inline data URL), so the font
- *      ships inside these same bytes and nothing is fetched or installed.
+ *      ships inside these same bytes and nothing is fetched or installed. Since
+ *      2026-10-31 it also owns the hover-collapse trigger: the sheet matches only
+ *      [data-uni-grav], and the attribute is written from the element's UNSCALED box,
+ *      because a box that shrinks itself loses its own hit area and its edge then
+ *      oscillates between 0.97 and 1.00 forever (gravity.js is the accounting).
  *
  *   4. src/boot-screen.js — the startup mask: one overlay and one wall-clock
  *      timeline, taken down again by the same disposer. It is pure paint: since
@@ -596,7 +600,16 @@ const banner = `/**
  *      reads batches, not the whole document: records outside its own row are dropped
  *      before any query runs.
  *
- * Seven is pinned by tools/selfcheck.mjs (cli.11d), so another effect cannot slip in
+ *   8. the selection optics (2026-10-31) — the Doppler fringe on the selected session
+ *      row is pure CSS, so this effect owns only the half the sheet cannot do. It
+ *      injects one fixed-geometry displacement map as an SVG filter (#uni-sel-lens)
+ *      and bends the text node each selected surface actually draws through, so no
+ *      icon or chevron is dragged along; a surface with no findable text node is
+ *      skipped whole, because no distortion beats a distorted row. The entry peak is
+ *      one WAAPI keyframe, played only when the user changed the selection, driving
+ *      the registered --uni-sel-k back to the stable value the sheet declares.
+ *
+ * Ten is pinned by tools/selfcheck.mjs (cli.11d), so another effect cannot slip in
  * unnoticed.
  *
  * The effect disposers are the whole uninstall story: the theme is one removable

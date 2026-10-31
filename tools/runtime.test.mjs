@@ -41,6 +41,8 @@ test('S10: built artifact registers one loader with unchanged public exports', (
   const exported=registrations[0].factory(name=>{throw Error('unexpected eager require: '+name)})
   assert.equal(exported.name,'dsh-universe-theme')
   assert.equal(typeof exported.apply,'function')
+  /* 2026-10-31: 'uiSession' came with the session-row state markers and left with
+     them; the theme asks for the five services it always had. */
   assert.deepEqual(Array.from(exported.inject),['theme','remote','locale','sessions','workspaces'])
 })
 
@@ -280,5 +282,108 @@ test('S11: the boot mask plays once per run and replays only after DSH restarts'
   const stale = bootFixture({ local: new Map([[seenKey, mark]]) })
   stale.mount()
   assert.equal(stale.masks(), 1, 'an old localStorage mark must not suppress the mask')
+})
+
+/* 悬停塌陷的触发面（2026-10-31，第四十九轮）：样式表只认 data-uni-grav，属性由
+   mountHoverGravity 按未缩放的盒子写入。这两条用例钉的就是当初的死循环 —— 元素
+   缩了之后指针仍停在同一像素上，状态必须保持；指针真正离开原始盒子才还原。 */
+function gravityElement(box, spec = {}) {
+  const element = {
+    attrs: new Set(),
+    parent: spec.parent ?? null,
+    isConnected: true,
+    scale: 1,
+    setAttribute(name) { element.attrs.add(name) },
+    removeAttribute(name) { element.attrs.delete(name) },
+    armed() { return element.attrs.has('data-uni-grav') },
+    contains(node) { for (let p = node; p; p = p.parent) if (p === element) return true; return false },
+    closest() { return spec.closest ?? element },
+    getBoundingClientRect() {
+      const w = box.width * element.scale, h = box.height * element.scale
+      return { left: box.left + (box.width - w) / 2, top: box.top + (box.height - h) / 2, width: w, height: h }
+    },
+  }
+  return element
+}
+
+function gravityFixture() {
+  const documentListeners = [], windowListeners = [], rootListeners = []
+  const track = list => (type, fn, options) => {
+    list.push({ type, fn, capture: options === true || !!(options && options.capture) })
+  }
+  const untrack = list => (type, fn) => {
+    const at = list.findIndex(entry => entry.type === type && entry.fn === fn)
+    assert.ok(at >= 0, `listener ${type} was registered before it is removed`)
+    list.splice(at, 1)
+  }
+  const document = {
+    documentElement: { addEventListener: track(rootListeners), removeEventListener: untrack(rootListeners) },
+    addEventListener: track(documentListeners),
+    removeEventListener: untrack(documentListeners),
+  }
+  const window = {
+    addEventListener: track(windowListeners),
+    removeEventListener: untrack(windowListeners),
+    getComputedStyle: element => ({ scale: String(element.scale) }),
+  }
+  const stop = vm.runInNewContext(read('src/runtime/gravity.js') + '\nmountHoverGravity()', { document, window })
+  const fire = (list, type, event) => {
+    const entry = list.find(candidate => candidate.type === type)
+    assert.ok(entry, `no ${type} listener`)
+    entry.fn(event)
+  }
+  return {
+    documentListeners, windowListeners, rootListeners, stop,
+    over: (target, x, y, pointerType = 'mouse') => fire(documentListeners, 'pointerover', { target, clientX: x, clientY: y, pointerType }),
+    move: (target, x, y) => fire(documentListeners, 'pointermove', { target, clientX: x, clientY: y, pointerType: 'mouse' }),
+    scroll: () => fire(documentListeners, 'scroll', {}),
+    blur: () => fire(windowListeners, 'blur', {}),
+  }
+}
+
+test('G1: a collapsed element keeps its trigger while the pointer stays in the unscaled box', () => {
+  const fixture = gravityFixture()
+  const button = gravityElement({ left: 0, top: 0, width: 100, height: 40 })
+  fixture.over(button, 1, 20)
+  assert.equal(button.armed(), true, 'entering the element arms the collapse')
+  /* 塌陷到 0.97 后 rect 左右各内移 1.5px，指针停在 1px 处已经落在命中区外 ——
+     :hover 那一版就是在这里掉线的。 */
+  button.scale = 0.97
+  fixture.move(button, 1, 20)
+  assert.equal(button.armed(), true, 'the ring the collapse dug out is still the element')
+  fixture.scroll()
+  assert.equal(button.armed(), true, 'scrolling under a still pointer must not disarm')
+  fixture.move(button, -1, 20)
+  assert.equal(button.armed(), false, 'leaving the unscaled box releases it')
+  fixture.stop()
+})
+
+test('G2: an ancestor cannot steal the state, touch never arms it, disposal clears it', () => {
+  const fixture = gravityFixture()
+  const button = gravityElement({ left: 0, top: 0, width: 120, height: 40 })
+  const label = gravityElement({ left: 10, top: 10, width: 60, height: 20 }, { parent: button })
+  fixture.over(label, 20, 20)
+  assert.equal(label.armed(), true)
+  assert.equal(button.armed(), false)
+  /* 塌陷挖出的那一圈把命中交还给祖先：指针其实没走，不能换人。 */
+  fixture.over(button, 20, 20)
+  assert.equal(label.armed(), true)
+  assert.equal(button.armed(), false)
+  /* 触摸的 :hover 是粘住的，跟着记账会留下永不还原的元素。 */
+  fixture.over(button, 300, 300, 'touch')
+  assert.equal(label.armed(), true)
+  /* 元素被重渲染移出文档：下一次移动直接清状态，不去碰离开文档的节点。 */
+  label.isConnected = false
+  fixture.move(label, 20, 20)
+  assert.equal(label.armed(), false)
+  const next = gravityElement({ left: 300, top: 300, width: 40, height: 40 })
+  fixture.over(next, 310, 310)
+  assert.equal(next.armed(), true)
+  fixture.blur()
+  assert.equal(next.armed(), false)
+  fixture.stop()
+  assert.equal(fixture.documentListeners.length, 0)
+  assert.equal(fixture.windowListeners.length, 0)
+  assert.equal(fixture.rootListeners.length, 0)
 })
 

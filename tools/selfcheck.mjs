@@ -851,7 +851,7 @@ checks.check('cli.11c', 'the client half writes browser storage only for the nam
   }
   return true
 })
-checks.check('cli.11d', 'the client half owns exactly nine effects including the black-hole renderer', () => {
+checks.check('cli.11d', 'the client half owns exactly ten effects including the black-hole renderer', () => {
   /* Nine of these were already counted when rounds 41-45 built the 工作区 row's entry: five of the
      theme's own (token layer, liquid-glass maps, paint layer, boot mask, the brand row's three-zone
      bridge since round 25), one from the vendored session-status rail, and the seventh (round 39) the
@@ -876,7 +876,7 @@ checks.check('cli.11d', 'the client half owns exactly nine effects including the
      `left` beats any selector), and it has to follow the official placement across scroll, resize
      and ResizeObserver ticks -- a lifecycle the paint effect does not have. */
   const effects = client.match(/ctx\.effect\(/g) ?? []
-  if (effects.length !== 9) return `${effects.length} ctx.effect() calls, expected exactly 9`
+  if (effects.length !== 10) return `${effects.length} ctx.effect() calls, expected exactly 10`
   if (!/UniverseBlackHole\.mount\(\)/.test(client)) return 'missing ASCII black-hole lifecycle mount'
   if (!/tag\.dataset\.pluginCss = PLUGIN_ID \+ '\/theme\.css'/.test(client)) {
     return 'the paint layer is not namespaced'
@@ -885,8 +885,20 @@ checks.check('cli.11d', 'the client half owns exactly nine effects including the
   if (!/'universe: brand row zones'/.test(client)) return 'the brand row bridge has no label'
   if (!/'universe: workspace pins'/.test(client)) return 'the workspace pin effect has no label'
   if (!/'universe: centred panels'/.test(client)) return 'the panel-centring effect has no label'
-  /* 2026-10-31: the vendored session rail's effect left with the rail (D105) and the hover
-     lens took the same slot back, so the count above still reads nine. */
+  /* 2026-10-31, later the same day: the session-row state markers arrived as an extra
+     effect, then were withdrawn at the user's request (pending / unread / running are all
+     the official marks again), so the effect label is gone with them. */
+  /* 2026-10-31, the same day, later: the selection optics (Doppler redshift on the
+     session row, gravitational lensing everywhere else) is the effect that took the
+     slot the withdrawn state markers had freed, so the count reads ten. It is
+     separate rather than folded into the paint layer because it owns a lifecycle the
+     sheet does not: it injects an SVG displacement filter, walks the selected
+     surfaces to find the node each one really draws its text with, and plays a
+     one-shot entry keyframe only when the user changed the selection. Folding that
+     into the paint effect would give the paint layer a DOM-writing responsibility it
+     has never had. */
+  if (!/'universe: page backgrounds'/.test(client)) return 'the page-backgrounds effect has no label'
+  if (!/'universe: selection optics'/.test(client)) return 'the selection-optics effect has no label'
   return /'universe: hover lens'/.test(client) || 'the hover-lens effect has no label'
 })
 /* Round 24 (2026-10-07): liquid glass. The two halves of the effect live in two

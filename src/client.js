@@ -408,6 +408,9 @@
       }, 'universe: page backgrounds')
       ctx.effect(() => mountLiquidGlass(), 'universe: liquid glass')
       ctx.effect(() => mountHoverLens(), 'universe: hover lens')
+      /* 选中态（第五十轮）：多普勒红移 + 引力透镜。挂在这里而不是 paint layer，
+         理由见 src/runtime/selection.js 文件头。 */
+      ctx.effect(() => UniverseSelectionOptics.mount(), 'universe: selection optics')
 
       ctx.effect(() => {
         if (typeof document === 'undefined') return
@@ -442,6 +445,11 @@
         }
         applyMotionPref()
         motion.addEventListener('change', applyMotionPref)
+        /* 悬停塌陷的触发面（2026-10-31，第四十九轮）：样式表只认 [data-uni-grav]，
+           属性由这里按未缩放的盒子写入。挂在装样式表的同一个 effect 上，主题关掉
+           时属性与监听一起撤走；也不新增 effect —— selfcheck cli.11d 钉了「恰好
+           十个」（tools/selfcheck.mjs）。 */
+        var stopGravity = mountHoverGravity()
         return () => {
           /* The sheet goes first: it is the one thing whose absence is visible in
              the next paint. What is left only retracts state the sheet keyed on, and
@@ -455,6 +463,7 @@
           }
           motion.removeEventListener('change', applyMotionPref)
           if (document.body) document.body.removeAttribute('data-uni-motion')
+          if (typeof stopGravity === 'function') stopGravity()
         }
       }, 'universe: paint layer')
 
@@ -758,7 +767,11 @@
        service's own insertBefore.
 
        2026-10-31: 'uiSession' left this list with the vendored session-status rail, which
-       was its only reader. 'workspaces' stays for the pins above, not for the rail. */
+       was its only reader. 'workspaces' stays for the pins above, not for the rail.
+
+       2026-10-31 (same day, later): the session-row state markers were withdrawn at the
+       user's request, so 'uiSession' left again with them. Rows show the official status
+       marks exactly as shipped; the theme draws nothing in that cell. */
     exports.inject = ['theme', 'remote', 'locale', 'sessions', 'workspaces']
     exports.apply = apply
     return module.exports
