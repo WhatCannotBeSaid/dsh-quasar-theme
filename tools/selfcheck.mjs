@@ -56,6 +56,9 @@ const css = read('src/theme.css')
    below run over both sheets: what ships as one stylesheet is what gets checked. */
 const bootCss = read('src/boot-screen.css')
 const bootJs = read('src/boot-screen.js')
+/* 会话行吸积流（第五十三轮）：运动搬进 runtime，样式表只剩暗核与颜色。这个文件被
+ * acc.1 / acc.2 / acc.3 读来钉「参数照抄、不预绘、挂进 paint layer」三件事。 */
+const accretionJs = read('src/runtime/accretion.js')
 /* The half that actually mounts the theme is a file too since 2026-10-07, interpolated
    verbatim next to the mask's behaviour: the bundle must carry its bytes, not a
    retyped copy of them (cli.21/cli.22). */
@@ -289,6 +292,81 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
   }
   return /data-uni-black-hole/.test(sheet) || 'the canvas is not scoped to the black-hole page'
 })
+
+/* 2026-10-31（第五十三轮）：会话行 running 从「预画的四层」重做成「黑洞 + 一个绿点 +
+ * 实时生成的尾流」。用户规格的直接后果是**运动搬进了 runtime**，所以这里钉的是：
+ *   css.18  官方那圈 loading 环必须藏起来；绿点与六段尾巴必须有自己的颜色/宽度/不透明度；
+ *           这一格不许漏到 pending 或完成未读
+ *   acc.1   采样循环挂进现有 paint layer effect 并随它一起撤走，不新增 effect（cli.11d 钉九个）
+ *   acc.2   参数逐字照抄用户第八节：周期 1300ms、半径 5→2、点直径 1.8、兜底短尾 2px、总转
+ *           450°；轨迹必须一路采回 u = 0（用户第二轮：要的是从出现到消失的全部轨迹）
+ *   acc.3   不预绘：图元只有 g/path/circle，没有 dasharray 环、没有渐变、没有滤镜 */
+checks.check('css.18', 'the accretion flow binds to the running spinner and nothing else', () => {
+  const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  if (!/svg\[data-state='ongoing'\][^{}]*>\s*g:not\(\.uni-acc\)[^{}]*\{[^}]*display:\s*none/.test(sheet)) {
+    return 'the official ring is still visible, so the icon reads as a loading circle'
+  }
+  /* 藏官方那层的前提是「我们那组已经挂上来」（:has(> g.uni-acc)）：否则脚本没跑起来、
+     或者还没 attach 的那一帧，环被藏了而我们的点还没画，那一格直接是空的。 */
+  if (!/:has\(> g\.uni-acc\)/.test(sheet)) {
+    return 'the ring is hidden before the accretion group exists, which blanks the icon'
+  }
+  if (!/svg\[data-state='ongoing'\] \.uni-acc-dot[^{}]*\{[^}]*fill:/.test(sheet)) {
+    return 'the dot has no paint of its own'
+  }
+  /* 六段＝六个年龄段：每段都要有自己的宽度和不透明度，缺一段尾巴就会在接缝处断掉，
+     或者让某一截读成「和头部一样亮」。 */
+  for (const part of ['t0', 't1', 't2', 't3', 't4', 't5']) {
+    const rule = new RegExp("svg\\[data-state='ongoing'\\] \\.uni-acc-" + part + '[^{}]*\\{[^}]*stroke-width')
+    if (!rule.test(sheet)) return 'the ' + part + ' tail segment has no width'
+    const alpha = new RegExp("svg\\[data-state='ongoing'\\] \\.uni-acc-" + part + '[^{}]*\\{[^}]*opacity')
+    if (!alpha.test(sheet)) return 'the ' + part + ' tail segment has no opacity'
+  }
+  if (/data-state='(pending|warning|done|error)'\][^{}]*\{[^}]*uni-acc/.test(sheet)) {
+    return 'the accretion layer leaked onto another state'
+  }
+  return true
+})
+checks.check('acc.1', 'the sampler rides the paint layer effect and leaves with it', () => {
+  if (!/var stopAccretion = mountAccretion\(\)/.test(clientJs)) return 'mountAccretion is never called'
+  if (!/if \(typeof stopAccretion === 'function'\) stopAccretion\(\)/.test(clientJs)) {
+    return 'the disposer never stops the sampler'
+  }
+  return true
+})
+checks.check('acc.2', 'the sampler carries the numbers from the spec verbatim', () => {
+  const want = [
+    ['UNI_ACC_CYCLE', '1300'],
+    ['UNI_ACC_R0', '5'],
+    ['UNI_ACC_R1', '2'],
+    ['UNI_ACC_DOT', '0.9'],
+    ['UNI_ACC_STILL_TAIL', '2'],
+    ['UNI_ACC_BANDS', '6']
+  ]
+  for (const [name, value] of want) {
+    const found = new RegExp('var ' + name + ' = ([0-9.]+)').exec(accretionJs)
+    if (found === null) return name + ' is not declared'
+    if (Number(found[1]) !== Number(value)) return name + ' is ' + found[1] + ', the spec says ' + value
+  }
+  if (!/Math\.PI \* 2 \* 1\.25/.test(accretionJs)) return 'the 450-degree total turn is missing'
+  /* 第二稿的要害：尾巴量到出生点为止，不许再出现「往回走固定 4px」那种截断。 */
+  if (!/uniAccretionAt\(0\)/.test(accretionJs)) return 'the trail never reaches u = 0'
+  if (/UNI_ACC_TAIL\b/.test(accretionJs)) return 'the fixed-length tail is back'
+  return true
+})
+checks.check('acc.3', 'nothing is pre-drawn: no ring, no spiral, no glow', () => {
+  if (/data-state='ongoing'\][^{}]*\{[^}]*stroke-dasharray/.test(css)) {
+    return 'a dashed ring is back in the running state'
+  }
+  if (/uni-accrete|uni-acc-drift/.test(css + accretionJs)) return 'a pre-baked keyframe survived'
+  if (/radialGradient|linearGradient|feGaussianBlur|filter:/.test(accretionJs)) {
+    return 'a gradient or filter crept into the sampler, i.e. a glow'
+  }
+  const made = (accretionJs.match(/make\('(\w+)'/g) || []).map(token => token.slice(6, -1))
+  const bad = made.filter(name => ['g', 'path', 'path', 'path', 'circle'].indexOf(name) < 0)
+  return bad.length === 0 || 'unexpected geometry: ' + bad.join(', ')
+})
+
 checks.group('runtime')
 /* 2026-10-29：build 的 whitespace pass 会剥掉行首缩进，旧锚点 '\n  }' 在产物里从不命中，
  * 匹配一路吃到文件末尾，反而被后面 runtime 里的 inset:0 假阳性绊倒。改成按花括号配对截取
@@ -851,7 +929,7 @@ checks.check('cli.11c', 'the client half writes browser storage only for the nam
   }
   return true
 })
-checks.check('cli.11d', 'the client half owns exactly ten effects including the black-hole renderer', () => {
+checks.check('cli.11d', 'the client half owns exactly nine effects including the black-hole renderer', () => {
   /* Nine of these were already counted when rounds 41-45 built the 工作区 row's entry: five of the
      theme's own (token layer, liquid-glass maps, paint layer, boot mask, the brand row's three-zone
      bridge since round 25), one from the vendored session-status rail, and the seventh (round 39) the
@@ -876,7 +954,7 @@ checks.check('cli.11d', 'the client half owns exactly ten effects including the 
      `left` beats any selector), and it has to follow the official placement across scroll, resize
      and ResizeObserver ticks -- a lifecycle the paint effect does not have. */
   const effects = client.match(/ctx\.effect\(/g) ?? []
-  if (effects.length !== 10) return `${effects.length} ctx.effect() calls, expected exactly 10`
+  if (effects.length !== 9) return `${effects.length} ctx.effect() calls, expected exactly 9`
   if (!/UniverseBlackHole\.mount\(\)/.test(client)) return 'missing ASCII black-hole lifecycle mount'
   if (!/tag\.dataset\.pluginCss = PLUGIN_ID \+ '\/theme\.css'/.test(client)) {
     return 'the paint layer is not namespaced'
@@ -888,17 +966,13 @@ checks.check('cli.11d', 'the client half owns exactly ten effects including the 
   /* 2026-10-31, later the same day: the session-row state markers arrived as an extra
      effect, then were withdrawn at the user's request (pending / unread / running are all
      the official marks again), so the effect label is gone with them. */
-  /* 2026-10-31, the same day, later: the selection optics (Doppler redshift on the
-     session row, gravitational lensing everywhere else) is the effect that took the
-     slot the withdrawn state markers had freed, so the count reads ten. It is
-     separate rather than folded into the paint layer because it owns a lifecycle the
-     sheet does not: it injects an SVG displacement filter, walks the selected
-     surfaces to find the node each one really draws its text with, and plays a
-     one-shot entry keyframe only when the user changed the selection. Folding that
-     into the paint effect would give the paint layer a DOM-writing responsibility it
-     has never had. */
+  /* 2026-10-31, the same day, later: the selection optics effect took the slot the
+     withdrawn state markers had freed, so the count read ten. Round 53 replaced what it
+     did (lens renderer -> plain 1.07 scale); round 54 removed it outright -- the user
+     asked for every selection effect except the session row's Doppler fringe to go. That
+     fringe is pure CSS, so nothing needs mounting any more and the count is nine again. */
   if (!/'universe: page backgrounds'/.test(client)) return 'the page-backgrounds effect has no label'
-  if (!/'universe: selection optics'/.test(client)) return 'the selection-optics effect has no label'
+  if (/'universe: selection optics'/.test(client)) return 'the withdrawn selection-optics effect is still mounted'
   return /'universe: hover lens'/.test(client) || 'the hover-lens effect has no label'
 })
 /* Round 24 (2026-10-07): liquid glass. The two halves of the effect live in two

@@ -387,3 +387,105 @@ test('G2: an ancestor cannot steal the state, touch never arms it, disposal clea
   assert.equal(fixture.rootListeners.length, 0)
 })
 
+
+test('A1: the accretion geometry is the spec, not a lookalike', () => {
+  /* Runs the production file's own geometry, extracted by its boundaries: the constants and
+     the three pure functions come out as one closure-free scope. A reimplementation here
+     would test nothing, so the extraction is asserted by between(). */
+  const source = read('src/runtime/accretion.js')
+  const api = vm.runInNewContext(
+    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, slice: uniAccretionSlice, cap: UNI_ACC_SAMPLES, bands: UNI_ACC_BANDS })',
+    { Math })
+  const TAU = Math.PI * 2
+
+  /* Radius: five pixels at spawn, two at the centre, always shrinking. */
+  assert.equal(api.at(0).r, 5)
+  assert.equal(api.at(1).r, 2)
+  let previous = Infinity
+  for (let i = 0; i <= 64; i += 1) {
+    const r = api.at(i / 64).r
+    assert.ok(r < previous, `radius must shrink monotonically (u=${i / 64})`)
+    previous = r
+  }
+
+  /* Angle: one and a quarter turns in total, never reversing. */
+  assert.equal(api.at(0).phi, -Math.PI / 2)
+  assert.ok(Math.abs((api.at(1).phi - api.at(0).phi) - TAU * 1.25) < 1e-9)
+  let last = -Infinity
+  for (let i = 0; i <= 64; i += 1) {
+    const phi = api.at(i / 64).phi
+    assert.ok(phi > last, `angle must advance monotonically (u=${i / 64})`)
+    last = phi
+  }
+
+  /* Spawns at twelve o'clock, i.e. the top of the 14px box, not somewhere random. */
+  assert.ok(Math.abs(api.at(0).x - 7) < 1e-9)
+  assert.ok(Math.abs(api.at(0).y - 2) < 1e-9)
+
+  /* Angular speed grows inwards: this is what separates a fall from a spin. */
+  const dphi = u => (api.at(u + 1e-6).phi - api.at(u).phi) / 1e-6
+  assert.ok(dphi(0.9) > dphi(0.1) * 2, 'the inner orbit must turn faster than the outer one')
+
+  /* Everything stays inside the 14x14 box the icon is. */
+  for (let i = 0; i <= 128; i += 1) {
+    const point = api.at(i / 128)
+    assert.ok(point.x > 1 && point.x < 13 && point.y > 1 && point.y < 13, `escaped the icon at u=${i / 128}`)
+  }
+})
+
+test('A2: the trail is every pixel the dot has travelled, sliced without gaps', () => {
+  /* 用户 m00391：「我要的是绿点从出现到消失的所有轨迹」。所以这里钉的不是某个固定长度，
+     而是「量到出生点为止」和「随相位单调变长」这两件事 —— 前者是这次的规格，后者是
+     吸积该有的样子（越往里，身后的轨迹越长）。 */
+  const source = read('src/runtime/accretion.js')
+  const api = vm.runInNewContext(
+    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, slice: uniAccretionSlice, cap: UNI_ACC_SAMPLES, bands: UNI_ACC_BANDS })',
+    { Math })
+
+  /* 刚出生的那一刻没有历史：一个点，切出来是空字符串，而不是一圈绕回去的假尾巴。 */
+  const born = api.trail(0)
+  assert.equal(born.length, 1, 'the trail starts as a single point')
+  assert.equal(api.len(born), 0)
+  assert.equal(api.slice(born, 0, 1), '')
+
+  /* 越往里走，轨迹越长 —— 45°、90°、135° 三档单调递增，且远超旧的 4px 上限。 */
+  const quarter = api.len(api.trail(0.25))
+  const half = api.len(api.trail(0.5))
+  const all = api.len(api.trail(1))
+  assert.ok(quarter > 0 && quarter < half && half < all, `trail must grow: ${quarter} ${half} ${all}`)
+  assert.ok(all > 20, `the whole turn is more than a stub: ${all}`)
+
+  /* 每一步都走回出生点：头是当前点，尾是 u = 0。 */
+  for (const u of [0.2, 0.55, 1]) {
+    const points = api.trail(u)
+    assert.deepEqual(points[0], api.at(u), 'the trail starts at the dot')
+    const last = points[points.length - 1]
+    assert.ok(Math.hypot(last.x - api.at(0).x, last.y - api.at(0).y) < 1e-9, `the trail stops short of u=0 (u=${u})`)
+    assert.ok(points.length <= api.cap, 'sample count stays inside the cap')
+  }
+
+  /* 六段首尾相接、合起来等于整条轨迹：接缝处不许有断口，也不许有重叠。 */
+  const points = api.trail(0.8)
+  const total = api.len(points)
+  const bands = []
+  for (let i = 0; i < api.bands; i += 1) {
+    bands.push(api.slice(points, total * (i / api.bands), total * ((i + 1) / api.bands)))
+  }
+  for (const band of bands) {
+    assert.ok(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)+$/.test(band), `band is not a polyline: ${band}`)
+  }
+  const numbers = band => band.slice(1).split('L').map((part) => {
+    const [x, y] = part.split(' ').map(Number)
+    return { x, y }
+  })
+  let joined = 0
+  for (const band of bands) {
+    const pts = numbers(band)
+    for (let i = 1; i < pts.length; i += 1) {
+      joined += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+    }
+  }
+  assert.ok(Math.abs(joined - total) < 0.05, `bands do not cover the trail: ${joined} vs ${total}`)
+})

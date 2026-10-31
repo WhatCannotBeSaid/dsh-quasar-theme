@@ -8,6 +8,24 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Changed
 
+- **会话行 running 改成「吸积流」：黑洞、一个绿点，尾巴是绿点自己走过的全部轨迹。**
+  2026-10-31 第五十三轮，按用户逐字规格重做（「绿点从出现到消失的所有轨迹」「不要预绘
+  螺旋、圆环、吸积盘、光晕」）。① 运动搬进 `src/runtime/accretion.js`：官方那枚 14px
+  `svg[data-state='ongoing']` 里的两枚 r=9.5 圆整体 `display: none`，改成往同一个 svg 里
+  追加一个 `transform: scale(24/14)` 的组（14px 设计稿 1 单位 = 屏幕 1px），组内是六条
+  `<path>` 与一个 `<circle r=.9>`。② 每帧从头部按弧长走回 `u = 0`（本轮出生点），把这段
+  折线按弧长均分成六段，段号即年龄：宽度 `.7 → .3`、不透明度 `.55 → .04`，末尾读作一圈
+  多的暗绿螺旋，头部仍是唯一亮点 —— 尾巴不是画上去的形状，是运动的产物，重生瞬间归零。
+  ③ 运动参数照抄规格：周期 1300ms、`r(u) = 5 − 3u`、`φ(u) = 2π·1.25·(0.35u + 0.65u²)`
+  （全程 450°，角速度随内落变快，所以与 pending 的匀速绕行在 14px 下也能分开）。
+  ④ 颜色仍只有一枚令牌 `--dsw-alias-state-success-primary`，暗核走
+  `bg-module-platform` / 亮档 `tooltip-bg`；没有背景、边框、文字色、行内布局改动。
+  ⑤ 采样循环复用现有 `universe: paint layer` effect，**不新增 `ctx.effect`**（`cli.11d`
+  钉九个 —— 十变九是上一轮撤掉 selection optics 的结果，不是这一条）；`prefers-reduced-motion`
+  或动效开关关掉时只画一帧静态：绿点停在轨迹上的 u = 0.6（r = 3.2、φ ≈ 110°），身后一条从
+  同一条轨迹上切下来的 2px 短尾 —— 姿态与动态同源，不是另画的圆弧。门禁：`selfcheck`
+  123 断言 0 失败、`node --test` 64 通过、`build-client --check` 与 src 一致。
+
 - **悬停塌陷的触发面从 `:hover` 换成 `[data-uni-grav]`，边缘抽搐根除。** 2026-10-31
   第四十九轮。症状：元素把自己缩到 0.97（纯图标按钮 0.90），命中区跟着缩，指针停在最外
   1.5%（图标按钮 5%）一圈时 `:hover` 立刻掉线 → 弹回原尺寸 → 又落回元素上，两帧之间

@@ -451,6 +451,108 @@ body [data-row-key^='session:']:has([class*='pinIndicator']):not([aria-selected=
   text-shadow: 0 0 8px var(--uni-pin-glow);
 }
 
+/* --------------------------------------------------------------------------
+ * 会话行 Running —— 吸积流（Accretion Flow，2026-10-31 第五十三轮）
+ *
+ * 用户规格（m00361 第八节，参数逐字）：一枚黑洞、一个绿点，尾流必须由绿点自己走过的
+ * 轨迹实时生成。不许预绘螺旋、圆环、吸积盘、光晕 —— 而「不预绘」直接判掉了 CSS 关键帧：
+ * 关键帧只能把一张画好的图整体 rotate + scale，尾巴一定是假的。所以这一格的**运动**全部
+ * 搬进 src/runtime/accretion.js（每帧采样、写六段 path），样式表只剩四件事：
+ *   1. 官方那两枚圆藏起来（它们的整圈匀速转正是要去掉的风车感），且只在我们那组
+ *      挂上来之后才藏 —— 否则脚本没跑起来的那一帧就是空的
+ *   2. 中心暗核（画在 svg 自己的 background 上，圆心天然与轨道同心）
+ *   3. 绿点与六段尾巴的颜色
+ *   4. 六段各自的笔宽与不透明度（年龄越老越细越淡，颜色始终只有一枚）
+ *
+ * 尺寸与坐标：svg 显示 14×14、viewBox 0 0 24 24。图元画在 `scale(24/14)` 的组里，
+ * 组内 1 单位 = 14px 下 1px，所以黑洞直径 2px、点直径 1.8px、尾宽 0.7px 都能逐字对上
+ * 用户给的数字，不需要任何换算常量。
+ *
+ * 与 pending 的分界：pending 是固定椭圆 + 匀速绕行（官方原样，本节不碰）；这里是半径
+ * 5→2 内落、越靠近越快、到尾端淡出重生 —— 一个是「绕」，一个是「落」。
+ * ------------------------------------------------------------------------ */
+
+body {
+  /* 唯一一条时间常量与它对齐的节点：周期写在 accretion.js（UNI_ACC_CYCLE = 1300），
+   * 这里只声明颜色与暗核半径 —— 样式表不再持有任何动画。 */
+  --uni-acc-core: 1px;
+  /* 绿点与尾巴同色：用户要的是「一个绿点走过留下的尾流」，尾巴与头不同色就会读成两个物体。
+   * 递减的不透明度（0.55 / 0.34 / 0.20 / 0.12 / 0.07 / 0.04）由样式表给，整体进退场由 JS 写 g 的 opacity。 */
+  --uni-acc-dot: var(--dsw-alias-state-success-primary);
+  --uni-acc-trail: var(--dsw-alias-state-success-primary);
+  /* 暗核要比所在背景更暗，才读得出「洞」。暗档背景是 #0c111a，就用它。 */
+  --uni-acc-core-fill: var(--dsw-alias-bg-module-platform);
+}
+
+body:not([data-ds-dark-theme]) {
+  /* 亮档的暗核不能沿用暗档那枚令牌：亮底上 #0c111a 之外还得比白色足够深，
+   * tooltip-bg（#1b222b）正好是亮档里最深的实体色。 */
+  --uni-acc-core-fill: var(--dsw-alias-tooltip-bg);
+}
+
+/* 官方那层：两枚 r=9.5 的圆 + 整圈匀速转的 g，一并藏掉。留着任何一枚，读起来都是
+ * 一圈 loading 环套着一个点 —— 用户明确不要环。
+ * 藏的条件是「我们那组图元已经挂上来了」（:has(> g.uni-acc)）：脚本没跑起来、或这一帧
+ * 还没 attach 完，官方那环就地顶着，不会出现「环没了、点还没来」的空格。 */
+body svg[data-state='ongoing']:has(> g.uni-acc) > g:not(.uni-acc) {
+  display: none;
+}
+
+/* 中心暗核。半径 1px（直径 2px），边界用 .1px 的内缩留一点抗锯齿余量，
+ * 深色在 14px 下才不会糊成一坨黑。 */
+body svg[data-state='ongoing'] {
+  background-image: radial-gradient(circle at 50% 50%, var(--uni-acc-core-fill) 0 calc(var(--uni-acc-core) - .1px), transparent var(--uni-acc-core));
+}
+
+/* 绿点：直径 1.8px（r=.9）。不做描边、不加发光 —— 用户要的是「点」，不是光球。 */
+body svg[data-state='ongoing'] .uni-acc-dot {
+  fill: var(--uni-acc-dot);
+}
+
+/* 六段尾流：同一枚绿色，靠宽度与不透明度收细。t0 是头部、t5 是出生点，段号即年龄 ——
+ * 每帧的轨迹总长由 JS 按当前弧长均分给这六段，所以尾巴有多长，六段就一起有多长。
+ * stroke-linecap: round 让接缝处不出现方角，相邻段宽度只差 0.08，看不出台阶。 */
+body svg[data-state='ongoing'] .uni-acc-t0,
+body svg[data-state='ongoing'] .uni-acc-t1,
+body svg[data-state='ongoing'] .uni-acc-t2,
+body svg[data-state='ongoing'] .uni-acc-t3,
+body svg[data-state='ongoing'] .uni-acc-t4,
+body svg[data-state='ongoing'] .uni-acc-t5 {
+  fill: none;
+  stroke: var(--uni-acc-trail);
+  stroke-linecap: round;
+}
+
+body svg[data-state='ongoing'] .uni-acc-t0 {
+  stroke-width: .7;
+  opacity: .55;
+}
+
+body svg[data-state='ongoing'] .uni-acc-t1 {
+  stroke-width: .62;
+  opacity: .34;
+}
+
+body svg[data-state='ongoing'] .uni-acc-t2 {
+  stroke-width: .54;
+  opacity: .2;
+}
+
+body svg[data-state='ongoing'] .uni-acc-t3 {
+  stroke-width: .46;
+  opacity: .12;
+}
+
+body svg[data-state='ongoing'] .uni-acc-t4 {
+  stroke-width: .38;
+  opacity: .07;
+}
+
+body svg[data-state='ongoing'] .uni-acc-t5 {
+  stroke-width: .3;
+  opacity: .04;
+}
+
 body::after {
   content: '';
   position: fixed;
@@ -1040,11 +1142,12 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
  * 现在两条规则都不再声明 background-image / background-size /
  * background-repeat / background-position，也不再有 position 过渡。
  *
- * 留下的两件事都不是扫描线，所以没动：
- *   · `background-color: transparent`（选中态）—— 官方选中规则给的是
- *     `--dsw-alias-interactive-bg-hover`，必须继续压掉；
+ * 当时还留着两件事，第五十五轮（2026-10-31）也一并删掉了：
+ *   · `background-color: transparent`（选中态）—— 当年压掉官方给的
+ *     `--dsw-alias-interactive-bg-hover`；用户当轮改口径，要求恢复官方默认外观，
+ *     这条随之移除，官方底色原样回归；
  *   · `transition: background-color 140ms linear` 与 reduced-motion 下的
- *     `transition: none` —— 那是 hover 底色的 140ms 淡入，与本条无关。
+ *     `transition: none` —— 那是给上面那层透明底配的淡入，底没了就没有存在理由。
  *
  * 以下段落是扫描机制的历史记录（它曾经怎么工作、为什么这么写），保留以便回溯；
  * 读它时请连同 `docs/design.md` D40 与 `docs/render-report.md` §35 一起看。
@@ -1125,15 +1228,15 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
  *    标题上任何颜色或动效）。
  * 旧短条的历史（7 款候选对照图）见 `docs/render-report.md` §22、`docs/design.md` D21/D26。
  * ------------------------------------------------------------------------ */
-body [data-row-key^='session:'][aria-selected] {
-  transition: background-color 140ms linear;
-}
-body [data-row-key^='session:'][aria-selected='true'] {
-  background-color: transparent;
-}
-body[data-uni-motion='reduced'] [data-row-key^='session:'][aria-selected] {
-  transition: none;
-}
+/* 第五十五轮（2026-10-31）撤除：这里原本是
+ *   body [data-row-key^='session:'][aria-selected] { transition: background-color 140ms linear; }
+ *   body [data-row-key^='session:'][aria-selected='true'] { background-color: transparent; }
+ *   body[data-uni-motion='reduced'] [data-row-key^='session:'][aria-selected] { transition: none; }
+ * 三条合起来把官方选中底色压成透明、再给它配一段 140ms 淡入。用户当轮定案
+ * 「删除相关代码，恢复成 DSH 官方默认的效果」，三条一并删除 —— 底色由官方那条
+ * background 简写自己给，时序也是官方的瞬时切换。
+ * 上面这一整节注释（扫描光带、两层背景、D40–D44 的历史）是对更早几轮实现的记录，
+ * 那些规则早已不在表里，保留只为回溯。 */
 /* ---------------------------------------------------------------------------
  * 【历史】选中标题的静态彩虹（D43，第二十轮；第二十一轮整段撤除，D44）
  *
@@ -2635,8 +2738,12 @@ body[data-uni-motion='reduced'] [data-uni-ws-pin-button] {
  *   青取 brand-primary（#87cbd5 / #006874），红取 state-error-primary
  *   （#f1938c / #ab413e），两支都是主题令牌，不写字面色值。
  *
- * 禁止项（用户规格）：背景、边框、下划线全部不许有。凡是宿主用底色或
- * 下划线表达「选中」的，就地压成 transparent / none，锚点交给字形本身。
+ * 禁止项（用户规格，第四十八至五十四轮口径）：眼帘里不许出现主题自绘的容器装饰。
+ * 第五十五轮（2026-10-31）用户改口径并定案：「之前把选中的边框和背景删了，现在
+ * 删除相关代码，恢复成 DSH 官方默认的效果。」于是下面那个七类钩子的压制块
+ * （background-color / border-color / text-decoration-line 归零）与选中标签页的
+ * ::after 下划线压制一并删除 —— 宿主用底色、边框、下划线表达「选中」的样子全部
+ * 原样回归。多普勒红移仍只叠在会话行的字形上，与官方底色共存。
  *
  * 参与范围：只有主文字。会话行里图标位（第 1 个子元素）、时间戳与行操作区
  * （第 3、4 个子元素）全部 reset 掉 text-shadow —— 图标是 svg 本就不吃
@@ -2645,6 +2752,28 @@ body[data-uni-motion='reduced'] [data-uni-ws-pin-button] {
  * 无动画：选中是即时状态，不加 transition（也避免和悬停的 220ms 打架）。
  * ========================================================================= */
 
+/* 选中态底色归还（第五十五轮，2026-10-31）
+   ----------------------------------------------------------------------------
+   用户定案：「删除相关代码，恢复成 DSH 官方默认的效果。」选的方案是只让**选中**
+   拿回底色，悬停那套透明处理不动。
+
+   为什么不能只删压制块：官方把悬停与选中合成了一条规则 ——
+     .sessionRow:hover, .sessionRow.selected { background: var(--dsw-alias-interactive-bg-hover) }
+   而这个变量在 body[data-uni-motion] 里被就地改成了 transparent（见下面「悬停底色」
+   一节）。所以选中行即便没有任何主题规则，也画不出底色。要在不动那支压制的前提下
+   让选中恢复，只能在选中钩子上把变量还原。
+
+   还原成什么：调色板里这两支本来就是品牌色/业务色加透明度，实测
+     interactive-bg-hover        暗 #87cbd51a = brand-primary 的 10.2%
+                                 亮 #00687417 = brand-primary 的 9.0%
+     interactive-bg-hover-accent 暗 #aebde22e = state-business-primary 的 18%
+                                 亮 #54628624 = state-business-primary 的 14%
+   所以这里用 color-mix 从同一批令牌推回去，不写字面色值（css.8）。
+   百分比差千分之一以内，肉眼与调色板值无差。
+
+   作用域只包选中钩子：未选中的元素仍拿到 transparent，悬停那层浮出的底色照旧不出。
+   --dsw-alias-interactive-bg-active 不在此列 —— 它本来就没被压制。
+   ------------------------------------------------------------------------- */
 body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'],
 body[data-uni-motion] [aria-current='true'],
 body[data-uni-motion] [role='menuitemradio'][aria-checked='true'],
@@ -2652,17 +2781,19 @@ body[data-uni-motion] [role='menuitem'][class*='_selected_'],
 body[data-uni-motion] [role='tab'][aria-selected='true'],
 body[data-uni-motion] [data-dockkit-tab][aria-selected='true'],
 body[data-uni-motion] [data-sidebar-right-guide-entry][aria-selected='true'] {
-  background-color: transparent;
-  border-color: transparent;
-  text-decoration-line: none;
+  --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent);
+  --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
 }
 
-/* 宿主用 ::after 画选中下划线（实测：会话标签页那条是 26×2、bottom:-1px 的指示条），
-   background-color / border / text-decoration 三条都压不到伪元素，只能单独压。
-   只压 ::after、不碰 ::before：设置导航当前项的 ::before 是 20px 宽的图标底色，
-   压了会把图标一起抹掉。 */
-body[data-uni-motion] [role='tab'][aria-selected='true']::after {
-  background-color: transparent;
+body[data-uni-motion][data-ds-dark-theme] [data-row-key^='session:'][aria-selected='true'],
+body[data-uni-motion][data-ds-dark-theme] [aria-current='true'],
+body[data-uni-motion][data-ds-dark-theme] [role='menuitemradio'][aria-checked='true'],
+body[data-uni-motion][data-ds-dark-theme] [role='menuitem'][class*='_selected_'],
+body[data-uni-motion][data-ds-dark-theme] [role='tab'][aria-selected='true'],
+body[data-uni-motion][data-ds-dark-theme] [data-dockkit-tab][aria-selected='true'],
+body[data-uni-motion][data-ds-dark-theme] [data-sidebar-right-guide-entry][aria-selected='true'] {
+  --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--dsw-alias-brand-primary) 10.2%, transparent);
+  --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent);
 }
 
 /* 其他对象选中：无效果（第五十四轮，2026-10-31）
@@ -2676,10 +2807,11 @@ body[data-uni-motion] [role='tab'][aria-selected='true']::after {
      · 第五十三轮：改成放大 1.07，规则、滚动闸、reduced-motion 都写完并通过自检，
        落地前被当轮叫停，全部删除。
 
-   现状：除会话行之外，任何选中对象都不带主题自己加的任何视觉变化 —— 字形不
-   位移、不缩放、不重影、不改色。上面「压制块」里的 background-color /
-   border-color / text-decoration-line 归零仍然留着：那不是效果，是把宿主用来
-   表达选中态的矩形底色与下划线清掉，符合「选中态不许有容器装饰」的既有定案。
+   现状（第五十五轮更新）：除会话行之外，任何选中对象都不带主题自己加的任何视觉
+   变化 —— 字形不位移、不缩放、不重影、不改色。原先留着的那个「压制块」（七类
+   选中钩子的 background-color / border-color / text-decoration-line 归零）以及
+   选中标签页 ::after 的下划线压制，已在第五十五轮按「恢复成 DSH 官方默认的效果」
+   删除：宿主用底色、边框、下划线表达选中的样子全部原样回归，本表不再碰。
    ------------------------------------------------------------------------- */
 
 /* 入场强度系数（第五十轮）：1 = 稳定态，selection.js 用 WAAPI 把它从 PEAK

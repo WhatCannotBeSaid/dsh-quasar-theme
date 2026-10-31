@@ -448,8 +448,11 @@
         /* 悬停塌陷的触发面（2026-10-31，第四十九轮）：样式表只认 [data-uni-grav]，
            属性由这里按未缩放的盒子写入。挂在装样式表的同一个 effect 上，主题关掉
            时属性与监听一起撤走；也不新增 effect —— selfcheck cli.11d 钉了「恰好
-           十个」（tools/selfcheck.mjs）。 */
+           九个」（tools/selfcheck.mjs）。 */
         var stopGravity = mountHoverGravity()
+        /* 会话行吸积流（第五十三轮）：尾流必须由绿点自己走过的轨迹生成，CSS 关键帧做不到，
+           只能每帧采样写 path。同样挂在这里，不新增 effect（cli.11d 钉了恰好九个）。 */
+        var stopAccretion = mountAccretion()
         return () => {
           /* The sheet goes first: it is the one thing whose absence is visible in
              the next paint. What is left only retracts state the sheet keyed on, and
@@ -464,6 +467,7 @@
           motion.removeEventListener('change', applyMotionPref)
           if (document.body) document.body.removeAttribute('data-uni-motion')
           if (typeof stopGravity === 'function') stopGravity()
+          if (typeof stopAccretion === 'function') stopAccretion()
         }
       }, 'universe: paint layer')
 
