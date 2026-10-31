@@ -408,9 +408,9 @@
       }, 'universe: page backgrounds')
       ctx.effect(() => mountLiquidGlass(), 'universe: liquid glass')
       ctx.effect(() => mountHoverLens(), 'universe: hover lens')
-      /* 选中态（第五十轮）：多普勒红移 + 引力透镜。挂在这里而不是 paint layer，
-         理由见 src/runtime/selection.js 文件头。 */
-      ctx.effect(() => UniverseSelectionOptics.mount(), 'universe: selection optics')
+      /* 选中态（第五十四轮）：只剩会话行的多普勒红移，纯 CSS，不需要挂载任何东西。
+         第五十至五十三轮在这里挂过 selection optics（透镜渲染 / 滚动闸），用户当轮
+         定案删除其他所有效果，挂载点随之撤掉，effect 计数回到九。 */
 
       ctx.effect(() => {
         if (typeof document === 'undefined') return
