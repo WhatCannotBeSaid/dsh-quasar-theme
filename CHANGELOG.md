@@ -8,6 +8,24 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Changed
 
+- **会话行 running 放大到 16px 盒子，并让一轮的末尾不再全黑（2026-10-31 第五十七轮）。**
+  用户逐字两句：「光点消失到再出现会有一瞬间全黑」＋「动画能不能再大点？现在我感觉还是
+  很小，还是没有官方默认的大」。① 盒子：官方那枚 `svg` 是 14px，改成 `width/height: 16px`
+  （槽位本来就是 16×20，占满但不出格）。`viewBox` 仍是 24、组内 `scale(24/14)` 不动，
+  所以整套几何整体乘 16/14 = 1.143 —— 外径 13.55 → 15.5px、点直径 2.2 → 2.51px、
+  尾宽 1.31 → 0.71px；官方那环是 12.25px，这一版明显大一圈。最老那段笔宽同时从 `.5`
+  提到 `.62`，否则那抹余温在 16px 下仍读不出来。② 黑场：级联熄灭不再归零 —— 第 `i` 段
+  的亮度改由 `src/runtime/accretion.js` 的 `uniAccretionBandAlpha` 写，前五段仍是
+  「年龄亮度 × 级联权重」，最老那段例外：从年龄亮度 `.04` 一路升到 `--uni-acc-floor`
+  （暗档 `.22` / 亮档 `.30`），正好停在出生点上；下一轮的整组进场淡入又从同一个 floor
+  起步，两头数值相等、位置重合，那 180ms 黑场因此消失。③ 亮度因此全部搬进 JS ——
+  `.04 × stroke-opacity ≤ 1` 表达不了 `.22` 这种抬升；样式表只留笔宽与颜色，六条
+  `opacity` 声明删除。④ `data-ds-dark-theme` 进 body 属性观察器，切明暗档时重读 floor。
+  `css.18` 相应改成钉笔宽 + 钉 16px 盒子 + 钉两档 floor，`acc.2` 加 `UNI_ACC_BOX`、
+  年龄亮度表与 `uniAccretionBandAlpha` 接线，新增 A4 钉「两头等值、只有最老段不退到零、
+  余温单调上升、alpha 不越界」。门禁：`selfcheck` 123 断言 0 失败、`node --test` 66 通过、
+  `build-client --check` 与 src 一致（229034 chars）。
+
 - **会话行 running 改成隐式吸积中心：不画中心，点落进虚空（2026-10-31 第五十五轮）。**
   用户逐字：「不要黑点……通过运动暗示引力中心」。① 撤掉画在 `svg` 上的 2px 暗核——
   `--uni-acc-core`、`--uni-acc-core-fill` 两支令牌与那条 `background-image: radial-gradient`

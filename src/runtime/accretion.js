@@ -16,23 +16,32 @@
      * 「点越转越快、越转越靠内、最后被吃掉」这一个动作暗示。落点因此收到 r = 1.0：没有
      * 暗核挡在中心，点可以一直落到虚空中再熄灭，2.4 那个悬空小圈不能留。
      *
-     * 坐标系：官方那枚 svg 显示 14×14、viewBox 0 0 24 24，两枚圆 r=9.5 都在 24 空间里。
-     * 图元画在一个 transform: scale(24/14) 的 g 里，组内 1 单位正好等于 14px 下的 1px，
-     * 所以下面所有数字都可以直接按「屏幕像素」读。
+     * 坐标系：官方那枚 svg 的 viewBox 是 0 0 24 24，两枚圆 r=9.5 都在 24 空间里。图元画在
+     * 一个 transform: scale(24/14) 的 g 里。第五十七轮把 svg 的显示尺寸从 14px 提到 16px
+     * （盒子放大、scale 属性不动），于是组内 1 单位 = 16/14 = 1.143 CSS px —— 下面那些数字
+     * 仍按 14px 设计稿读，屏幕上整体乘 1.143。
      *
      * 尺寸（2026-10-31 第五十四轮，用户 m00896 选 A）：官方那环在 14px 下外径 11.08px、
-     * 线宽 1.17px，第一稿外径 10px、线宽只有 0.7 起，装上去被指出「又小又细」。盒子是
-     * 官方尺寸、主题不改，所以只能在盒内画满：外半径 6.2、点直径 2.2、尾宽 1.15 → 0.5。
-     * 外径 12.4px 略大于官方环，线宽与它齐平，读起来是同一个眼熟的尺寸。
+     * 线宽 1.17px，第一稿外径 10px、线宽只有 0.7 起，装上去被指出「又小又细」。第五十七轮
+     * 用户再指出「还是比官方小」，于是盒子提到 16px：外径 13.55 → 15.5px、点直径 2.51px，
+     * 明显大过官方那环的 12.25px。槽位本来就是 16×20，盒子占满宽度但不出格。
      *
      * 运动：r(u) = 6.2 − 5.2u 线性落到 r = 1.0；方位角 φ(u) = 2π·1.5·(0.35u + 0.65u²)，
      * 全程 540°，且角速度随内落变快（φ′ 从 0.35 长到 1.65）。匀速整圈转是 pending 的
      * 语言，这里必须越接近中心越快 —— 两个状态在 14px 下的分界就在这里。
      *
-     * 退场（用户 m00999 选 B）：u 进到 0.8 之后按年龄级联熄灭 —— 头部先熄，越老的尾段
-     * 越晚熄，最后整条归零。整条一起淡会被读成「整个图标闪了一下」，级联才读成「被吞」。
-     * 熄灭只压不透明度，宽度与颜色不动；熄灭的不透明度用 stroke-opacity 属性去乘样式表
-     * 给的那一层年龄段不透明度，两者是乘法关系，互不覆盖。
+     * 退场（用户 m00999 选 B，第五十七轮补留底）：u 进到 0.8 之后按年龄级联熄灭 —— 头部
+     * 先熄，越老的尾段越晚熄。整条一起淡会被读成「整个图标闪了一下」，级联才读成「被吞」。
+     *
+     * 第五十七轮（用户 m01091：「光点消失到再出现会有一瞬间全黑」）：级联不再归零。最后一圈
+     * 里第 i 段的亮度 = 年龄亮度 × 级联权重，只有最老那段例外 —— 它从年龄亮度 .04 一路升到
+     * --uni-acc-floor（暗档 .22 / 亮档 .30），正好停在出生点上；下一轮整组的进场淡入又从
+     * 同一个 floor 起步，于是「外圈那抹余温」直接交给新出生的头。两头数值对齐、位置重合，
+     * 中间那一百多毫秒的黑场就没有了。
+     *
+     * 为什么亮度全部改由这里写：floor 没法用「样式表 .04 × stroke-opacity ≤ 1」表达（要
+     * .22 就得乘 5.5）。所以样式表只管笔宽与颜色，每段的有效不透明度一律由这个文件算，
+     * 年龄段亮度表就是下面的 UNI_ACC_AGE。
      *
      * 兜底：prefers-reduced-motion 或主题动效开关关掉时（client.js 写成
      * body[data-uni-motion='reduced']）不跑 rAF，只画一帧 —— 绿点停在轨迹上的 u = 0.6，
@@ -43,8 +52,12 @@
      * 不新增 effect。官方那两枚圆在样式表里藏掉，这一格的字形全部由这里写。
      */
 
-    /* 14px 设计稿坐标 → 官方 24 空间的缩放（24 / 14）。 */
+    /* 14px 设计稿坐标 → 官方 24 空间的缩放（24 / 14）。盒子第五十七轮提到 16px 之后
+       这个比值不动：盒子涨多少，屏幕上所有图元就整体乘多少（16/14 = 1.143）。 */
     var UNI_ACC_K = 24 / 14
+    /* 官方 svg 的显示尺寸（CSS px）。只用于自检与注释对账，真正的放大写在样式表的
+       width / height 上。 */
+    var UNI_ACC_BOX = 16
     var UNI_ACC_CYCLE = 1300
     var UNI_ACC_R0 = 6.2
     /* 第三稿的落点：没有暗核挡在中心，点要一直落到虚空里再熄灭。 */
@@ -54,9 +67,15 @@
        留足余量给内圈那段更密的采样。 */
     var UNI_ACC_SAMPLES = 56
     var UNI_ACC_STEP = 0.9
-    /* 六段就是六个年龄段。宽度与不透明度写在样式表里（uni-acc-t0 … t5），淡下去靠
-       不透明度，不是换颜色 —— 整个状态只有一枚绿色令牌。 */
+    /* 六段就是六个年龄段。笔宽写在样式表里（uni-acc-t0 … t5），有效不透明度写在这里：
+       淡下去靠不透明度，不是换颜色 —— 整个状态只有一枚绿色令牌。 */
     var UNI_ACC_BANDS = 6
+    /* 年龄段亮度（头 → 尾）。第五十七轮之前这六个数在样式表的 opacitiy 里，现在搬到这里，
+       因为最老那段要能在结束时升到 floor，而「素材 × 权重」这种乘法表达不了抬升。 */
+    var UNI_ACC_AGE = [0.55, 0.34, 0.2, 0.12, 0.07, 0.04]
+    /* 留底亮度：样式表 --uni-acc-floor 是唯一真源（暗 .22 / 亮 .30），这里只是拿不到
+       计算值时的兜底。readFloor 在装配与主题切换时读一次。 */
+    var UNI_ACC_FLOOR_FALLBACK = 0.22
     /* 级联熄灭：u 过 0.8 开始收，头部立刻走，最老那段晚 UNI_ACC_FADE_STAGGER 才起步。
        每段各自的熄灭进度 = (death − rank·stagger) / (1 − stagger)，所以 death = 1 时整条为零。 */
     var UNI_ACC_FADE_FROM = 0.8
@@ -81,6 +100,18 @@
         if (death <= start) return 1
         var left = 1 - (death - start) / (1 - UNI_ACC_FADE_STAGGER)
         return left > 0 ? left : 0
+    }
+
+    /* 某一段在熄灭进度 death 时的有效不透明度（0..1）。前五段是「年龄亮度 × 级联权重」；
+        最老那段不掉到零，而是从年龄亮度升到 floor —— 它停在出生点上，正好把手交给下一轮
+        的新头，中间不留黑场（用户 m01091 指出的那一瞬间全黑）。 */
+    function uniAccretionBandAlpha(index, death, floor) {
+        var last = UNI_ACC_BANDS - 1
+        var pick = index < 0 ? 0 : index > last ? last : index
+        var age = UNI_ACC_AGE[pick]
+        if (pick === last) return age + (floor - age) * death
+        var rank = last > 0 ? pick / last : 0
+        return age * uniAccretionWeight(death, rank)
     }
 
     /* 局部线速度（px / 单位相位）：把采样步长换算成固定的弧长间隔。内圈走得快，步长就得
@@ -162,6 +193,22 @@
         var disposed = false
         var observer = null
         var pref = null
+        /* 留底亮度与明暗档绑定，只在装配与主题/动效开关变化时读一次 —— 读计算样式按帧做
+           太贵，而这两档切换本来就会翻 body 上的属性。 */
+        var floor = UNI_ACC_FLOOR_FALLBACK
+        var floorDirty = true
+
+        /* 样式表 --uni-acc-floor 是真源；拿不到（早期帧、样式未挂）就退回兜底值。 */
+        var readFloor = function () {
+            floorDirty = false
+            if (typeof getComputedStyle !== 'function' || document.body === null) {
+                floor = UNI_ACC_FLOOR_FALLBACK
+                return
+            }
+            var raw = getComputedStyle(document.body).getPropertyValue('--uni-acc-floor')
+            var num = parseFloat(raw)
+            floor = isFinite(num) && num >= 0 && num <= 1 ? num : UNI_ACC_FLOOR_FALLBACK
+        }
 
         /* 与 theme.css 的兜底规则同源：一个属性决定跑还是停。 */
         var isReduced = function () {
@@ -207,10 +254,9 @@
                 var from = total * (i / row.tails.length)
                 var to = total * ((i + 1) / row.tails.length)
                 row.tails[i].setAttribute('d', total < 0.4 ? '' : uniAccretionSlice(points, from, to))
-                /* 熄灭按年龄分流：样式表那层 opacity 是年龄段自己的亮度，这里用
-                   stroke-opacity 再乘一个退场权重 —— 两个 opacity 相乘，不互相覆盖。 */
-                var rank = row.tails.length > 1 ? i / (row.tails.length - 1) : 0
-                row.tails[i].setAttribute('stroke-opacity', uniAccretionWeight(death, rank).toFixed(3))
+                /* 有效不透明度全部在这里写：样式表那层年龄段亮度已经搬进 UNI_ACC_AGE，
+                   最老那段还要在退场时升到 floor，所以不能再靠「CSS × stroke-opacity」。 */
+                row.tails[i].setAttribute('stroke-opacity', uniAccretionBandAlpha(i, death, floor).toFixed(3))
             }
             var head = points[0]
             row.dot.setAttribute('cx', head.x.toFixed(2))
@@ -220,22 +266,26 @@
         }
 
         /* 一轮的进度 → 两件事：整体的淡入（进场的 0.06）与熄灭进度 death（0.8 之后）。
-           整组 opacity 只管进场；退场交给逐段的 stroke-opacity，两者不打架。 */
+           整组 opacity 从 floor 起步而不是 0：上一轮结尾留在出生点的那抹余温正好是 floor，
+           两者对齐，交接处没有跳变也没有黑场。 */
         var paint = function (row, u) {
             var fadeIn = u < 0.06 ? u / 0.06 : 1
             var death = u <= UNI_ACC_FADE_FROM ? 0 : (u - UNI_ACC_FADE_FROM) / (1 - UNI_ACC_FADE_FROM)
-            row.g.style.opacity = fadeIn.toFixed(3)
+            row.g.style.opacity = (floor + (1 - floor) * fadeIn).toFixed(3)
             draw(row, uniAccretionTrail(u), death > 1 ? 1 : death)
         }
 
         /* 兜底形态：不跑时间轴，直接给一帧静态 —— 停在轨迹上的 u = 0.6（r = 3.08），
            身后是从出生点一路走到这里的完整尾迹。留着整条尾迹，静态帧才还能读出那条向内
-           收紧的螺旋；只留一个孤点等于什么也没说。它仍然是同一条曲线，不是另画的圆。 */
+           收紧的螺旋；只留一个孤点等于什么也没说。它仍然是同一条曲线，不是另画的圆。
+           静态帧不参与轮转，所以整组不压 opacity、点的散场权重也不压。 */
         var paintStill = function (row) {
+            row.g.style.opacity = '1'
             draw(row, uniAccretionTrail(UNI_ACC_STILL_U), 0)
         }
 
         var sync = function () {
+            if (floorDirty) readFloor()
             var live = document.querySelectorAll(SEL)
             var next = []
             for (var i = 0; i < live.length; i += 1) {
@@ -289,10 +339,14 @@
                 attributes: true,
                 attributeFilter: ['data-state']
             })
-            /* 动效开关写在 body 的属性上；单开一个只盯这一个属性的。 */
+            /* 动效开关与明暗档都写在 body 的属性上：前者决定跑不跑，后者决定留底亮度。
+               单开一个只盯这两个属性的。 */
             if (document.body !== null) {
-                pref = new MutationObserver(function () { kick() })
-                pref.observe(document.body, { attributes: true, attributeFilter: ['data-uni-motion'] })
+                pref = new MutationObserver(function () { floorDirty = true; kick() })
+                pref.observe(document.body, {
+                    attributes: true,
+                    attributeFilter: ['data-uni-motion', 'data-ds-dark-theme']
+                })
             }
         }
 

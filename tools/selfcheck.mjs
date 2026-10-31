@@ -321,13 +321,22 @@ checks.check('css.18', 'the accretion flow binds to the running spinner and noth
   if (!/svg\[data-state='ongoing'\] \.uni-acc-dot[^{}]*\{[^}]*fill:/.test(sheet)) {
     return 'the dot has no paint of its own'
   }
-  /* 六段＝六个年龄段：每段都要有自己的宽度和不透明度，缺一段尾巴就会在接缝处断掉，
-     或者让某一截读成「和头部一样亮」。 */
+  /* 六段＝六个年龄段：每段都要有自己的笔宽，缺一段尾巴就会在接缝处断掉。亮度第五十七轮
+     搬到 accretion.js（最老那段要在退场时升到留底亮度），所以这里只钉笔宽，亮度改由
+     acc.2 与 A4 钉。 */
   for (const part of ['t0', 't1', 't2', 't3', 't4', 't5']) {
     const rule = new RegExp("svg\\[data-state='ongoing'\\] \\.uni-acc-" + part + '[^{}]*\\{[^}]*stroke-width')
     if (!rule.test(sheet)) return 'the ' + part + ' tail segment has no width'
-    const alpha = new RegExp("svg\\[data-state='ongoing'\\] \\.uni-acc-" + part + '[^{}]*\\{[^}]*opacity')
-    if (!alpha.test(sheet)) return 'the ' + part + ' tail segment has no opacity'
+  }
+  /* 第五十七轮（用户 m01091「光点消失到再出现会有一瞬间全黑」）：盒子放到 16px，并留下一档
+     亮度让两头接上。两条都必须是样式表里的显式声明 —— 少了 width/height 盒子仍是官方 14px，
+     少了留底就退回每轮归零、中间那 180ms 还是黑的。 */
+  if (!/svg\[data-state='ongoing'\]\s*\{[^}]*width:\s*16px/.test(sheet)) {
+    return 'the running box never grew to 16px, so the mark is still smaller than the official ring'
+  }
+  if (!/--uni-acc-floor:\s*\.22/.test(sheet)) return 'the dark-mode floor is gone: the cycle dies to black again'
+  if (!/body:not\(\[data-ds-dark-theme\]\)\s*\{[^}]*--uni-acc-floor:\s*\.3/.test(sheet)) {
+    return 'the light-mode floor is missing, so the hand-off blinks on a pale background'
   }
   if (/data-state='(pending|warning|done|error)'\][^{}]*\{[^}]*uni-acc/.test(sheet)) {
     return 'the accretion layer leaked onto another state'
@@ -353,12 +362,25 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
     /* 第五十五轮（用户 m00999 选 B）：级联熄灭。0.8 起收，最老那段错开 45% 才起步。 */
     ['UNI_ACC_FADE_FROM', '0.8'],
     ['UNI_ACC_FADE_STAGGER', '0.45'],
-    ['UNI_ACC_BANDS', '6']
+    ['UNI_ACC_BANDS', '6'],
+    /* 第五十七轮（用户 m01092 选 A）：盒子 14 → 16px，整套几何乘 16/14。 */
+    ['UNI_ACC_BOX', '16']
   ]
   for (const [name, value] of want) {
     const found = new RegExp('var ' + name + ' = ([0-9.]+)').exec(accretionJs)
     if (found === null) return name + ' is not declared'
     if (Number(found[1]) !== Number(value)) return name + ' is ' + found[1] + ', the spec says ' + value
+  }
+  /* 第五十七轮：年龄段亮度表与留底兜底值都在 JS 里，而且有效亮度必须走 bandAlpha ——
+     最老那段要抬到 floor，用「年龄亮度 × 级联权重」那条路算不出来。 */
+  if (!/var UNI_ACC_AGE = \[0\.55, 0\.34, 0\.2, 0\.12, 0\.07, 0\.04\]/.test(accretionJs)) {
+    return 'the age ramp is not the one that was shipped'
+  }
+  if (!/function uniAccretionBandAlpha\(index, death, floor\)/.test(accretionJs)) {
+    return 'the band alpha helper is gone, so the floor cannot rise'
+  }
+  if (!/uniAccretionBandAlpha\(i, death, floor\)/.test(accretionJs)) {
+    return 'draw never calls the band alpha helper'
   }
   /* 第五十五轮（用户 m00993 选 B）：1.25 圈 → 1.5 圈。落程从 3.8 涨到 5.2，圈数不加
      则相邻两趟的径向间隔会松到读不成螺旋。 */

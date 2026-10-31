@@ -395,7 +395,7 @@ test('A1: the accretion geometry is the spec, not a lookalike', () => {
   const source = read('src/runtime/accretion.js')
   const api = vm.runInNewContext(
     between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, slice: uniAccretionSlice, cap: UNI_ACC_SAMPLES, bands: UNI_ACC_BANDS })',
+    '\n({ at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, slice: uniAccretionSlice, cap: UNI_ACC_SAMPLES, bands: UNI_ACC_BANDS, box: UNI_ACC_BOX })',
     { Math })
   const TAU = Math.PI * 2
 
@@ -430,13 +430,18 @@ test('A1: the accretion geometry is the spec, not a lookalike', () => {
   const dphi = u => (api.at(u + 1e-6).phi - api.at(u).phi) / 1e-6
   assert.ok(dphi(0.9) > dphi(0.1) * 2, 'the inner orbit must turn faster than the outer one')
 
-  /* Everything stays inside the 14x14 box the icon is — and the widest band (1.15px) still
-     fits between the outer orbit (6.2) and the edge (7), so nothing gets shaved off. */
+  /* Everything stays inside the box the icon is — and the widest band (1.15 design units) still
+     fits between the outer orbit (6.2) and the edge (7). 第五十七轮盒子从 14px 提到 16px，
+     但设计稿坐标仍是 14 宽，所以「不越界」要在设计稿里比：别超过 7。 */
   for (let i = 0; i <= 128; i += 1) {
     const point = api.at(i / 128)
     assert.ok(point.x > 0.5 && point.x < 13.5 && point.y > 0.5 && point.y < 13.5, `escaped the icon at u=${i / 128}`)
   }
-  assert.ok(api.at(0).r + 1.15 / 2 < 7, 'the widest band would be clipped by the 14px box')
+  assert.ok(api.at(0).r + 1.15 / 2 < 7, 'the widest band would be clipped by the icon box')
+  /* 盒子里 1 设计单位渲染成 box / 14 个 CSS px：16px 盒子下外径 15.5px，确实比官方那环
+     （12.25px）大 —— 用户 m01092「还是比官方默认的大」就是在要这一点。 */
+  assert.equal(api.box, 16, 'the box the user approved is 16px')
+  assert.ok((api.at(0).r + 1.15 / 2) * (api.box / 14) < api.box / 2, 'the scaled mark must still fit the box')
 })
 
 test('A2: the trail is every pixel the dot has travelled, sliced without gaps', () => {
@@ -531,6 +536,49 @@ test('A3: the tail dies head first, so the centre reads as something that swallo
     for (const rank of [0, 0.5, 1]) {
       const w = api.weight(d / 20, rank)
       assert.ok(w >= 0 && w <= 1, `weight escaped [0,1]: ${w}`)
+    }
+  }
+})
+
+test('A4: the last breath of a turn hands off to the next, so nothing goes black', () => {
+  /* 用户 m01091：「光点消失到再出现会有一瞬间全黑」。症结是两头都归零 —— 旧一轮的最老段
+     在 death = 1 时熄到 0，新一轮的整组又从 opacity 0 起步，中间 180ms 画面上什么都没有。
+     修法是把最老那段抬到 floor 收尾，并让新一轮从同一个 floor 起步；这条测试钉的就是
+     「两头数值相等、外圈那段不退到零、其余段照旧归零、且越老越亮」。 */
+  const source = read('src/runtime/accretion.js')
+  const api = vm.runInNewContext(
+    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ alpha: uniAccretionBandAlpha, age: UNI_ACC_AGE, bands: UNI_ACC_BANDS, fallback: UNI_ACC_FLOOR_FALLBACK })',
+    { Math })
+  const last = api.bands - 1
+
+  /* 起步与收尾都与用户定的那一档一致：暗档 .22、亮档 .30 由样式表给，兜底值必须等于暗档。 */
+  assert.equal(api.fallback, 0.22)
+  assert.deepEqual(Array.from(api.age), [0.55, 0.34, 0.2, 0.12, 0.07, 0.04])
+
+  for (const floor of [0.22, 0.3]) {
+    /* death = 0：整条就是年龄亮度本身，没有第二层压暗。 */
+    for (let i = 0; i <= last; i += 1) {
+      assert.ok(Math.abs(api.alpha(i, 0, floor) - api.age[i]) < 1e-12, `band ${i} is dimmed before the exit`)
+    }
+    /* death = 1：最老那段停在 floor 上（这就是交给下一轮的那一抹），其余全部归零。 */
+    assert.ok(Math.abs(api.alpha(last, 1, floor) - floor) < 1e-12, 'the oldest band must land on the floor')
+    for (let i = 0; i < last; i += 1) {
+      assert.equal(api.alpha(i, 1, floor), 0, `band ${i} must be out by the end of the turn`)
+    }
+    /* 收尾那段是单调升上去的：death 越大越亮，读作「余温」而不是第二颗点。 */
+    let previous = -1
+    for (let d = 0; d <= 20; d += 1) {
+      const value = api.alpha(last, d / 20, floor)
+      assert.ok(value >= previous, 'the floor must rise, never flicker')
+      previous = value
+    }
+    /* 任何时刻都不越界 —— stroke-opacity 超出 [0,1] 会被浏览器截断，读起来就是一次跳变。 */
+    for (let d = 0; d <= 20; d += 1) {
+      for (let i = 0; i <= last; i += 1) {
+        const value = api.alpha(i, d / 20, floor)
+        assert.ok(value >= 0 && value <= 1, `alpha escaped [0,1]: ${value}`)
+      }
     }
   }
 })
