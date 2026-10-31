@@ -521,17 +521,6 @@ body svg[data-state='ongoing'] .uni-acc-dot {
   fill: var(--uni-acc-dot);
 }
 
-/* 残影层：上一轮走完的整条曲线，几何固定（写死一条 d），只由 JS 改 opacity。
- * 它排在这个组的最后一层，笔宽用最细那档 —— 残影不该抢在亮线前面读。没有它，交接处是
- * 一次几何清零：点走到中心，下一帧整条折线变成空串，螺旋凭空消失再长出来（用户 m01308
- * 「没有连贯感、还是有中断」）。 */
-body svg[data-state='ongoing'] .uni-acc-residue {
-  fill: none;
-  stroke: var(--uni-acc-trail);
-  stroke-width: .62;
-  stroke-linecap: round;
-}
-
 /* 六段尾流：同一枚绿色，靠笔宽收细。t0 是头部、t5 是出生点，段号即年龄 —— 每帧的轨迹
  * 总长由 JS 按当前弧长均分给这六段，所以尾巴有多长，六段就一起有多长。亮度不在这里，
  * 由 accretion.js 逐段写 stroke-opacity。

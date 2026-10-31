@@ -365,10 +365,10 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
     ['UNI_ACC_BANDS', '6'],
     /* 第五十七轮（用户 m01092 选 A）：盒子 14 → 16px，整套几何乘 16/14。 */
     ['UNI_ACC_BOX', '16'],
-    /* 第六十轮（用户 m01416 选 B、m01426 选 B）：只在交接处交叠 —— 旧一代的终态多留
-       0.22 轮（约 286ms），尾流乘 0.45 退成背景纹理。 */
-    ['UNI_ACC_HANDOFF', '0.22'],
-    ['UNI_ACC_HANDOFF_DIM', '0.45']
+    /* 第六十一轮（用户 m01594 选 A）：旧一代不再额外乘系数，直接沿用自己收尾时的逐段亮度，
+       收尾系数是 UNI_ACC_END。第六十二轮（m01745）拿掉停在中心的那颗点，只留住形状的
+       交接层，所以 UNI_ACC_HANDOFF 那个「点留多久」的窗口也一并消失。 */
+    ['UNI_ACC_END', '0.35']
   ]
   for (const [name, value] of want) {
     const found = new RegExp('var ' + name + ' = ([0-9.]+)').exec(accretionJs)
@@ -380,11 +380,19 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
   if (!/var UNI_ACC_AGE = \[0\.55, 0\.34, 0\.2, 0\.12, 0\.07, 0\.04\]/.test(accretionJs)) {
     return 'the age ramp is not the one that was shipped'
   }
-  if (!/function uniAccretionBandAlpha\(index, death, floor\)/.test(accretionJs)) {
-    return 'the band alpha helper is gone, so the floor cannot rise'
+  if (!/function uniAccretionBandAlpha\(index, death\)/.test(accretionJs)) {
+    return 'the band alpha helper is gone, so the tail cannot be dimmed evenly'
   }
-  if (!/uniAccretionBandAlpha\(i, death, floor\)/.test(accretionJs)) {
+  if (!/uniAccretionBandAlpha\(i, death\)/.test(accretionJs)) {
     return 'draw never calls the band alpha helper'
+  }
+  /* 用户 m01544「走过的轨迹会突然亮一下再变暗」：留底不能是抬升。收尾只能把每段按自身
+     亮度等比压暗（乘 UNI_ACC_END 到 1 之间的系数），任何一段都不许被抬起。 */
+  if (/UNI_ACC_AGE\[pick\] \+ /.test(accretionJs)) {
+    return 'a band is lifted by an additive floor again, so the trail brightens as the dot lands'
+  }
+  if (!/var left = UNI_ACC_END \+ \(1 - UNI_ACC_END\) \* uniAccretionWeight\(death, rank\)/.test(accretionJs)) {
+    return 'the end-of-cycle factor is not proportional to each band brightness'
   }
   /* 用户 m01217「还是有一瞬的全黑」：尾巴留底不够，点本身也在 rank 0 上归零，于是收尾那
      一百多毫秒里屏幕上只剩最外一小段暗弧。点必须两头都压在 floor 上，与尾巴分开放。 */
@@ -394,27 +402,30 @@ checks.check('acc.2', 'the sampler carries the numbers the user approved', () =>
   if (!/row\.dot\.style\.opacity = uniAccretionDotAlpha\(u, death, floor\)/.test(accretionJs)) {
     return 'draw still kills the dot with the cascade weight'
   }
-  /* 用户 m01308「没有连贯感、还是有中断」：真正的断点是几何清零 —— 一轮走完，折线的 d 变成
-     空串，螺旋瞬间消失再长出来。残影层用固定的整条曲线把这一帧接上，只在开头淡出。 */
-  if (!/function uniAccretionResidueAlpha\(u, floor\)/.test(accretionJs)) {
-    return 'the residue layer is gone, so the spiral still blinks out between cycles'
+  /* 用户 m01308「没有连贯感、还是有中断」+ 第六十轮（用户 m01412「看起来突然从内圈跳到外圈」）：
+     交接层一项顶两件事 —— 上一轮走完的整条曲线（几何写死）盖住「几何清零」那一帧，同时让
+     旧一代陪新点走一小段，单粒子交接才不是瞬移。第六十一轮（m01594 选 A）把它做成两层共用
+     一条曲线：原来的整曲线残影路径删掉，交接层逐段沿用自己收尾时的亮度。 */
+  if (!/function uniAccretionHandoffAlpha\(index, u\)/.test(accretionJs)) {
+    return 'the hand-off layer lost its per-band alpha, so the seam jumps'
   }
-  if (!/row\.residue\.style\.opacity = uniAccretionResidueAlpha\(u, floor\)/.test(accretionJs)) {
-    return 'draw never drives the residue opacity'
+  if (!/return uniAccretionBandAlpha\(index, 1\) \* left \* left/.test(accretionJs)) {
+    return 'the hand-off bands no longer start from the brightness they ended on'
   }
-  if (!/class: 'uni-acc-residue'/.test(accretionJs)) return 'the residue path is never attached'
-  if (!/\.uni-acc-residue\s*\{[^}]*stroke-width/.test(css)) return 'the residue layer has no stroke width'
-  /* 第六十轮（用户 m01412「看起来突然从内圈跳到外圈」）：交接窗口里旧一代的终态必须还在
-     画面上，否则单粒子交接永远是一次瞬移。 */
-  if (!/function uniAccretionGhost\(u, elapsed\)/.test(accretionJs)) {
-    return 'the hand-off ghost is gone, so the dot teleports back to the rim'
+  if (!/row\.ghostTails\[i\]\.setAttribute\('stroke-opacity', uniAccretionHandoffAlpha\(i, u\)\.toFixed\(3\)\)/.test(accretionJs)) {
+    return 'paintHandoff never drives the hand-off bands'
   }
-  if (!/row\.ghost\.style\.opacity = alive\.toFixed\(3\)/.test(accretionJs)) {
-    return 'paintGhost never drives the ghost opacity'
-  }
-  if (!/class: 'uni-acc-ghost'/.test(accretionJs)) return 'the ghost group is never attached'
-  if (!/row\.ghostTails\[i\]\.setAttribute\('stroke-opacity', band\)/.test(accretionJs)) {
-    return 'the ghost bands are not dimmed, so two spirals fight for the same ink'
+  /* 用户 m01745：「去掉绿点到达终点后在中心位置闪一下的绿点」。交接层只准留形状 ——
+     那颗停在正中的点必须彻底不再存在，否则它读作第二颗粒子。 */
+  if (/uniAccretionHandoffDot/.test(accretionJs)) return 'the hand-off dot came back to the centre'
+  if (/UNI_ACC_HANDOFF/.test(accretionJs)) return 'a hand-off window for a dot that no longer exists survived'
+  if (/ghostDot/.test(accretionJs)) return 'a circle is still appended to the hand-off layer'
+  if (!/class: 'uni-acc-ghost'/.test(accretionJs)) return 'the hand-off group is never attached'
+  if (/uni-acc-residue/.test(accretionJs)) return 'the separate residue path survived the merge'
+  if (/uni-acc-residue/.test(css)) return 'the residue layer still has a rule in the stylesheet'
+  /* 交接层不许「此消彼长」也不许被整组乘子二次压暗：亮度只能减，且减在逐段上。 */
+  if (/row\.ghost\.style\.opacity = /.test(accretionJs)) {
+    return 'the hand-off group is dimmed as a whole again, so its bands no longer match the last frame'
   }
   /* 第五十五轮（用户 m00993 选 B）：1.25 圈 → 1.5 圈。落程从 3.8 涨到 5.2，圈数不加
      则相邻两趟的径向间隔会松到读不成螺旋。 */

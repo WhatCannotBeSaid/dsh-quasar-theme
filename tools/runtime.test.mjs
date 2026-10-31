@@ -540,50 +540,54 @@ test('A3: the tail dies head first, so the centre reads as something that swallo
   }
 })
 
-test('A4: the last breath of a turn hands off to the next, so nothing goes black', () => {
-  /* 用户 m01091：「光点消失到再出现会有一瞬间全黑」。症结是两头都归零 —— 旧一轮的最老段
-     在 death = 1 时熄到 0，新一轮的整组又从 opacity 0 起步，中间 180ms 画面上什么都没有。
-     修法是把最老那段抬到 floor 收尾，并让新一轮从同一个 floor 起步；这条测试钉的就是
-     「两头数值相等、外圈那段不退到零、其余段照旧归零、且越老越亮」。 */
+test('A4: the cycle ends dimmed, never black, and the ink only ever falls', () => {
+  /* 用户 m01091「光点消失到再出现会有一瞬间全黑」。第一版是把最老段抬到 floor 收尾，结果
+     造出了 m01544 那个「突然亮一下」（见 A6）。现在的收尾是纯压暗：death = 1 时每段只剩
+     自己亮度的 UNI_ACC_END，六段都还在画面上（没有一段退到 0），所以交接那一帧有形状可接；
+     而整幅的总墨量只减不增，读起来就是持续向内、逐渐安静下来。 */
   const source = read('src/runtime/accretion.js')
   const api = vm.runInNewContext(
     between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ alpha: uniAccretionBandAlpha, dot: uniAccretionDotAlpha, age: UNI_ACC_AGE, bands: UNI_ACC_BANDS, fallback: UNI_ACC_FLOOR_FALLBACK })',
+    '\n({ alpha: uniAccretionBandAlpha, age: UNI_ACC_AGE, bands: UNI_ACC_BANDS, fallback: UNI_ACC_FLOOR_FALLBACK, end: UNI_ACC_END })',
     { Math })
   const last = api.bands - 1
 
-  /* 起步与收尾都与用户定的那一档一致：暗档 .34、亮档 .42 由样式表给，兜底值必须等于暗档。 */
+  /* 点的留底兜底值仍按暗档记；尾流的收尾系数是独立的一档。 */
   assert.equal(api.fallback, 0.34)
   assert.deepEqual(Array.from(api.age), [0.55, 0.34, 0.2, 0.12, 0.07, 0.04])
+  assert.ok(api.end > 0.2 && api.end < 0.5, 'the end-of-cycle factor must leave a visible trace')
 
-  for (const floor of [0.34, 0.42]) {
-    /* death = 0：整条就是年龄亮度本身，没有第二层压暗。 */
-    for (let i = 0; i <= last; i += 1) {
-      assert.ok(Math.abs(api.alpha(i, 0, floor) - api.age[i]) < 1e-12, `band ${i} is dimmed before the exit`)
+  /* death = 0：整条就是年龄亮度本身，没有第二层压暗。 */
+  for (let i = 0; i <= last; i += 1) {
+    assert.ok(Math.abs(api.alpha(i, 0) - api.age[i]) < 1e-12, `band ${i} is dimmed before the exit`)
+  }
+  /* death = 1：六段都还亮着（只是压到自身亮度的 end 倍）—— 没有任何一段归零，所以画面
+     不会在接缝处变成一片黑，交接层接下的是一个有形状的终态。 */
+  for (let i = 0; i <= last; i += 1) {
+    assert.ok(api.alpha(i, 1) > 0, `band ${i} went black, so the seam has no shape to carry`)
+  }
+
+  /* 总墨量随 death 单调不增：一轮下来只能是「越来越安静」，不许中途整体变亮。 */
+  let previousInk = Infinity
+  for (let d = 0; d <= 40; d += 1) {
+    let ink = 0
+    for (let i = 0; i <= last; i += 1) ink += api.alpha(i, d / 40)
+    assert.ok(ink <= previousInk + 1e-12, `the whole trail brightened at death ${d / 40}`)
+    previousInk = ink
+  }
+
+  /* 年龄顺序全程不许被打乱：越靠出生点的段越暗。 */
+  for (let d = 0; d <= 40; d += 1) {
+    for (let i = 1; i <= last; i += 1) {
+      assert.ok(api.alpha(i, d / 40) < api.alpha(i - 1, d / 40) + 1e-12, `the age order broke at death ${d / 40}`)
     }
-    /* death = 1：六段全部停在 floor 上 —— 一轮结束时留在画面上的是「整条螺旋」，不是一个
-       孤零零的外圈小点；下一轮的残影层正好从同一个亮度把它接过去。 */
+  }
+
+  /* 任何时刻都不越界 —— stroke-opacity 超出 [0,1] 会被浏览器截断，读起来就是一次跳变。 */
+  for (let d = 0; d <= 40; d += 1) {
     for (let i = 0; i <= last; i += 1) {
-      assert.ok(Math.abs(api.alpha(i, 1, floor) - floor) < 1e-12, `band ${i} must land on the floor`)
-    }
-    /* 每一段都朝 floor 单调走：高于 floor 的往下、低于 floor 的往上，中途不回头 ——
-       阶梯式的死亡读作「被吞」，忽明忽暗读作闪烁。 */
-    for (let i = 0; i <= last; i += 1) {
-      let previous = api.alpha(i, 0, floor)
-      const up = previous < floor
-      for (let d = 1; d <= 20; d += 1) {
-        const value = api.alpha(i, d / 20, floor)
-        if (up) assert.ok(value >= previous - 1e-12, `band ${i} fell on its way up`)
-        else assert.ok(value <= previous + 1e-12, `band ${i} rose on its way down`)
-        previous = value
-      }
-    }
-    /* 任何时刻都不越界 —— stroke-opacity 超出 [0,1] 会被浏览器截断，读起来就是一次跳变。 */
-    for (let d = 0; d <= 20; d += 1) {
-      for (let i = 0; i <= last; i += 1) {
-        const value = api.alpha(i, d / 20, floor)
-        assert.ok(value >= 0 && value <= 1, `alpha escaped [0,1]: ${value}`)
-      }
+      const value = api.alpha(i, d / 40)
+      assert.ok(value >= 0 && value <= 1, `alpha escaped [0,1]: ${value}`)
     }
   }
 })
@@ -618,73 +622,83 @@ test('A5: the dot arrives on the floor and leaves from the same floor, so the se
   }
 })
 
-test('A6: the residue carries the finished spiral across the seam, so the shape never blinks', () => {
-  /* 用户 m01308「没有连贯感、还是有中断」。真正的断点不是亮度，是几何：一轮走完，六段折线的
-     d 变成空串，整条螺旋瞬间消失再重新长出来。残影层用一条固定的整条曲线把那一帧接上。 */
+test('A6: the trail only ever dims as the dot lands, never brightens', () => {
+  /* 用户 m01544「绿点走完全程后它所走过的轨迹会突然亮一下再变暗」。第一版的留底是把每段
+     插值到 floor（0.34），于是走过去的内圈段被抬亮：0.04 → 0.34 是 8.5 倍、0.07 → 0.34 是
+     4.9 倍 —— 点落底那一刻整条轨迹被拉成一条均匀的暗绿螺旋，这才是那个「亮一下」。收尾只能
+     乘，不能加：每段始终落在「自身亮度 × UNI_ACC_END」与自身亮度之间。 */
   const source = read('src/runtime/accretion.js')
   const api = vm.runInNewContext(
     between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ residue: uniAccretionResidueAlpha, alpha: uniAccretionBandAlpha, bands: UNI_ACC_BANDS, fade: UNI_ACC_RESIDUE_FADE })',
+    '\n({ alpha: uniAccretionBandAlpha, bands: UNI_ACC_BANDS, age: UNI_ACC_AGE, end: UNI_ACC_END })',
     { Math }
   )
   const last = api.bands - 1
+  assert.ok(api.end > 0 && api.end < 1, 'the end-of-cycle factor must be a dimming factor')
+  assert.equal(api.age.length, api.bands, 'the age ramp is not one per band')
 
-  for (const floor of [0.34, 0.42]) {
-    /* u = 0 的残影亮度必须等于上一轮尾巴停住的亮度，否则交接处会闪一下。 */
-    assert.ok(Math.abs(api.residue(0, floor) - floor) < 1e-12, 'the residue must start at the floor')
-    for (let i = 0; i <= last; i += 1) {
-      assert.ok(
-        Math.abs(api.alpha(i, 1, floor) - api.residue(0, floor)) < 1e-12,
-        `band ${i} ends on a different level than the residue starts on`
-      )
-    }
-    /* 单调淡出，且在 fade 之后彻底让位给亮线。 */
-    assert.ok(api.fade > 0 && api.fade < 1, 'the residue fade window must sit inside one cycle')
-    assert.equal(api.residue(api.fade, floor), 0, 'the residue must be gone by the end of its window')
+  for (let i = 0; i <= last; i += 1) {
     let previous = 2
-    for (let u = 0; u <= 1; u += 0.02) {
-      const value = api.residue(u, floor)
-      assert.ok(value <= previous + 1e-12, 'the residue brightened again while fading')
+    for (let death = 0; death <= 1.0001; death += 0.02) {
+      const value = api.alpha(i, death)
+      assert.ok(value <= api.age[i] + 1e-12, `band ${i} outran its own brightness at death ${death}`)
+      assert.ok(value >= api.age[i] * api.end - 1e-12, `band ${i} dimmed past the end factor at death ${death}`)
+      assert.ok(value <= previous + 1e-12, `band ${i} rose on its way down`)
       previous = value
-      assert.ok(value >= 0 && value <= 1, `residue alpha escaped [0,1]: ${value}`)
+    }
+    /* 落底那一刻：每段都只是自己亮度的 UNI_ACC_END，内圈段不会被拉到外圈段的亮度。 */
+    assert.ok(Math.abs(api.alpha(i, 1) - api.age[i] * api.end) < 1e-12, `band ${i} does not end at its own scale`)
+  }
+  /* 越老的段始终越暗 —— 抬升会让这个顺序在收尾时被打乱。 */
+  for (let death = 0; death <= 1.0001; death += 0.05) {
+    for (let i = 1; i <= last; i += 1) {
+      assert.ok(api.alpha(i, death) < api.alpha(i - 1, death) + 1e-12, `the age order broke at death ${death}`)
     }
   }
 })
 
-test('A7: the finished cycle lingers while the next one enters, so the dot never teleports', () => {
-  /* 用户 m01412：「绿点从最外圈进到内圈后消失，然后外圈重新出现绿点……看起来突然从内圈
-     跳到外圈」。单粒子必然要瞬移，因为同一时刻只有一个主体。交接窗口里让上一轮的终态多留
-     一会儿（它此刻正停在中心），新一轮的点已经从外圈亮起来 —— 两个主体同时在场，眼睛不会
-     后退着跟踪一次瞬移。这条钉的是窗口本身与它的静态几何。 */
+test('A7: the hand-off layer carries the seam with its bands and hands over no second dot', () => {
+  /* 两件事由同一层承担：①用户 m01308「没有连贯感、还是有中断」—— 一轮走完，折线的 d 变成
+     空串，螺旋瞬间消失再长出来，交接层用写死几何的整条曲线把那一帧接下；②用户 m01412
+     「看起来突然从内圈跳到外圈」—— 上一轮的终态在窗口里陪新点走一小段，单粒子交接才不是
+     瞬移。第六十一轮（用户 m01594 选 A）让这一层的每一段从「它自己收尾时的亮度」起淡，
+     接缝处逐段相等，所以交接那一帧画面完全不变。 */
   const source = read('src/runtime/accretion.js')
   const api = vm.runInNewContext(
     between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ ghost: uniAccretionGhost, ds: uniAccretionGhostD, at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, handoff: UNI_ACC_HANDOFF, dim: UNI_ACC_HANDOFF_DIM, bands: UNI_ACC_BANDS })',
+    '\n({ hand: uniAccretionHandoffAlpha, alpha: uniAccretionBandAlpha, ds: uniAccretionGhostD, at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, fade: UNI_ACC_RESIDUE_FADE, bands: UNI_ACC_BANDS })',
     { Math }
   )
+  const last = api.bands - 1
 
-  assert.equal(api.handoff, 0.22, 'the hand-off window is not the one that was approved')
-  assert.equal(api.dim, 0.45, 'the ghost dim factor is not the one that was approved')
+  assert.ok(api.fade > 0.3 && api.fade < 0.8, 'the hand-off must sit in the first half of a cycle')
 
-  /* 第一圈之前没有「上一轮」可以留：新挂上来的行不该先画出一条它没走过的螺旋。 */
-  assert.equal(api.ghost(0, 0), 0, 'a brand new row must not show a ghost')
-  assert.equal(api.ghost(0, 0.5), 0, 'the ghost appeared before the first cycle finished')
-  /* 一圈走完、新一轮起手：整幅可见，随后在窗口里线性淡出。 */
-  assert.equal(api.ghost(0, 1), 1, 'the finished cycle must linger at full strength')
-  assert.equal(api.ghost(api.handoff, 2), 0, 'the ghost overstays its window')
-  let previous = 2
-  for (let u = 0; u < api.handoff; u += api.handoff / 22) {
-    const value = api.ghost(u, 3)
-    assert.ok(value <= previous + 1e-12, 'the ghost brightened again while leaving')
-    assert.ok(value > 0 && value <= 1, `ghost alpha escaped (0,1]: ${value}`)
-    previous = value
+  /* 接缝：u = 0 的第一帧，每段正好等于它收尾时的亮度 —— 画面不该有任何变化。 */
+  for (let i = 0; i <= last; i += 1) {
+    assert.ok(
+      Math.abs(api.hand(i, 0) - api.alpha(i, 1)) < 1e-12,
+      `hand-off band ${i} does not start on the brightness it ended on`
+    )
+    let previous = 2
+    for (let u = 0; u <= 1; u += 0.02) {
+      const value = api.hand(i, u)
+      assert.ok(value <= previous + 1e-12, `hand-off band ${i} brightened again while leaving`)
+      assert.ok(value >= 0 && value <= 1, `hand-off band ${i} escaped [0,1]: ${value}`)
+      previous = value
+    }
+    /* 窗口用完就彻底让位 —— 余下大半轮仍然只有一条新长出来的亮线。 */
+    assert.ok(api.fade > 0.3 && api.fade < 0.8, 'the band fade window must sit in the first half of a cycle')
+    assert.equal(api.hand(i, api.fade), 0, `hand-off band ${i} outstays its window`)
+    assert.equal(api.hand(i, 0.9), 0, `hand-off band ${i} is still visible late in the cycle`)
   }
-  /* 窗口之外彻底不画 —— 其余时间仍然只有一颗点在内旋。 */
-  for (const u of [api.handoff, 0.5, 0.99]) {
-    assert.equal(api.ghost(u, 2), 0, `the ghost is still visible at u = ${u}`)
-  }
 
-  /* 终态那六段折线：几何就是整条曲线，首尾相接，合起来等于整条轨迹。 */
+  /* 用户 m01745：「去掉绿点到达终点后在中心位置闪一下的绿点」。交接层只准留形状：一旦
+     再往这一层塞一颗停在 (7,8) 的点，画面上就有第二颗粒子钉在正中闪，读作红心。 */
+  assert.ok(!/uniAccretionHandoffDot/.test(source), 'the hand-off dot helper came back')
+  assert.ok(!/ghostDot/.test(source), 'the hand-off layer appends a circle again')
+  assert.ok(!/uniAccretionAt\(1\)/.test(source.split('var paintHandoff')[0].split('var attach')[1] || ''), 'the hand-off layer still anchors a point on the landing spot')
+
+  /* 几何：终态那六段折线就是整条曲线，首尾相接，合起来等于整条轨迹。 */
   const ds = api.ds()
   assert.equal(ds.length, api.bands)
   const numbers = band => band.slice(1).split('L').map((part) => {
@@ -695,13 +709,13 @@ test('A7: the finished cycle lingers while the next one enters, so the dot never
   let total = 0
   let first = null
   for (let i = 0; i < ds.length; i += 1) {
-    assert.ok(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)+$/.test(ds[i]), `ghost band ${i} is not a polyline`)
+    assert.ok(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)+$/.test(ds[i]), `hand-off band ${i} is not a polyline`)
     const pts = numbers(ds[i])
     if (first === null) first = pts[0]
     for (let k = 1; k < pts.length; k += 1) {
       total += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y)
     }
   }
-  assert.ok(Math.abs(total - api.len(full)) < 0.06, `the ghost does not cover the curve: ${total} vs ${api.len(full)}`)
-  assert.ok(Math.hypot(first.x - api.at(1).x, first.y - api.at(1).y) < 0.02, 'the ghost must start where the dot lands')
+  assert.ok(Math.abs(total - api.len(full)) < 0.06, `the hand-off layer does not cover the curve: ${total} vs ${api.len(full)}`)
+  assert.ok(Math.hypot(first.x - api.at(1).x, first.y - api.at(1).y) < 0.02, 'the hand-off layer must start where the dot lands')
 })
