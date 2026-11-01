@@ -46,9 +46,6 @@ const checks = {
 const pkg = JSON.parse(read('package.json'))
 const tokensDoc = JSON.parse(read('src/tokens.json'))
 const budget = JSON.parse(read('build/veil-budget.json'))
-/* Fonts ride in the same bundle as the wallpaper data URLs (build-client.mjs reads this
-   record and emits the @font-face), so their provenance is checkable the same way. */
-const fonts = JSON.parse(read('build/fonts.json'))
 const TOKENS = tokensDoc.tokens
 const tokenNames = Object.keys(TOKENS)
 const css = read('src/theme.css')
@@ -177,8 +174,8 @@ checks.check('file.build-walls', 'build/wallpapers.json exists', () =>
 /* ------------------------------------------------------------------- tokens */
 
 checks.group('tokens')
-checks.check('tok.1', 'token count matches the A+B plan (41+14 = 55)', () =>
-  tokenNames.length === 55 || `found ${tokenNames.length}`)
+checks.check('tok.1', 'token count matches the A+B plan (41+12 = 53)', () =>
+  tokenNames.length === 53 || `found ${tokenNames.length}`)
 checks.check('tok.2', 'meta.tokenCount agrees with the map', () =>
   tokensDoc.meta.tokenCount === tokenNames.length)
 checks.check('tok.3', 'every token has a light value', () => {
@@ -1013,7 +1010,7 @@ checks.check('cli.11c', 'the client half writes browser storage only for the nam
   }
   return true
 })
-checks.check('cli.11d', 'the client half owns exactly nine effects including the black-hole renderer', () => {
+checks.check('cli.11d', 'the client half owns exactly ten effects including the black-hole renderer', () => {
   /* Nine of these were already counted when rounds 41-45 built the 工作区 row's entry: five of the
      theme's own (token layer, liquid-glass maps, paint layer, boot mask, the brand row's three-zone
      bridge since round 25), one from the vendored session-status rail, and the seventh (round 39) the
@@ -1036,9 +1033,17 @@ checks.check('cli.11d', 'the client half owns exactly nine effects including the
      lines inside the paint layer because what it writes is an inline `left` on portaled boxes the
      theme's sheet cannot reach (the official placement is `useAnchoredPosition`, and an inline
      `left` beats any selector), and it has to follow the official placement across scroll, resize
-     and ResizeObserver ticks -- a lifecycle the paint effect does not have. */
+     and ResizeObserver ticks -- a lifecycle the paint effect does not have.
+
+     Round 65 (2026-11-01) added the TENTH: the hero page's composer card goes ghost while the
+     pointer is elsewhere, and one of its wake conditions -- "there is text in the card" -- cannot
+     be a selector, because the composer is a Lexical editor rather than a textarea (no
+     ':placeholder-shown', and an empty editor still holds a '<p><br></p>'). The effect publishes
+     'data-uni-composer-typed' and the sheet reads only that, so the emptiness test lives in one
+     place. It is separate from the paint layer for the same reason the panel centring is: it needs
+     listeners and a per-frame batch, which a sheet cannot have. */
   const effects = client.match(/ctx\.effect\(/g) ?? []
-  if (effects.length !== 9) return `${effects.length} ctx.effect() calls, expected exactly 9`
+  if (effects.length !== 10) return `${effects.length} ctx.effect() calls, expected exactly 10`
   if (!/UniverseBlackHole\.mount\(\)/.test(client)) return 'missing ASCII black-hole lifecycle mount'
   if (!/tag\.dataset\.pluginCss = PLUGIN_ID \+ '\/theme\.css'/.test(client)) {
     return 'the paint layer is not namespaced'
@@ -1056,6 +1061,7 @@ checks.check('cli.11d', 'the client half owns exactly nine effects including the
      asked for every selection effect except the session row's Doppler fringe to go. That
      fringe is pure CSS, so nothing needs mounting any more and the count is nine again. */
   if (!/'universe: page backgrounds'/.test(client)) return 'the page-backgrounds effect has no label'
+  if (!/'universe: composer typed state'/.test(client)) return 'the composer typed-state effect has no label'
   if (/'universe: selection optics'/.test(client)) return 'the withdrawn selection-optics effect is still mounted'
   return /'universe: hover lens'/.test(client) || 'the hover-lens effect has no label'
 })
@@ -1641,48 +1647,6 @@ checks.check('veil.2', 'the strict (tertiary) contract is recorded, not hidden',
   return recorded || 'strictContract missing from the budget'
 })
 
-/* --------------------------------------------------------------------- fonts */
-
-checks.group('font')
-checks.check('font.1', 'every embedded font carries attribution and a shipped licence text', () => {
-  /* wall.5's shape, for the same reason: an asset whose terms are not in the package is
-     an asset nobody can redistribute. OFL condition 2 makes the licence text itself part
-     of the requirement, so it is asserted as a file that exists, not as a field. */
-  const bad = fonts.filter((f) => !f.credit || !f.page || !f.license || !f.licenseFile || !exists(f.licenseFile))
-  return bad.length === 0 || bad.map((f) => f.id).join(', ')
-})
-checks.check('font.2', 'each font record matches its file and the @font-face in the bundle', () => {
-  const bad = []
-  for (const font of fonts) {
-    if (!exists(font.file)) { bad.push(`${font.id}: ${font.file} is missing`); continue }
-    const bytes = readFileSync(join(ROOT, font.file)).length
-    if (bytes !== font.bytes) bad.push(`${font.id}: ${bytes} bytes on disk, ${font.bytes} recorded`)
-    if (!client.includes(`font-family: '${font.family}'`)) {
-      bad.push(`${font.id}: client.js declares no @font-face for ${font.family}`)
-    }
-  }
-  return bad.length === 0 || bad.join('; ')
-})
-checks.check('font.3', 'the hero headline is gone: the row is hidden and nothing is injected', () => {
-  /* D104 (2026-10-28, user-named): 「去掉新会话页面的文字，只保留输入框」-- the motto no
-     longer ships, so the old nowrap / cqw / 'Great Vibes' assertions would only pin dead
-     CSS. What has to hold now is the removal itself, at the row rather than at the text:
-     hiding only the two inner spans would leave an empty flex row holding the HeroShell
-     gap, so the row itself must be `display: none`. The font file, its @font-face and
-     font.1 / font.2 stay untouched -- this round removed a rendering, not an asset. */
-  const missing = []
-  const row = css.match(/\[data-phase='hero'\] div:has\(> span > \[data-slot='conversation\.hero\.brand\.mark'\]\)\s*\{[^}]*\}/)?.[0] ?? ''
-  if (row === '') missing.push("the hero headline row rule")
-  else if (!/display:\s*none/.test(row)) missing.push('display: none on the hero headline row')
-  if (/div:has\(> span > \[data-slot='conversation\.hero\.brand\.mark'\]\)[^\n{]*::before/.test(css)) {
-    missing.push('a headline ::before injection that should have been removed')
-  }
-  if (/div:has\(> span > \[data-slot='conversation\.hero\.brand\.mark'\]\)\s*\{[^}]*container-type:\s*inline-size/.test(css)) {
-    missing.push('the headline container-type that only served the removed motto')
-  }
-  return missing.length === 0 || `unexpected ${missing.join(', ')}`
-})
-
 /* ---------------------------------------------------------------- dark freeze */
 
 // Dark mode was FROZEN by the user on 2026-10-08: 「暗色模式不动，就此固定下来，以后不得再
@@ -1709,7 +1673,12 @@ checks.check('font.3', 'the hero headline is gone: the row is hidden and nothing
 // re-solved in tools/s2-palette.py (see its 第五轮 header). The key set is unchanged, so the
 // digest moves for the values alone. Dark veil alpha stays 0.35 (transparency was not asked
 // about); only the fill under it changed, so DARK_VEILED follows.
-const DARK_TOKENS_SHA = '38ed701923cc7d8c'
+// Recompute #3 (2026-10-31): 38ed701923cc7d8c -> 7a5f014341e6814d, WITH the user's approval.
+// He asked to strip every font change in the theme, so `--dsw-font-family` and
+// `--ds-font-family-code` left the map. The digest covers the key set as well as the
+// values, so it moved for the removals alone; every surviving token keeps its dark value
+// byte for byte.
+const DARK_TOKENS_SHA = '7a5f014341e6814d'
 const DARK_VEIL_ALPHA = 0.35
 const DARK_VEILED = {
   '--dsw-alias-bg-base': '#11172059',

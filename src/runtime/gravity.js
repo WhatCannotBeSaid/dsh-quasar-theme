@@ -57,6 +57,57 @@
             'span:has(> [data-slot="sidebar.brand.name"])'
         ].join(',')
 
+        /* 兜底：光标是 pointer 的元素也算可悬停对象（2026-10-31 第五十七轮）。
+           用户要把悬停收束覆盖到「所有能悬停的地方」，而上面那份清单永远会漏：
+           输入框上方的工具条是整条 div、设置导航格与插件分类项各用一套组件，
+           都不是 button 也没有角色属性。照 CSS 的做法只能一直追着补选择器。
+           这里改用「光标形状」当判据 —— 宿主对任何可交互元素都设 cursor:pointer，
+           正文段落是 auto、可选中文字是 text，天然排除在外。
+
+           只往上找 8 层：指针落在按钮里的图标上时，图标本身未必有 pointer，要先
+           爬到按钮；但爬太高会把整个侧栏也算进来，等于「所有元素都收束」。
+
+           选中态一律不参与（与样式表那三个 :not 同口径）：选中项已经用底色表达，
+           再缩一下会让「当前在哪」跟着指针游移。 */
+        /* range 滑块不参与收束（2026-10-31 第五十七轮补充）：它是可拖拽控件，
+           缩 3% 会让手柄的命中区跟着变，拖到边缘时手感与静止态对不上。这条同时
+           写进 EXCLUDED，让清单路径与兜底路径都拦得住 —— 只拦兜底的话，将来若
+           有别的选择器把 input 收进 TARGETS，滑块又会漏回来。 */
+        var EXCLUDED = "[aria-selected='true'],[aria-checked='true'],[aria-current='true'],input[type='range']"
+        var POINTER_DEPTH = 8
+
+        /* 品牌三件套里唯一没有自己元素的是 SYSTEM —— 它是按钮的 ::after。所以
+           悬停 SYSTEM 只能靠「按钮带属性 → 样式表缩 ::after」这条路。按钮自己
+           比 SYSTEM 大得多，还盖着 WHALE-01 与 SYSTEM 之间的 gap、按钮左右两侧的
+           空白，属性一挂上去，指针停在那些空白里 SYSTEM 也会缩 —— 就是用户报的
+           「三处互相影响」的另一半（2026-10-31 第七十轮）。
+           这里按**与点击分区同一条界**收窄（src/client.js 的点击判定也用 name 盒
+           右缘判 SYSTEM）：按钮只在指针越过 name 右缘之后才参与 hover 记账，
+           左边一律不挂。Logo 与 WHALE-01 各有自己的 SPAN，closest() 本来就先命中
+           它们，不需要在这里特判。 */
+        var BRAND_BUTTON = 'button:has([data-slot="sidebar.brand.name"])'
+        var BRAND_NAME = '[data-slot="sidebar.brand.name"]'
+
+        var pointerTarget = function (node) {
+            var el = node
+            for (var i = 0; i < POINTER_DEPTH; i++) {
+                if (el === null || el === undefined || el === document.body || el === document.documentElement) return null
+                var cursor = ''
+                try {
+                    var computed = window.getComputedStyle(el)
+                    cursor = computed && computed.cursor !== undefined ? String(computed.cursor) : ''
+                } catch (error) {
+                    cursor = ''
+                }
+                if (cursor === 'pointer') {
+                    if (typeof el.matches === 'function' && el.matches(EXCLUDED)) return null
+                    return el
+                }
+                el = el.parentElement
+            }
+            return null
+        }
+
         var active = null
         var box = null
         var lastX = null
@@ -81,6 +132,16 @@
             var cx = rect.left + rect.width / 2
             var cy = rect.top + rect.height / 2
             box = { left: cx - halfW, right: cx + halfW, top: cy - halfH, bottom: cy + halfH }
+            /* 品牌按钮的命中盒左界收到 name 右缘（见 BRAND_BUTTON 的说明）。按钮
+               不缩、name 也不跟着按钮缩，两枚 rect 同帧同比例，直接用即可；指针
+               从 SYSTEM 区左移进 gap 时 holds() 立刻不成立，onMove 摘属性。 */
+            if (typeof el.matches === 'function' && el.matches(BRAND_BUTTON)) {
+                var nameBox = el.querySelector(BRAND_NAME)
+                if (nameBox !== null) {
+                    var edge = nameBox.getBoundingClientRect().right
+                    if (edge > box.left) box.left = edge
+                }
+            }
             return box
         }
 
@@ -112,6 +173,17 @@
             lastX = event.clientX
             lastY = event.clientY
             var el = node.closest(TARGETS)
+            if (el === null) el = pointerTarget(node)
+            /* 清单路径也要过一遍 EXCLUDED：closest() 不看排除项，range 滑块与
+               选中项都可能被某个更宽的选择器收进来。 */
+            if (el !== null && typeof el.matches === 'function' && el.matches(EXCLUDED)) el = null
+            /* 品牌按钮只在 SYSTEM 区（name 右缘之后）参与 hover 记账；落在
+               WHALE-01 与 SYSTEM 之间的 gap、或按钮左侧空白上时当作没有目标，
+               不挂属性。见 BRAND_BUTTON 的说明。 */
+            if (el !== null && typeof el.matches === 'function' && el.matches(BRAND_BUTTON)) {
+                var nameNode = el.querySelector(BRAND_NAME)
+                if (nameNode === null || event.clientX < nameNode.getBoundingClientRect().right) el = null
+            }
             if (el === null || el === active) return
             /* 塌陷挖出的那一圈：指针其实没走，是命中被交还给了祖先。 */
             if (active !== null && el.contains(active) && holds(event.clientX, event.clientY)) return

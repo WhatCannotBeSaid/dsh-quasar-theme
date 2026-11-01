@@ -293,11 +293,16 @@ body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='
    （用户 m00207「又看不清了」），只有背板能把噪点整块挡住。
    不动黑洞本身：压淡吸积盘外圈会把盘一起削薄（m00225 试过一轮，m00394 撤回）。
    `[data-phase='hero']` 挂在新会话页根节点上，对话页没有这个属性，
-   所以作用域自动等于「只这一页」；两条选择器都是 data-* 契约（css.7）。 */
-body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-phase='hero'] button[aria-label='选择工作区'],
-body:not([data-ds-dark-theme])[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='conversation.hero.agentPreset'] button {
-  background-color: var(--dsw-alias-bg-base);
-}
+   所以作用域自动等于「只这一页」；两条选择器都是 data-* 契约（css.7）。
+
+   **已撤回（2026-11-01，用户点名）**：原话「去掉亮色下『工作区选择』和『Agent预设』模式
+   选择的背板，之前加了个背景」。那两条 `background-color: var(--dsw-alias-bg-base)` 删掉，
+   两颗控件回到宿主自己的样式（无底色，只有字与图标），黑洞与输入卡一律不动。
+   代价就是上面这段记的那件事重新成立：吸积盘外圈的浅棕字符会重新压在字缝里，
+   最坏一格仍按当时的量测 ≈6.5:1 起（字形本身没变暗）。这是当轮用户明确要的取舍，
+   不是遗漏；要改回来见 D106 的「处置」栏，那里留着两条选择器原文。
+   当天第三轮接上了「幽灵化」：这两颗控件改成静止态不透明度 0.55，规则见本文件
+   输入卡幽灵态那一节末尾（`同一套幽灵态，用在会话框外那两处控件上`）。 */
 /* build 期把画布藏起来，等第一帧画好再露面（否则会看到一张空白的半成品）。
    2026-10-29 修：`data-uni-black-hole` 挂在 body、`data-black-hole-state` 挂在画布，
    一条要求同一元素同时带两个属性的选择器命中 0 个元素，是死规则。 */
@@ -694,7 +699,9 @@ div[data-windows-menu] {
  * 用户 2026-10-06：「先给对话框添加毛玻璃和透明效果」。
  *
  * 透明来自令牌，不来自这张表：卡片自己的填充是 `--dsw-specific-input-major`，
- * tools/s2-palette.py 的 SURFACE 把它解成半透明（亮 0.62 / 暗 0.68）。
+ * tools/s2-palette.py 的 SURFACE 把它解成半透明，但**最终令牌**的 α 是 0.302
+ * （src/tokens.json 的 `surfaceAlphaOverride` 钉 0.3、构建产物的 TOKENS 表一致），
+ * 那个 0.62 / 0.68 是中间产物，别拿它推合成结果。
  *
  * 毛玻璃来自这里。卡片带 `data-composer-card` 契约属性（实测），这是 paint layer
  * 允许触碰的钩子之一（css.7 只放行 body/:root/#root/data-* ），所以不需要、
@@ -758,6 +765,131 @@ div[data-windows-menu] {
    * 连门禁一起回退：glass.1 的 named 期望数 1 → 2、glass.2 的 rules 期望数 1 → 2。
    * 改动前的逐字原样见 src/theme.css.bak-20261011-1530-c1c2。
    * ------------------------------------------------------------------- */
+}
+
+/* --------------------------------------------------------------------------
+ * 新会话页输入卡的「幽灵态」（2026-11-01，用户点名，设计树五轮定稿）
+ *
+ * 用户原话（Q1）：鼠标未悬停时输入框接近透明，好让黑洞露出来；悬停或输入文字时
+ * 恢复现在的材质。Q2 选「整卡幽灵态」、Q3 选「两态、条件从宽」、Q4 选「只新会话页」、
+ * Q5 选「亮档也做」、Q6 选「激活态 ≥4.5:1、幽灵态 ≥3:1」。
+ *
+ * 作用域只有新会话页：`[data-phase='hero']` 是官方挂在会话根上的契约属性（对话页
+ * 没有），用 `body:has()` 而不用后代选择器，是为了不假设输入卡落在那个根的子树里 ——
+ * 官方把输入卡放在 conversation 区域，hero 属性挂在同一棵树上，但两者的先后关系
+ * 不属于实测过的契约。两个 `:has()` 都是 data-*（css.7），不碰任何哈希类名（css.6）。
+ *
+ * 为什么静止态写成「一排 :not()」而不是另写一条「激活态」：
+ * 条件不成立时本块整条退出匹配，卡片自动回到**原有**声明（令牌层给的
+ * `--dsw-specific-input-major`，亮档另加 src/theme.css:284 那条纸色背板），
+ * 于是「恢复现状」不需要我重抄一遍现状的数值 —— 少一处会漂移的副本。
+ *
+ * 焦点**不再**是唤醒条件（2026-11-01 第二轮，用户报「点新会话弹出页面时，不先用鼠标
+ * 点一下页面，输入框不会幽灵化」）。排除法就能定位：那一刻卡片既不 hover（指针还在
+ * 侧栏）、也没有文字（`data-uni-composer-typed` 没设）、弹层也没开，而「点击页面后
+ * 就幽灵化」说明 `[data-phase='hero']` 与 `data-black-hole-state='ready'` 早都成立 ——
+ * 剩下唯一会被一次点击翻过来的状态就是 `:focus-within`：新会话页的编辑器一挂载就
+ * 拿到焦点。那等于「默认实体」，与幽灵态的目的相反，所以把焦点从条件里摘掉。
+ * 代价写在明处：键盘 Tab 进空卡片时它仍是幽灵态（焦点环还在，一打字就实体化）。
+ * 想改成「用户亲手碰过之后焦点才算数」，加一个 pointerdown/keydown 打的
+ * `data-uni-composer-engaged`，条件写成 `:not(:focus-within:not([data-uni-composer-engaged]))`。
+ *
+ * 弹层打开这一条用 `:has([aria-expanded='true'])` 读，不另加 JS：四个官方弹层的触发器
+ * 都在卡片体内，弹层虽然 portal 到 body，触发器自己的 `aria-expanded` 跟着开合
+ * （第 63 轮量 anchored 面板时记下的同一事实）。权限那颗由 Menu 原语渲染、不一定带这个
+ * 属性，但点它时指针必然在卡片里 —— `:hover` 那一半兜住了。
+ *
+ * 「卡内有字」这一条 CSS 读不到（2026-11-01 补，用户点名）：输入框是 Lexical 的
+ * `div[role='textbox'][data-composer-input='true']`，不是 textarea —— 没有
+ * `:placeholder-shown` 可判，空编辑器里还留着 `<p><br></p>`，`textContent` 也不为空。
+ * 所以这一条由 src/client.js 的 `mountComposerTyped()` 打上 `data-uni-composer-typed`，
+ * 本表只读它：属性在，下面四条幽灵规则一起退出匹配，卡片回到激活态材质。
+ * 判「有没有字」的逻辑只写一处（JS），CSS 不猜编辑器内部结构。
+ *
+ * 填充的 α 由 color-mix 缩放**同一个**令牌得到（css.8：不发明颜色）：
+ *   暗档 0.68 × 15% = 0.102；亮档 0.62 × 89% = 0.552（两档基准 α 见上面 696-697 行）。
+ * 不用 `rgb(from … / α)` 写绝对 α：css.8 把 `rgb(`/`rgba(` 一律判成自造颜色。
+ *
+ * 模糊是瞬切的，不做过渡：`backdrop-filter` 每帧重算整块背板，逐帧插值 blur 半径
+ * 在这台机器上是白烧（液态玻璃那轮的消融见上）。文字、图标用 `> *` 一级不透明度
+ * 压到 0.55：只压一层，不做 `*` 全海选，避免透明度按层数叠乘。
+ *
+ * 刻意**不**声明 box-shadow：2026-10-08 第三十一轮用户点名恢复官方 elevation，
+ * 本表此后不对输入卡写 box-shadow（见下面那一节），幽灵态也不开这个口子 ——
+ * 可点击暗示由「描边仍在、填充变薄」承担。
+ *
+ * 已知边界（如实记）：幽灵态下字压在吸积盘最亮那圈字符上时，对比度会掉到 1.4:1
+ * （暗档）/ 2.8:1（亮档），这是「让洞露出来」这个目标本身决定的，不是数值挑错；
+ * 页面主底（暗档 p50 0.0036、亮档纸面）上分别是 5.6:1 与 3.9:1。
+ * ------------------------------------------------------------------------ */
+/* 三件东西共用**一套**判据（2026-11-01 第四轮，用户原话：「把输入卡和『工作区选择』和
+   『Agent预设』的幽灵化状态合并，也就是一起幽灵化一起显现，不然不协调」）。
+   做法：把「有人在场」整段搬进 `body` 的 `:has()` 链，三件东西都读这一条链 ——
+   要么一起幽灵，要么一起显现，没有「卡实体、标签还是稿」这种中间态。
+   任一成立即整组实体：
+     · 指针落在卡、工作区选择、Agent预设 任一处；
+     · 卡里有字（`data-uni-composer-typed`，由 src/client.js 的 `mountComposerTyped()` 打）；
+     · 卡内或这两颗的弹层开着（`aria-expanded='true'`；**自己或子孙都算** —— 两半写成两条
+      并列参数，因为 `:has()` 不能嵌套，写不进一条）；
+     · 键盘焦点落在这两颗上（`:focus-visible`）。**卡不参与这一条**：编辑器一挂载就
+       拿焦点，而文本输入框天然匹配 `:focus-visible`，让它参与等于把刚出现的页面钉回
+       实体态 —— 那正是上一轮修掉的毛病。
+   判据只写在 `body` 上、不写成各元素自己的 `:not(:hover)`，因为 `:hover` 只认自己：
+   写成各管各的，指针从卡挪到标签时会出现「卡已变稿、标签刚实体」的一瞬。
+   副作用如实记：这条链的选择器特异度很高（四个 `:not(:has())` 各按参数计分），
+   以后要覆盖这三件东西的幽灵态，得用同等或更高的特异度。 */
+
+/* 过渡是**跨相位**的，所以门不能挂在相位上（2026-11-01 第八轮修的就是这个）。
+   原先这里写 `:has([data-phase='hero'])`：phase 一从 hero 变走，这条 `transition`
+   声明本身就不再匹配 —— 属性值连同过渡一起消失，底色从 α0.030 直接跳到 0.302，
+   就是用户报的「到对话页底部瞬间由透明变白」。
+   改成挂 `[data-conversation-content]`（会话根上的常驻属性，hero / settling / active
+   三态都在），过渡才能活到相位切换那一刻。`box-shadow` 一并纳入：幽灵态的 `none`
+   与官方 elevation 之间若瞬切，那 1px 描边会先于填充出现，同样是一下白边。
+   `backdrop-filter` 仍一律瞬切（逐帧重算整块背板在这台机器上白烧）。 */
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-conversation-content] [data-composer-card] {
+  transition: background-color 200ms linear, box-shadow 200ms linear;
+}
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-conversation-content] [data-composer-card] > *,
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-phase='hero'] button[aria-label='选择工作区'],
+body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-phase='hero'] [data-slot='conversation.hero.agentPreset'] button {
+  transition: opacity 200ms linear;
+}
+body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) [data-composer-card] {
+  background-color: color-mix(in srgb, var(--dsw-specific-input-major) var(--uni-ghost-mix, 10%), transparent);
+  /* 幽灵态下连**外围那一圈**一起去掉 —— 这是 2026-11-01 第六轮的关键发现：
+     宿主给卡片的不是纯底色，`InputBar.module.css` 的 `.card`（编译成哈希类，名字不入
+     本样式表）里写着
+     `box-shadow: var(--dsw-elevation-soft)`，而 `--dsw-elevation-soft` 带着一层
+     用 `--dsw-elevation-stroke-color` 画的 1px 描边（宿主自己把该变量设成
+     `var(--dsw-alias-border-l2)`）。所以填充降到 α0.045 时仍然是「一块有边的板」，
+     用户看到的就是「不够透」—— 让人以为是填充太实，其实是这条描边在勾轮廓。
+     只写 `none`、不重抄激活态的值：条件不成立时整条退出匹配，官方 elevation 自动回来
+     （与 2026-10-08 第三十一轮「恢复官方 elevation」不冲突：那条管的是常态）。 */
+  box-shadow: none;
+}
+/* 两档的百分比**故意不同**，这是观感对齐、不是基准分档：
+   令牌自身 α=0.302（构建产物的 TOKENS 表与 src/tokens.json 的 `surfaceAlphaOverride` 一致，
+   两档同值），所以 · 暗档 10% → α0.030，· 亮档 33% → α0.100。
+   为什么不让两档同数：填充色与底背的关系相反 —— 亮档是白填充压在宣纸上（δ 很小、几乎看不见，
+   要 0.100 才看得出是一层膜），暗档是深填充压在暗盘面上（暗区几乎不变、但一亮环带就被压暗，
+   同 α 下它比亮档「实」得多）。要让两者看上去一样透，暗档的数必须比亮档**低**。
+   数值对照（文字 opacity 0.55、底背取 preview 真实像素带）：暗档 α0.030 → 主底 4.57 /
+   盘面 95 分位 3.80；亮档 α0.100 → 宣纸 3.46。填充在这个区间里几乎不影响对比度
+   （4.55–4.57），所以往下再压也不会掉出 ≥3:1 —— 决定读不读得清的是文字不透明度。 */
+body:not([data-ds-dark-theme]) {
+  --uni-ghost-mix: 33%;
+}
+body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) [data-composer-card]::before {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* 字与图标压一层到 0.55：卡里的直接子级、以及会话框外那两颗整颗。
+   两点省略要说明：① `> *` 只压一层，不做 `*` 全海选，避免透明度按层数叠乘；
+   ② 那两颗没有可缩的填充（撤掉背板后宿主给的就是「无底色，只有字与图标」），
+   所以它们的幽灵态就是这一条 —— 不为它们发明底色，也不做 color-mix。 */
+body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) :is([data-composer-card] > *, [data-phase='hero'] button[aria-label='选择工作区'], [data-slot='conversation.hero.agentPreset'] button) {
+  opacity: 0.55;
 }
 
 /* --------------------------------------------------------------------------
@@ -2186,38 +2318,10 @@ span:has(> [data-slot='conversation.hero.brand.mark']) {
 span:has(> [data-slot='conversation.hero.brand.mark']) + span > span {
   display: none !important;
 }
-/* 第三十五轮（D75，2026-10-08，用户点名）：用户逐字「调整字号，文字任何情况下都要在
- * 一行内，不可跨行」「将字体改为花体或手写体，使用免费商用字体」。
- *
- * 字体 = Great Vibes（SIL OFL 1.1，2015 The Great Vibes Pro Project Authors）——
- * 三枚候选里最贴「花体」的一枚（另两枚 Dancing Script 圆润脚本、Caveat 马克笔手写体
- * 已真机渲染对照，可一键替换）。latin 子集随包在 build/great-vibes-latin.woff2，
- * @font-face 由 tools/build-client.mjs 生成在 paint 那张 <style> 的最前面（同一张表
- * ⇒ 全局生效、不新增 effect、不在别人机器上装字体；也不能写进本文件：paint 层禁止
- * `@` 块，css.7）；provenance 在 build/fonts.json，许可全文随包在
- * build/great-vibes-OFL.txt（OFL 条件 2 要求再分发时随附），三条都有门禁钉住
- * （font.1 / font.2 / font.3）。
- *
- * 「任何宽度都在一行」怎么保证：标题行的宽度**不随内容变** —— 实测给这一行加容器查询
- * 前后，41 个采样宽度 520→2400 的行宽曲线逐点相同（409 / 449 / … / 656 / 656 / 784 /
- * 816），所以行宽由父级给，而且**非单调**（侧栏、右栏响应式切换会让它回落），线性的
- * vw 公式跟不准。因此改用容器查询单位：容器就是这一行自己（container-type: inline-size），
- * 字号 min(44px, 5.3cqw) ＋ nowrap。实测 520→2400 每个采样点都装得下，最紧处余
- * 16.2px（vw520：字号 21.677、文本 392.8、行宽 409），最松处余 32.2px（vw≥1260：
- * 字号 43.248、文本 783.78、行宽 816）。44px 上限实际是惰性的（5.3cqw 先触发：
- * 816×5.3% = 43.25），留着只为宿主把这一行加宽时仍有天花板。
- * 5.3 这个系数是**按这枚字体的宽度**导出的：26px 下每 px 字号对应宽度 Great Vibes
- * 18.13（主题现有衬线 30.58、Dancing Script 22.54、Caveat 21.31），18.13×0.053 =
- * 0.961 ⇒ 留 3.9% 余量；**换字体必须重算**（换 Dancing Script 约 4.26cqw、Caveat 约
- * 4.5cqw），否则会溢出。font.3 把 nowrap ＋ cqw ＋ 这枚字族一起钉住。
- *
- * 回退面写在明处：字族是 'Great Vibes', cursive —— 兜底（本机 cursive = Comic Sans）与
- * 主题现有衬线都远比这枚字宽（1.7 倍量级），所以**任何拿不到这枚字体的环境都必然溢出**；
- * 正确性只能靠字体真的在包里 —— 它就在同一份字节里（data URL，不发请求），font.2 钉住
- * 文件、字节数与 bundle 里的 @font-face 三者一致。font-display: block 同理：真出现回退
- * 时 block 至少不会先画一帧 1.7 倍宽的兜底字再跳。
- * 回滚 = 删本条 container-type ＋ ::before 里那五行以外的一切（规则回到第三十四轮）
- * ——本节这两条已于 2026-10-28（D104）按用户要求删掉，见下一条注释。 */
+/* 第三十五轮（D75，2026-10-08，用户点名）曾把标题行改成 Great Vibes 花体、容器查询单行
+ * 排版，并在 paint 层嵌入该字体的 @font-face。D104（2026-10-28）删掉了那行大字；
+ * 2026-10-31 按用户要求把字体资产、@font-face 与两支字体令牌整份移除 —— 本节现在只剩
+ * 下面两条 span 兜底规则与 D104 的整行隐藏。 */
 /* D104（2026-10-28，用户点名）：去掉这行大字，新会话页只留输入框。
  * 用户逐字：「去掉 dsh-universe-theme 新会话页面的文字，只保留输入框。」
  * 范围经确认为「只删那行大字」：composer 卡、选择工作区、预设/模式两个下拉一个字节不动
@@ -2232,81 +2336,12 @@ span:has(> [data-slot='conversation.hero.brand.mark']) + span > span {
  * 上面那两条 span 规则保留，作为第二道保险：宿主若改动标题行结构使本节整行选择器
  * 失配，它们仍能藏住 logo 与三件文案，页面退化为「无大字」而不是「官方文案回来」。
  *
- * 代价：德语那句与 Great Vibes 的花体排版在新会话页不再出现；字体文件、@font-face
- * 与 font.1/font.2 门禁原样保留（本轮只删文字展示，不做资源清理，回滚还需它）。
+ * 代价：德语那句与 Great Vibes 的花体排版在新会话页不再出现。
+ * 2026-10-31（用户点名）：本主题的字体改动整份移除 —— Great Vibes 字体文件、
+ * @font-face、两支字体令牌与这里的花体排版一起撤掉，回滚需重新引入字体资产。
  * 回滚 = 把本条换回 container-type ＋ ::before 两条规则（见上一节注释）。 */
 [data-phase='hero'] div:has(> span > [data-slot='conversation.hero.brand.mark']) {
   display: none !important;
-}
-/* 第三十六轮（D76，2026-10-08，用户点名）：用户逐字「仅修复一个 BUG：光标没有跟文字齐平——
- * 光标比文字矮」＋「改动范围最小化：只修该对齐问题，不得顺带调整光标形状、高度以外的尺寸、
- * 闪烁、颜色等其他属性」＋「修复应落在现有光标样式规则上」。
- *
- * 根因（8× CDP 原生截图 + 逐像素掩膜，非推断）：Chromium 的光标是一条竖条，其框 = [基线 − a,
- * 基线 + d]，而基线 = 行盒顶 + (24 − (a+d))/2 + a ⇒ 光标中心 = 行盒中心 + (D_line − D_c)/2，
- * D = a − d。本行主导字体（主题栈首枚 TiemposText-Regular，hhea 761/−239/1000 ⇒ 14px 时
- * 框 [10.65, 3.35]、D = 7.3；汉字实际字体汉仪玄宋 HYXuanSong-45S ⇒ 框 [11,3]、D = 8）给出的
- * D ≈ 8，而两个脚本的**墨迹** D 都 ≈ 10（汉仪玄宋「矮」墨迹 [11,1]、Tiempos「H」墨迹
- * [9.88,0]，同为 14px 实测）⇒ 光标中心比文字墨迹中心低 0.88~0.94px、下沿多伸出 1.5~3.0px。
- * 这就是用户看到的「不齐平」——不是形状问题，是行内基线与光标框的度量差。
- *
- * 修法（唯一杠杆）：光标的框由行基线决定，行基线由**主导字体度量**决定 ⇒ 只改度量、字形一个
- * 都不换，就能让文字落回光标上。度量覆盖写在 tools/build-client.mjs 的 caretFace 常量里
- * （一条 @font-face：family 'CP Caret Metric'，src 用 PostScript 名 local('TiemposText-Regular')
- * 指向主题本来就用的那枚拉丁字，ascent/descent/line-gap 覆盖为 85.714%/14.286%/0% ⇒ 14px 时
- * 框 [12,2]、D = 10），由 build 生成在 paint 那张 <style> 的最前面 —— 本文件禁止 `@` 块
- * （css.7），所以这里只留下面这一条规则。selfcheck 的 font.1/font.2 只遍历 build/fonts.json
- * 的记录，新增无文件的 face 不受影响。
- *
- * 实测（同一次会话、装主题的 dark composer、caret-animation 冻结为 manual 后 8 帧恒定、
- * clip 原点 (348,695)、8×）：
- *   · 拉丁 'HHHHH'：光标 1×14.00px 精确停在 (421,710)-(422,724)，896 个像素全部精确等于原
- *     光标色；文字墨迹中心偏移 +0.94px → −0.06px（齐平），墨迹整体下移 1.00px。
- *   · 汉字 '矮矮矮'：光标 1×14.00px 精确停在 (405,710)-(406,724)；中心偏移 +0.88px →
- *     −0.12px（齐平），墨迹整体下移 1.00px。
- *   · 混排 'H矮H矮H'：中心偏移 −0.12px，字形归属不变（platform-fonts 仍 HYXuanSong ×2 ＋
- *     Tiempos Text ×3）。
- *   · 不变量：光标高度 14.00px、宽度 1px、颜色逐字节不变、caret-shape/caret-animation 仍为
- *     auto（未碰）；加规则前后 CSS.getPlatformFontsForNode 逐字族相同、font-weight 400 不变
- *     ⇒ **字形零变化**。
- *   · 代价写在明处：本行文字在 24px 行盒内整体下移 1px（基线 16 → 17）。这是把文字对齐到光标
- *     上必然的位移（光标框本身一个像素都没动），行盒高、输入卡尺寸、左右位置都不变。
- *   · 兜底：拿不到 TiemposText-Regular 的环境里该 face 加载失败 ⇒ 本规则不生效，光标与文字
- *     回到现状，无副作用。
- * 回滚 = 删下面这一条规则 ＋ tools/build-client.mjs 里的 caretFace 常量 */
-
-/* ---- 第三十七轮（2026-10-08）· 空值/占位状态的光标齐平（补齐第三十六轮）
- * 用户原话：「上一轮的光标对齐改动（`CP Caret Metric` 字体度量覆盖 + `[data-composer-input]`
- * 的 font-family 规则）只对「已输入文字」状态生效；未输入文字的默认（空值/占位）状态下光标未
- * 应用同一改动，仍是原状。请把同一改动覆盖到该默认状态。」——沿用既有 face，只补缺失的那一半。
- *
- * 为什么第三十六轮漏了它（实测 DOM，不是推断）：composer 的占位文字**不是**编辑器的子节点，而是
- * 兄弟浮层 `div[aria-hidden=true][data-composer-placeholder=true]`
- * （rect x=362.5、y=704.9375、806×24，与编辑器内容盒同顶；它自己的 class 名带 CSS-Modules 哈希，
- * 按 selfcheck css.6 不写进本文件）。它有 app 自己的 font-family 规则，
- * **不继承** `[data-composer-input]` 上的那条 ⇒ 第三十六轮的 face 只改了编辑器那一行，占位浮层
- * 仍是老度量。实测把 `[data-composer-input]` 那条整条 `!important` 关掉，空值态截图逐像素不变
- * ⇒ 空值态根本没吃到它。
- *
- * 为什么让文字下来、而不是让光标上去：光标框 = [行盒顶 + 半行距, 行盒顶 + 半行距 + (a+d)]，
- * 只取决于 (a+d) 与半行距，与 a/d 如何分配无关 —— 第三十六轮保持 a+d = 14px 只挪基线，所以光标
- * 框一直没动（本轮实测：改前改后都是 1×14.00px 精确停在 (363,710)-(364,724)，856 个像素逐字节
- * 等于原光标色）。唯一能动的是**文字墨迹**：把同一个 face 也挂到占位浮层上，占位文字在 24px 行盒
- * 内下移 1px，落回光标上。
- *
- * 实测（同一次会话、装主题的 dark composer、caret-animation 冻结 manual、clip 原点 (348,695)、
- * 8×、墨迹取「有字帧 − 隐字帧」差分掩膜 —— 全局亮度阈值会被输入卡自身的玻璃渐变污染）：
- *   · 改前：占位墨迹 y=709.50..723.00（h=13.50），光标 y=710..724 ⇒ 光标中心比墨迹中心低
- *     +0.75px、下沿多伸出 1.00px（用户看到的那截尾巴）。
- *   · 改后：占位墨迹 y=710.50..724.00，中心偏移 −0.25px ⇒ 齐平。
- *   · 不变量：光标 1×14.00px、绝对坐标、颜色逐字节不变；占位浮层 CSS.getPlatformFontsForNode
- *     仍是 HYXuanSong ×17 ＋ Tiempos Text ×8（**字形零变化**）；占位浮层 rect、编辑器 rect、
- *     行盒高 24px 全不变；caret-shape / caret-animation 仍为 auto（未碰）。
- *   · 代价同第三十六轮：占位文字在行盒内下移 1px（基线 16 → 17），行盒高与卡片尺寸不变。
- * 回滚 = 删掉本段新增的那个选择器（`body [data-composer-placeholder]`），保留第三十六轮那一条 */
-body [data-composer-input],
-body [data-composer-placeholder] {
-  font-family: 'CP Caret Metric', var(--dsw-font-family);
 }
 
 /* ---- 第三十八轮（2026-10-09）· 提问卡材质对齐 @ / 命令面板
@@ -2602,6 +2637,32 @@ body[data-uni-motion] button:has(> svg:only-child)[data-uni-grav] {
   scale: 0.9;
 }
 
+/* 兜底：凡是 gravity.js 打了 data-uni-grav 的元素都收束（第五十七轮）。
+   用户定案「所有悬停都要有引力收束」，而上面那份角色清单永远漏人 —— 输入框上方
+   的工具条是整条 div、设置导航格与插件分类项各用一套组件，既不是 button 也没有
+   角色属性。gravity.js 于是除了认清单，还认 cursor:pointer 作为兜底判据（见
+   src/runtime/gravity.js 的 pointerTarget）。
+
+   这条的特异性必须压到最低，否则会盖掉上面按角色写的细则（尤其是纯图标按钮的
+   0.90 和带 :not 的选中豁免）。所以三个 :not 全部包在 :where() 里 —— :where()
+   不贡献权重，整条只剩 body[data-uni-motion] 加 [data-uni-grav]，低于任何一条
+   角色规则，只在该元素没有专属规则时生效。 */
+/* 2026-10-31（第七十轮）：品牌按钮必须从这条兜底里排除。
+   兜底是第五十七轮加的，只认 [data-uni-grav]，没有带上 2479 行那条
+   `button:not(:has([data-slot='sidebar.brand.name']))` 的排除。于是指针落在
+   品牌按钮上（SYSTEM 标签、两个 SPAN 之间的 gap、按钮右侧 padding 这些
+   不属于任何 SPAN 的范围）时，gravity.js 按最近的可挂元素把属性挂到按钮
+   本身，这条就把整条品牌按钮缩到 0.97 —— 按钮里的头像、WHALE-01、SYSTEM
+   三件套跟着一起缩，正是用户报的「某个范围悬停时三个标识同时缩」。
+   排除只加在 :where() 里，不贡献权重：品牌按钮在任何情况下都不整体缩，
+   三区各自那条（2540–2560）照旧 —— Logo 与 WHALE-01 缩自己的 SPAN，
+   SYSTEM 缩 button::after，互不连坐。 */
+body[data-uni-motion] [data-uni-grav]:where(:not([aria-selected='true']):not([aria-checked='true']):not([aria-current='true']):not(:is(button:has([data-slot='sidebar.brand.name'])))) {
+  scale: 0.97;
+  transform-origin: 50% 50%;
+  transition: scale 220ms cubic-bezier(0.2, 0.85, 0.15, 1), color 120ms, border-color 120ms, background-color 120ms;
+}
+
 /* 品牌三件套（Logo / WHALE-01 / SYSTEM）没有各自的外层包装，三者同在一个
    button 里：Logo 与字标是两个 SPAN，SYSTEM 是主题自己用 button::after 画的
    标签，没有对应元素。所以「父级悬停」这套隔离用不上 —— 它们的最近共同祖先
@@ -2694,6 +2755,7 @@ body[data-uni-motion='reduced'] [role='treeitem'],
 body[data-uni-motion='reduced'] span:has(> [data-slot='sidebar.brand.mark']),
 body[data-uni-motion='reduced'] span:has(> [data-slot='sidebar.brand.name']),
 body[data-uni-motion='reduced'] button:has([data-slot='sidebar.brand.name'])::after,
+body[data-uni-motion='reduced'] [data-uni-grav],
 body[data-uni-motion='reduced'] [data-uni-ws-pin-button] {
   transition: none !important;
 }
@@ -2773,50 +2835,129 @@ body[data-uni-motion='reduced'] [data-uni-ws-pin-button] {
  * 无动画：选中是即时状态，不加 transition（也避免和悬停的 220ms 打架）。
  * ========================================================================= */
 
-/* 选中态：官方底色（第五十六轮，2026-10-31）
+/* 选中态：引力放大，无底色无边框（第五十八轮，2026-10-31）
    ----------------------------------------------------------------------------
-   用户定案：「只保留鼠标悬停时的引力收束，其他全部删除，恢复成官方默认效果。」
+   用户定案（m02209）：「修，并且把这些跟那七类一起调整为会话选定状态的放大效果。
+   不要背景和边框。」
 
-   本表对选中态只剩这一件事：把两支交互底色令牌在选中钩子上还原成官方比例，让
-   宿主自己那条
-     .sessionRow:hover, .sessionRow.selected { background: var(--dsw-alias-interactive-bg-hover) }
-   画得出底色。这不是主题自绘的装饰 —— 还原的正是调色板里这两个令牌本来的值：
-     interactive-bg-hover        暗 #87cbd51a = brand-primary 的 10.2%
-                                 亮 #00687417 = brand-primary 的 9.0%
-     interactive-bg-hover-accent 暗 #aebde22e = state-business-primary 的 18%
-                                 亮 #54628624 = state-business-primary 的 14%
-   用 color-mix 从同一批令牌推回去，不写字面色值（css.8）。
+   所以选中态现在只有一种表达，与会话行完全同构的三件事：
+     · 字号 1.08em —— 被引力拉近
+     · 字距 0.02em —— 轮廓撑开，不是加粗
+     · 单侧单层偏移像 0.45px 0.45px 0 currentColor —— 只有一条边多出偏移。
+       对称双影会被读成「文字加重」，第四十八轮已证伪，不要再改成对称的。
+   底色与边框一律显式压平：用户要的是「不要背景和边框」，不依赖令牌压制间接达成。
 
-   为什么不能干脆删掉「悬停底色」那节的令牌压制：用户要的是悬停时只剩 scale 收束、
-   不要那层淡色底。压制一撤，悬停的底色回来了，与定案冲突。两支令牌被悬停与选中
-   共用，所以只能在选中钩子上把值还回去 —— 这是「悬停无底色 + 选中官方底色」唯一
-   能同时成立的组合。边框、下划线、动作区显隐本来就归宿主，本表不碰。
+   覆盖九类钩子 —— 原来的七类，加上 `[role='option'][aria-selected='true']` 与
+   `[role='radio'][aria-checked='true']`：
+   命令列表（`/` 与 `@`）的键盘高亮是前者，它的官方规则
+     .pc3rQa_item.pc3rQa_active { background: var(--dsw-alias-interactive-bg-hover) }
+   读的正是被本表压成 transparent 的那支令牌，此前完全看不见位置（用户按键找不到
+   高亮）。面板里的二选一、单选项是后者 —— 用户实测指出 `wnLwla_optionSelected`
+   那支 `role='radio' aria-checked='true'` 当时毫无变化（m02304），补进来才生效。
+   这两支都补了放大与偏移像，不再依赖底色。
 
-   历史轨迹（避免再被加回来）：第四十八轮六层对称 text-shadow；第五十至五十二轮
-   SVG 位移图 + feDisplacementMap + ::after 外侧像 + WAAPI 两阶段入场（用户判为
-   「根本没法看」）；第五十三轮放大 1.07 与滚动闸（落地前叫停）；第五十五轮把
-   底色与边框还给官方；第五十六轮删掉多普勒红移与整套入场变量。以上全部撤除。
+   为什么字号挂在直接子 span 上而不是容器上：容器（tab、option、菜单项）自带的
+   字号会被子级显式值覆盖；若同时给容器和子级写 1.08em，会连乘成 1.17。所以容器
+   只承担两个可继承属性（字距、偏移像），放大只给一层直接子 span。
+
+   会话行不走这一段 —— 它的标题是行内第二个 span，由下面「会话行选中：引力放大」
+   单独处理，这里用 :not([data-row-key]) 明确让开，避免双重命中。
    ------------------------------------------------------------------------- */
-body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'],
-body[data-uni-motion] [aria-current='true'],
+body[data-uni-motion] [aria-current='true']:not([data-row-key]),
 body[data-uni-motion] [role='menuitemradio'][aria-checked='true'],
+body[data-uni-motion] [role='radio'][aria-checked='true'],
 body[data-uni-motion] [role='menuitem'][class*='_selected_'],
 body[data-uni-motion] [role='tab'][aria-selected='true'],
 body[data-uni-motion] [data-dockkit-tab][aria-selected='true'],
-body[data-uni-motion] [data-sidebar-right-guide-entry][aria-selected='true'] {
-  --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent);
-  --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
+body[data-uni-motion] [data-sidebar-right-guide-entry][aria-selected='true'],
+body[data-uni-motion] [role='option'][aria-selected='true'] {
+  letter-spacing: 0.02em;
+  text-shadow: 0.45px 0.45px 0 currentColor;
+  background-color: transparent;
+  border-color: transparent;
+  transition:
+    letter-spacing 200ms ease-out,
+    text-shadow 200ms ease-out;
 }
 
-body[data-uni-motion][data-ds-dark-theme] [data-row-key^='session:'][aria-selected='true'],
-body[data-uni-motion][data-ds-dark-theme] [aria-current='true'],
-body[data-uni-motion][data-ds-dark-theme] [role='menuitemradio'][aria-checked='true'],
-body[data-uni-motion][data-ds-dark-theme] [role='menuitem'][class*='_selected_'],
-body[data-uni-motion][data-ds-dark-theme] [role='tab'][aria-selected='true'],
-body[data-uni-motion][data-ds-dark-theme] [data-dockkit-tab][aria-selected='true'],
-body[data-uni-motion][data-ds-dark-theme] [data-sidebar-right-guide-entry][aria-selected='true'] {
-  --dsw-alias-interactive-bg-hover: color-mix(in srgb, var(--dsw-alias-brand-primary) 10.2%, transparent);
-  --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent);
+body[data-uni-motion] [aria-current='true']:not([data-row-key]) > span,
+body[data-uni-motion] [role='menuitemradio'][aria-checked='true'] > span,
+body[data-uni-motion] [role='radio'][aria-checked='true'] > span,
+body[data-uni-motion] [role='menuitem'][class*='_selected_'] > span,
+body[data-uni-motion] [role='tab'][aria-selected='true'] > span,
+body[data-uni-motion] [data-dockkit-tab][aria-selected='true'] > span,
+body[data-uni-motion] [data-sidebar-right-guide-entry][aria-selected='true'] > span,
+body[data-uni-motion] [role='option'][aria-selected='true'] > span {
+  font-size: 1.08em;
+  transition: font-size 200ms ease-out;
+}
+
+body[data-uni-motion='reduced'] [aria-current='true']:not([data-row-key]),
+body[data-uni-motion='reduced'] [role='menuitemradio'][aria-checked='true'],
+body[data-uni-motion='reduced'] [role='radio'][aria-checked='true'],
+body[data-uni-motion='reduced'] [role='radio'][aria-checked='true'] > span,
+body[data-uni-motion='reduced'] [role='menuitem'][class*='_selected_'],
+body[data-uni-motion='reduced'] [role='tab'][aria-selected='true'],
+body[data-uni-motion='reduced'] [data-dockkit-tab][aria-selected='true'],
+body[data-uni-motion='reduced'] [data-sidebar-right-guide-entry][aria-selected='true'],
+body[data-uni-motion='reduced'] [role='option'][aria-selected='true'],
+body[data-uni-motion='reduced'] [role='option'][aria-selected='true'] > span,
+body[data-uni-motion='reduced'] [role='tab'][aria-selected='true'] > span {
+  transition: none;
+}
+
+/* 底色归还已撤除（第五十八轮）
+   ----------------------------------------------------------------------------
+   第五十五至五十七轮曾在选中的六类钩子上把 --dsw-alias-interactive-bg-hover 与
+   -accent 还原成官方比例（亮 9% / 14%，暗 10.2% / 18%），为的是让宿主那条
+     .sessionRow:hover, .sessionRow.selected { background: var(--dsw-alias-interactive-bg-hover) }
+   画得出底色。用户 m02209 要求「不要背景和边框」，两条还原规则整段删除，选中态
+   改由上面的引力放大表达。悬停侧的令牌压制（本表 2560 行附近）保留不动。
+   ------------------------------------------------------------------------- */
+
+/* 会话行选中：引力放大（第五十七轮，2026-10-31）
+   ----------------------------------------------------------------------------
+   用户定案：「去掉底色，将会话行选中态改为引力放大效果 —— 字体尺寸增加约 8%、
+   字符间距轻微增加、字形边缘产生微妙的透镜折射感」，并逐题选定：只放大标题、
+   字距 0.02em、单层单向偏移像、200ms ease-out 同时过渡、只删会话行这一处底色。
+
+   物理意象：光经过引力场被拉向中心，字的轮廓向外扩张一点、边缘被折射出极细的
+   一条偏移像。三件事必须同时成立才读得对：
+     · 整体放大 1.08 —— 像被引力拉近
+     · 字距 0.02em —— 轮廓被撑开，不是单纯加粗
+     · 单侧单层偏移像 0.45px 0.45px 0 currentColor —— 只有一条边多出偏移。
+       对称双影会被读成「文字加重」，前几轮已经证伪，不要再改成对称的。
+
+   为什么这只删一处底色：底色来自宿主
+     .sessionRow:hover, .sessionRow.selected { background: var(--dsw-alias-interactive-bg-hover) }
+   本表把该令牌压成 transparent 让悬停只剩收束，上一版在七类选中钩子上把它还原成
+   10.2% / 9%。现在只撤会话行这一支，并且显式压回 transparent —— 显式写是因为
+   [aria-current='true'] 等兄弟钩子可能与它同时命中同一元素，光靠「从名单里删掉」
+   不够确定。
+
+   选择器只能用契约属性：标题是行内第二个 span（第一个是图标槽），哈希类名
+   .wnFoaW_title 过不了 css.6。时间戳（第三个 span）与 32px 行高一律不动。
+   ------------------------------------------------------------------------- */
+body[data-uni-motion] [data-row-key^='session:'][aria-selected] > span:nth-of-type(2) {
+  transition:
+    font-size 200ms ease-out,
+    letter-spacing 200ms ease-out,
+    text-shadow 200ms ease-out;
+}
+
+body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] > span:nth-of-type(2) {
+  font-size: 1.08em;
+  letter-spacing: 0.02em;
+  text-shadow: 0.45px 0.45px 0 currentColor;
+}
+
+body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] {
+  --dsw-alias-interactive-bg-hover: transparent;
+  --dsw-alias-interactive-bg-hover-accent: transparent;
+}
+
+body[data-uni-motion='reduced'] [data-row-key^='session:'][aria-selected] > span:nth-of-type(2) {
+  transition: none;
 }
 
 /* 其他对象选中：无效果（第五十四轮，2026-10-31）
@@ -2847,3 +2988,31 @@ body[data-uni-motion][data-ds-dark-theme] [data-sidebar-right-guide-entry][aria-
    `@property --uni-sel-k`（入场强度系数，已无消费方）、以及 body[data-ds-dark-theme]
    块里的 --uni-sel-warm-near / --uni-sel-warm-far。
    ------------------------------------------------------------------------- */
+
+/* 本轮改动卡片的头部：悬停与聚焦不留底色（第五十九轮，2026-10-31）
+   ----------------------------------------------------------------------------
+   用户指定：改动卡片头部那个 button 的常态、hover:not(:disabled) 与 focus-visible，
+   background 一律改为透明。官方那条读的是卡片自己声明的令牌
+     HOHHba_card { --changes-fill / --changes-hover }
+     HOHHba_header 常态 { background: var(--changes-fill) }
+     HOHHba_header 的 hover / focus-visible { background: var(--changes-hover) }
+   亮档 --changes-fill 落 --dsw-static-neutral-50、--changes-hover 落 -100，
+   暗档分别落 -850 与 -800。
+
+   为什么不抄那串类名：HOHHba_header 是 CSS-Modules 哈希名，css.6 与 cli.17 都明令
+   禁止，它们的正则只拦以点开头的类选择器与字符串 —— 所以这里用属性子串匹配绕开。
+   代价是官方一改哈希名这条就静默失效，而失效的表现只是回到官方底色，不报错、也
+   不连累别的规则。注释里也不写那串带点的全名，否则同样会被两道门禁抓出来。
+
+   常态那条特异性 (0,2,1) 已经高过官方的 (0,1,0)；官方 hover 也是 (0,2,1)，所以
+   hover / focus-visible 必须单独再写一条更重的 (0,4,1) 把同权重的官方规则压下去，
+   不能只靠常态那条去覆盖。
+   ------------------------------------------------------------------------- */
+body[data-uni-motion] [class*='HOHHba_header'] {
+  background-color: transparent;
+}
+
+body[data-uni-motion] [class*='HOHHba_header']:hover:not(:disabled),
+body[data-uni-motion] [class*='HOHHba_header']:focus-visible {
+  background-color: transparent;
+}

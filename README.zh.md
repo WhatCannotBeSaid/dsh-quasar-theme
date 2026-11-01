@@ -88,7 +88,7 @@
 
 删的是整行，不是一行字：logo 槽与旁边的字标本来就已隐藏，但空 flex 行还占着 HeroShell 的间距，看上去是一段多余的空白，而不是「输入框上去了」。整行 `display: none` 之后，输入框顶到原来标题的位置。
 
-**Great Vibes**（SIL OFL 1.1）仍随包内嵌、`@font-face` 一处未动——删的是一次渲染，不是资源，回滚不需要重新下载。composer 卡、选择工作区与那两个下拉一个字节没动。
+**字体已整份移除。** 早先随包内嵌的 Great Vibes（SIL OFL 1.1）与它的 `@font-face`，在 2026-10-31 按用户要求随主题的全部字体改动一起删除：字体资产、`@font-face`、两个字体令牌与 composer 的 CP Caret Metric 字面都不在了。品牌字标保留的 Bahnschrift 栈只是 CSS 里按名引用，不随包分发任何字体文件。composer 卡、选择工作区与那两个下拉一个字节没动。
 
 ### 会话框的控件行
 
@@ -198,7 +198,6 @@ npm run verify
 | 我们的代码 —— `index.js`、`src/`、`tools/`、`client.js` | MIT | 保留版权与许可声明。代码的商业使用没问题。 |
 | 项目文本 —— 本 README、`docs/`、`NOTICE`、`LICENSE` | CC BY-NC-SA 4.0 | 署名、附上许可链接、注明改动、保持非商业、相同方式共享。 |
 | 品牌标记 —— `build/whale-maid-small-monochrome-diagonal.svg`、`build/brand-mark*.png`、`build/brand-mark.jpg` | CC BY-NC-SA 4.0 | 条款同上，且这是第三方画作：见下文。 |
-| 字体 —— `build/great-vibes-latin.woff2` | SIL OFL 1.1 | 保留声明；不要单独售卖该字体。 |
 | 两张背景壁纸 | **外链热链，不随包分发，此处不授权。** | 本项目不向你授予它们的任何权利；下文的署名仅为出处标注。 |
 
 因为品牌标记禁止商业使用，**整个包不得用于商业用途**。单看 MIT 部分的代码不受此限；若你需要商业用途的构建，去掉品牌标记即可。
@@ -211,7 +210,7 @@ npm run verify
 
 **品牌标记。** 角色溟月，作者上善无形（原创角色，<https://space.bilibili.com/4456176>）。DeepSeek 元素第二轮由 ZipZipPipe 制作（GPT Image 2，<https://space.bilibili.com/4168597>）。精修修复由 QYQCAMIAO 完成。以 CC BY-NC-SA 4.0 授权——署名、非商业、相同方式共享。插画以收到的 SVG 原样随包发布，即 `build/whale-maid-small-monochrome-diagonal.svg`：不裁剪、不改色、不做分档变体；品牌行保留 36×36 的槽位与点击区，SVG 在其中按 28×28 绘制。早先裁到 256×256 的 PNG，以及由 `tools/make-brand-mark-dark.py` 派生的暗色变体，只作为回滚材料留在树里，沿用同一套条款。该画作的商业使用需要取得上述权利人的许可。
 
-**字体。** "Great Vibes"，作者 TypeSETit，SIL OFL 1.1。
+**字体。** 不再随包分发任何字体；样式表里出现的字族都只按名引用。
 
 **壁纸 —— 带署名热链，从不二次分发。** 两张背景图是主题预期观感的一部分。自 2026-10-09（D79）起两张都不在本仓库里，自 D81 起被跟踪的清单改为指向它们而不是内嵌：构建出来的副本会显示这两张图，而本仓库不携带它们的任何一个字节，也不向你授予任何权利。主题绘制时由浏览器去各条目点名的托管方取图，所以这里没有任何镜像，离线机器就是没有背景。它们在 git 里唯一现身的地方是本文上面那两张预览图——那是应用绘制时的截图。以下记录出处，因为一旦收到下架请求，谈的就是这件事：
 

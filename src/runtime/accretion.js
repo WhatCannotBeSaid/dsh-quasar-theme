@@ -158,17 +158,18 @@
         return UNI_ACC_AGE[pick] * left
     }
 
-    /* 光点自己的散场 / 登场：两头都停在 floor 上，中间才有满亮的头部亮度。
-        尾巴按 rank 级联（头段先熄），点不能跟着头段一起归零 —— 它是这一轮唯一的粒子，也是
-        用户眼里唯一在动的东西，必须一路亮到落底。出生与收尾用同一个值，交接处因此没有亮度
-        跳变。中途取 born 与 dying 的较小者，保证任意时刻都是「刚好那一档」。 */
+    /* 2026-11-01：两端在不同位置，停在同一个非零 floor 仍会瞬移。
+       光点以零斜率隐去再生，现有六段尾流跨圈衔接，中段亮度与几何不变。
+       上方历史中的「点永不归零」由本轮取代；不添加第二颗点或预绘常驻圆环。 */
     function uniAccretionDotAlpha(u, death, floor) {
         var age = UNI_ACC_AGE[0]
         var born = u < UNI_ACC_BORN ? u / UNI_ACC_BORN : 1
         var dying = 1 - death
         var lit = born < dying ? born : dying
-        var out = floor + (age - floor) * lit
-        return out < 0 ? 0 : out > 1 ? 1 : out
+        /* 两端位置不同，非零的同亮度仍是瞬移。光点平滑隐去，由现有尾流接棒；
+           smoothstep 在两端的斜率也为零，不把跳变换成一次硬闪。 */
+        lit = Math.max(0, Math.min(1, lit))
+        return Math.max(age, floor) * lit * lit * (3 - 2 * lit)
     }
 
     /* 交接层：上一轮走完的那条螺旋，在新一轮开头仍留在画面上，逐段从「它自己收尾时的亮度」
@@ -317,7 +318,7 @@
 
         /* 一次装配：一个缩放组 + 六段尾巴 + 一个绿点。官方那两枚圆被样式表藏起来，这里只
            需要往同一个 svg 里追加；宿主复用节点时靠 rows 里的记录认出同一行，不会重复装配。 */
-        var attach = function (svg) {
+        var attach = function (svg, previous) {
             var g = make('g', { class: 'uni-acc', transform: 'scale(' + UNI_ACC_K + ')' })
             /* 交接层：先画它、压在最下层，让新一轮的亮线盖在上面。几何写死（u = 1 的六段）
                + 落在中心的那颗点；每帧只改六条的 stroke-opacity 与那颗点的 opacity。
@@ -340,16 +341,24 @@
             }
             var dot = make('circle', { class: 'uni-acc-dot', r: UNI_ACC_DOT })
             g.appendChild(dot)
-            svg.appendChild(g)
-            return {
+            var now = nowMs()
+            var row = {
                 svg: svg,
+                host: typeof svg.closest === 'function' ? svg.closest('[data-row-key]') : null,
                 g: g,
                 ghost: ghost,
                 ghostTails: ghostTails,
                 tails: tails,
                 dot: dot,
-                born: nowMs()
+                /* 初次装配从已可见的短尾起步，不能用零亮度接缝作第一帧。 */
+                born: previous === null ? now - UNI_ACC_BORN * UNI_ACC_CYCLE : previous.born
             }
+            row.key = row.host === null ? null : row.host.getAttribute('data-row-key')
+            /* 先绘制再挂载：CSS 隐藏官方图标的那一帧已经有完整图元。 */
+            if (isReduced()) paintStill(row)
+            else paint(row, ((now - row.born) % UNI_ACC_CYCLE) / UNI_ACC_CYCLE, (now - row.born) / UNI_ACC_CYCLE)
+            svg.appendChild(g)
+            return row
         }
 
         /* 每行自己的出生时刻：用户要的是「绿点从出现到消失」的一整轮，所以行的相位必须
@@ -373,8 +382,7 @@
             var head = points[0]
             row.dot.setAttribute('cx', head.x.toFixed(2))
             row.dot.setAttribute('cy', head.y.toFixed(2))
-            /* 头部段按 rank 0 最先熄，但点本身不跟着熄 —— 它要一路亮到落底，
-               收场收到 floor、出生也从 floor 起（见 uniAccretionDotAlpha）。 */
+            /* 光点在跨圈瞬移前后平滑归零，形状由交接尾流保持连续。 */
             row.dot.style.opacity = uniAccretionDotAlpha(u, death, floor).toFixed(3)
         }
 
@@ -385,7 +393,8 @@
             /* 整组不压 opacity：亮度全部由逐段的 stroke-opacity 与点的 opacity 表达。 */
             row.g.style.opacity = '1'
             draw(row, uniAccretionTrail(u), death > 1 ? 1 : death, u)
-            paintHandoff(row, u)
+            if (elapsed >= 1) paintHandoff(row, u)
+            else row.ghost.style.display = 'none'
         }
 
         /* 交接层：六段尾巴逐段从「它自己收尾时的亮度」二等分淡出，占一轮的前 55%（约 715ms），
@@ -425,15 +434,29 @@
             var next = []
             for (var i = 0; i < live.length; i += 1) {
                 var svg = live[i]
+                var host = typeof svg.closest === 'function' ? svg.closest('[data-row-key]') : null
+                var key = host === null ? null : host.getAttribute('data-row-key')
                 var found = null
                 for (var j = 0; j < rows.length; j += 1) {
-                    if (rows[j].svg === svg) { found = rows[j]; break }
+                    if (rows[j].svg === svg && rows[j].host === host && rows[j].key === key) { found = rows[j]; break }
                 }
-                /* 认的是「同一个 svg 节点 + 我们那组图元还挂在它身上」。宿主重渲染可能把子节点
-                   一起抹掉却复用节点本身，只按节点身份认会认下一个空壳 —— 那一格就永久空白了。 */
-                if (found !== null && found.g.parentNode !== svg) found = null
-                if (found === null) found = attach(svg)
+                /* 同一行重建 SVG 时延续相位；key 同时校验，虚拟列表复用行不串相位。
+                   只借用上一帧仍为 ongoing 的行，不缓存或延长任何业务状态。 */
+                if (found === null && host !== null) {
+                    for (var k = 0; k < rows.length; k += 1) {
+                        if (rows[k].host === host && rows[k].key === key) {
+                            found = rows[k]
+                            break
+                        }
+                    }
+                }
+                if (found === null || found.svg !== svg || found.g.parentNode !== svg) found = attach(svg, found)
                 next.push(found)
+            }
+            for (var n = 0; n < rows.length; n += 1) {
+                if (next.indexOf(rows[n]) === -1 && rows[n].g.parentNode !== null) {
+                    rows[n].g.parentNode.removeChild(rows[n].g)
+                }
             }
             rows = next
         }
@@ -452,12 +475,12 @@
                 if (still) {
                     paintStill(row)
                 } else {
-                    var age = now - row.born
+                    var age = Math.max(0, now - row.born)
                     paint(row, (age % UNI_ACC_CYCLE) / UNI_ACC_CYCLE, age / UNI_ACC_CYCLE)
                 }
             }
             /* 静态形态只需要一帧；动态形态一直排下去。 */
-            if (!still) raf = window.requestAnimationFrame(tick)
+            if (!still && rows.length > 0) raf = window.requestAnimationFrame(tick)
         }
 
         var kick = function () {
@@ -476,7 +499,7 @@
                 childList: true,
                 subtree: true,
                 attributes: true,
-                attributeFilter: ['data-state']
+                attributeFilter: ['data-state', 'data-row-key']
             })
             /* 动效开关与明暗档都写在 body 的属性上：前者决定跑不跑，后者决定留底亮度。
                单开一个只盯这两个属性的。 */

@@ -15,7 +15,7 @@ for(let i=0;i<16;i++) {
  const start=performance.now();new vm.Script(source);if(i)parse.push(performance.now()-start)
 }
 parse.sort((a,b)=>a-b)
-const assets=['build/whale-maid-small-monochrome-diagonal.svg','build/great-vibes-latin.woff2'].map(path=>{
+const assets=['build/whale-maid-small-monochrome-diagonal.svg'].map(path=>{
  const source=readFileSync(join(root,path))
  return {path,bytes:source.length,base64Chars:4*Math.ceil(source.length/3),sha256:createHash('sha256').update(source).digest('hex')}
 })

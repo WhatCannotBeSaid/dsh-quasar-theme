@@ -365,78 +365,6 @@ const variableFor = (paper) => `--cp-wall-${paper.id}`
  * thickening, no filter. */
 const brandMark = readFileSync(join(ROOT, 'build', 'brand-mark-black-hole.png')).toString('base64')
 
-/* ---------------------------------------------------------------- fonts (D75)
- * 2026-10-08, round 35: the user asked for the new-session headline in a calligraphic
- * face, free for commercial use, and never wrapping. That headline was removed on
- * 2026-10-28 (D104), so nothing renders this face today -- it stays embedded, and
- * font.1 / font.2 keep pinning it, because a rollback then costs no download.
- * The face is Great Vibes (SIL OFL 1.1, 2015 The Great Vibes Pro Project Authors),
- * and it is embedded HERE — as an
- * @font-face with a data URL — for the same reason the brand mark is: the theme stays
- * one self-contained bundle with no second file to fetch and no runtime path to
- * resolve, and nothing is installed on the user's machine.
- *
- * It is prepended to the declarations block that opens the paint layer's single
- * <style>, so it is a global declaration in the same sheet as the wallpaper variables
- * (and it cannot live in src/theme.css: the paint layer forbids `@` blocks — css.7).
- * The variable below keeps its old name because src/client.js and cli.8 pin that exact
- * expression; what it carries is "the declarations the paint tag opens with".
- *
- * Provenance is build/fonts.json (asserted by font.1/font.2), the licence text ships
- * next to the file in build/great-vibes-OFL.txt, and the byte count is checked against
- * the record so a swapped file cannot slip in under an old attribution. */
-const fonts = JSON.parse(readFileSync(join(ROOT, 'build', 'fonts.json'), 'utf8'))
-const fontFaces = fonts.map((font) => {
-  const bytes = readFileSync(join(ROOT, font.file))
-  if (bytes.length !== font.bytes) {
-    throw new Error(
-      `${font.file}: ${bytes.length} bytes on disk, fonts.json records ${font.bytes} — update the record`,
-    )
-  }
-  return [
-    '@font-face {',
-    `  font-family: '${font.family}';`,
-    '  font-style: normal;',
-    '  font-weight: 400;',
-    '  font-display: block;',
-    `  src: url("data:font/${font.format};base64,${bytes.toString('base64')}") format('${font.format}');`,
-    '}',
-  ].join('\n')
-})
-
-/* ------------------------------------------------- caret metric face (D76)
- * 2026-10-08, round 36: the user reported, with a screenshot of the dark composer, that
- * the text caret is not flush with the text — it sits about 1px low, so its tail hangs
- * below the glyphs. Measured cause (8x native CDP captures, pixel masks): Chromium draws
- * the caret as a bar whose height is the LINE's dominant font metrics (ascent+descent),
- * its box being [baseline - a, baseline + d] with baseline = line top + (24 - (a+d))/2
- * + a, so the caret's centre sits (D_line - D_c)/2 below the line box's centre, D = a-d.
- * With the theme's serif stack the dominant face on this machine yields D ~ 8 at 14px
- * (TiemposText-Regular hhea 761/-239/1000; HYXuanSong-45S 1038/-276), while the INK of
- * both scripts has D ~ 10 (CJK 矮 ink [11,1], Latin H ink [9.88,0] px at 14px), so the
- * caret's centre lands 0.88-0.94px below the glyph centre.
- *
- * The only lever is the metrics: a face with the SAME glyphs and overridden ascent/
- * descent moves the line's baseline 1px down, which centres the glyphs on the caret.
- * `src` resolves to the theme's own Latin face by its PostScript name, so no file ships,
- * no glyph changes (CSS.getPlatformFontsForNode reports Tiempos Text / HYXuanSong before
- * and after, font-weight 400 unchanged), and the caret's own width, height, colour,
- * shape and blink are untouched (measured byte-identical). It is emitted here, next to
- * the Great Vibes faces, for the same reason: src/theme.css forbids `@` blocks (css.7).
- * The rule that applies it lives at the end of src/theme.css. Rollback = delete this
- * constant (and that rule). */
-const caretFace = [
-  '@font-face {',
-  "  font-family: 'CP Caret Metric';",
-  '  font-style: normal;',
-  '  font-weight: 400;',
-  "  src: local('TiemposText-Regular');",
-  '  ascent-override: 85.714%;',
-  '  descent-override: 14.286%;',
-  '  line-gap-override: 0%;',
-  '}',
-].join('\n')
-
 /* `none` is not a fallback invented here: it is the no-wallpaper state src/theme.css
  * documents, and it is what a build with an empty manifest publishes for BOTH modes
  * so `--cp-wall` still resolves — to nothing — instead of to an undefined variable. */
@@ -458,8 +386,6 @@ const artFor = (paper) => {
 }
 
 const declarations = [
-  ...fontFaces,
-  caretFace,
   ':root {',
   ...wallpapers.map((paper) => `  ${variableFor(paper)}: url("${artFor(paper)}");`),
   `  --cp-pick-light: ${pick('light')};`,
@@ -505,21 +431,6 @@ const MANIFEST = {
     sourceResolution: paper.sourceResolution,
     meanLuminance: paper.meanLuminance,
   })),
-  fonts: fonts.map((font) => ({
-    id: font.id,
-    name: font.name,
-    family: font.family,
-    role: font.role,
-    page: font.page,
-    direct: font.direct,
-    credit: font.credit,
-    license: font.license,
-    licenseFile: font.licenseFile,
-    file: font.file,
-    format: font.format,
-    subset: font.subset,
-    bytes: font.bytes,
-  })),
   veil: tokensDoc.meta.veilAlpha,
   byLayer: tokensDoc.meta.byLayer,
 }
@@ -544,7 +455,6 @@ const banner = `/**
  *   src/tokens.json        ${MANIFEST.tokens} tokens, every one with a light and a dark value
  *   src/theme.css          the paint layer
  *   ${wallpaperFile}  ${MANIFEST.wallpapers.length} wallpapers (embedded art or URL)${wallpaperNote}
- *   build/fonts.json       ${MANIFEST.fonts.length} font, embedded as an @font-face data URL
  *
  * Eight blocks, ten effects — every one of them the theme's own since the vendored
  * session-status rail left on 2026-10-31 — all mounted through \`ctx.effect\` so
@@ -565,9 +475,8 @@ const banner = `/**
  *
  *   3. a plugin-owned <style> — the paint layer. A custom property can carry a
  *      colour but not a stack of composited background layers, so the art and its
- *      veil live in a stylesheet. It writes no colour of its own. Since round 35 it
- *      also opens with the hero face's @font-face (an inline data URL), so the font
- *      ships inside these same bytes and nothing is fetched or installed. Since
+ *      veil live in a stylesheet. It writes no colour of its own.
+ *      Since
  *      2026-10-31 it also owns the hover-collapse trigger: the sheet matches only
  *      [data-uni-grav], and the attribute is written from the element's UNSCALED box,
  *      because a box that shrinks itself loses its own hit area and its edge then
@@ -652,7 +561,7 @@ ${compressJs(clientJs)}
  * src/boot-screen.js keeps BOOT_MARK as the placeholder `'uni-boot/@BUILD@'`, and
  * this replaces it with a hash of the bundle itself. Hashing the OUTPUT rather than
  * a hand-kept list of inputs is deliberate: the output already contains every input
- * (55 tokens, two sheets, the embedded font, the brand mark, three vendored blocks),
+ * (the tokens, two sheets, the brand mark, the vendored blocks),
  * so any source change moves the mark and there is no second list to fall behind.
  *
  * The placeholder is what gets hashed, not the hash, so the value is stable: the

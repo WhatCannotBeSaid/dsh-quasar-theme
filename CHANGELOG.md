@@ -6,7 +6,62 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ## [Unreleased]
 
+### Added
+
+- **输入卡的换页转场（2026-11-01 第七十一轮）。** 用户逐字：「现在输入框在新会话页到对话页的
+  转场中没有动画，是直接从原地消失然后在底部出现，我想加一个动画。」根因在宿主，不在本主题：
+  新会话页靠 `[data-phase=hero] .scrollBody{justify-content:center}` 把卡片居中，对话页靠
+  `.composerSeat{position:sticky;bottom:0}` 把它钉在底，中间的 settling 相位又被
+  `.root[data-phase=settling] .composerSeat{visibility:hidden}` 整块藏掉 —— 两个位置之间没有
+  任何一帧过渡。① 新增 `src/runtime/composer-transition.js`（`mountComposerTransition()`，
+  FLIP：hero 页记卡片矩形，相位翻到 active 时以矩形差为起始 transform，位移 + 淡入归零；反向
+  对称；`data-uni-motion=reduced` 时不播；动画对象是 `[data-composer-card]` 而非带渐变底的
+  `[data-composer-seat]`）。观察器只在 hero 页量矩形，流式消息产生的 childList 变更不排帧。
+  ② 挂进 `src/client.js` 的 paint-layer effect（与 `mountHoverGravity` / `mountAccretion` 同挂，
+  不新增 effect），`tools/build-contract.mjs` 的 `CLIENT_FILES` 加一项。③ 门禁：`selfcheck`
+  120 断言全绿，`npm test` 75 通过；假 DOM 夹具验到正向 `-500px`、反向 `+500px`、中点走一半、
+  reduce 时零次 `animate`、dispose 摘干净。
+
+- **输入卡的转场与黑洞运镜同步（2026-11-01 第七十一轮，用户逐字：「跟黑洞的转场同步好不。」）。**
+  原来按 300ms + `cubic-bezier(0.22, 1, 0.36, 1)` 落地；现在与黑洞那次运镜同 1000ms、同曲线：
+  `src/client.js` 的 `MOVE_MS` 与 `black-hole.js` 的 12 段 `easeInOutCubic` 烘焙是关键帧的同一份
+  算法（每段标 `linear`），不用 `cubic-bezier` 近似 —— 近似曲线与烘焙曲线在中段差出半帧，两处
+  一起看读作「没同步」。洞抬起的那 64px 弧线（`ARC_BOW`）不跟：卡片是矩形控件，走弧线读起来是
+  抖动，只同步时长与节奏。两处时长配套，改一个就要改另一个。
+
+### Removed
+
+- **主题的字体改动整份移除（2026-10-31 第六十三轮）。** 用户逐字：「去掉本主题的字体修改。」，
+  随后确认「除了品牌字标先全部去掉」。① 令牌：`--dsw-font-family`（Tiempos 衬线栈）与
+  `--ds-font-family-code`（Operator Mono 等宽栈）从 `tokens.json` / `src/tokens.json` 删除，
+  55 → 53 个（A 41 + B 12），`meta.tokenCount`、`token-audit` 的 `PLANNED` 与 `selfcheck` 的
+  tok.1 同步。② 样式：`src/theme.css` 删掉第三十六、三十七轮整块（CP Caret Metric 光标度量与
+  `body [data-composer-input]` 字族规则），第三十五轮 D75 与 D104 注释改写为历史。品牌字标不动：
+  `[data-slot='sidebar.brand.name']` 与 SYSTEM 芯片的 Bahnschrift/DIN 栈是 CSS 按名引用，
+  不涉及随包字体。③ 资产与构建：`build/fonts.json`、`build/great-vibes-latin.woff2`、
+  `build/great-vibes-OFL.txt` 移入回收站；`tools/build-client.mjs` 不再生成 `@font-face`、
+  不再写 `MANIFEST.fonts`；`tools/measure-resources.mjs` 只量品牌 SVG。④ 门禁：`selfcheck`
+  删 font.1/2/3 一组，tok.1 断言 53，暗色摘要因键集变化重算为 `7a5f014341e6814d`。⑤ 许可：
+  `LICENSE` 2.1 与 `NOTICE` 1 改为「不再随包分发字体」，`package.json` 的 license 去掉
+  OFL-1.1，两份 README 的字体声明同步。
+
 ### Changed
+
+- **品牌三件套的 hover 彻底解耦：按钮不再整体缩，SYSTEM 只在指针越过字标右缘之后才响应（2026-10-31 第七十轮）。**
+  用户逐字：「鼠标悬停在左栏顶部的三个品牌标识时仍存在区域使得悬停在某个范围时三个品牌标识同时缩小，
+  请修改，使得品牌Logo、「WHALE-01」和「SYSTEM」三处互相独立互不影响。」。两个漏点：① `src/theme.css`
+  第五十七轮那条引力兜底 `body[data-uni-motion] [data-uni-grav]:where(…)` 没带上 2479 行
+  `button:not(:has([data-slot='sidebar.brand.name']))` 的排除，指针落在 SYSTEM 标签、两个 SPAN 之间的 gap
+  或按钮左右 padding 时，`src/runtime/gravity.js` 把 `data-uni-grav` 挂到按钮本身，整条品牌按钮缩 0.97，
+  头像、WHALE-01、SYSTEM 三件一起缩；② `button[…][data-uni-grav]::after` 那条只看按钮有没有属性，
+  所以 gap 空白也会缩 SYSTEM。改法：兜底补 `:not(:is(button:has([data-slot='sidebar.brand.name'])))`
+  （仍包在 `:where()` 里，不贡献权重，压不过任何角色细则）；`gravity.js` 新增 `BRAND_BUTTON` /
+  `BRAND_NAME` 两个常量与两处判定 —— `onOver` 在指针未越过 name 右缘时干脆不挂属性，`measure()` 把按钮
+  命中盒左界收到 name 右缘，指针左移进 gap 时 `holds()` 立刻失效并 drop。三区此后各缩各的：
+  Logo `0.9`、WHALE-01 `0.97`、SYSTEM `::after 0.9`，按钮自身任何情况下都是 `1`。真机验证
+  （19388 实例，CDP 逐点 `dispatchMouseEvent` + 读 `getComputedStyle().scale`）七个采样点全部符合预期：
+  logo `0.9/1/1`、gap `1/1/1`（无属性）、WHALE-01 `1/0.97/1`、name 右侧空白 `1/1/0.9`、
+  SYSTEM `1/1/0.9`、按钮左 padding `0.9/1/1`。
 
 - **会话行 running 的收尾只压不抬，中心那颗「已落底的点」撤掉（2026-10-31 第六十一、六十二轮）。**
   用户逐字：「撤销A，我找到问题所在了，绿点走完全程后它所走过的轨迹会突然亮一下再变暗，

@@ -9,7 +9,7 @@ The short version, in the order that decides what you may do:
 
   * Our own code ......... MIT — use it, change it, ship it.
   * Brand marks .......... CC BY-NC-SA 4.0 — credit, NO commercial use, share alike.
-  * Great Vibes font ..... SIL OFL 1.1.
+  * Fonts ................ none redistributed — see 2.1.
   * The wallpaper pair ... NOT distributed and NOT licensed here. Since 2026-10-09
                            the two background images are third-party artwork that
                            this repository does not carry; the tracked manifest
@@ -56,16 +56,15 @@ is listed in section 2, that file's own terms govern it.
 2. Bundled third-party material
 -------------------------------
 
-2.1 Font — build/great-vibes-latin.woff2
-    "Great Vibes" by TypeSETit. SIL Open Font License 1.1. Copyright 2015 The
-    Great Vibes Pro Project Authors. The licence text ships with the package at
-    build/great-vibes-OFL.txt, as OFL condition 2 requires. The file is an
-    unmodified latin subset. OFL condition 3 applies: the font may not be sold on
-    its own. No other font is redistributed — the remaining families named in
-    src/theme.css (Bahnschrift, DIN Alternate, DIN Next, Eurostile Extended,
-    Helvetica Neue, Inter, Arial, sans-serif) are referenced by name only and are
-    never shipped. OFL condition 5 applies to this package: the font's reserved
-    name is unchanged, and no file here ships under the name "Great Vibes".
+2.1 Font — none redistributed (removed 2026-10-31)
+    Earlier versions bundled Great Vibes, SIL Open Font License 1.1, at
+    build/great-vibes-latin.woff2 together with its licence text at
+    build/great-vibes-OFL.txt. Both files were removed on 2026-10-31 with the
+    rest of the theme's font changes, so no OFL material ships here any more and
+    none of the OFL conditions attach to this package. No other font is
+    redistributed either: every family named in src/theme.css (Bahnschrift, DIN
+    Alternate, DIN Next, Eurostile Extended, Helvetica Neue, Inter, Arial,
+    sans-serif) is referenced by name only and is never shipped.
 
 2.2 Brand marks — build/brand-mark.png, build/brand-mark-dark.png,
     build/brand-mark.jpg
@@ -131,8 +130,6 @@ is listed in section 2, that file's own terms govern it.
 
   index.js, src/, tools/, docs/, cordis.patch.yml ... MIT (section 1)
   client.js ......................................... MIT (generated from src/, not tracked)
-  build/great-vibes-latin.woff2 ..................... OFL 1.1 (2.1)
-  build/great-vibes-OFL.txt ......................... OFL 1.1 text
   build/brand-mark*.png, build/brand-mark.jpg ....... CC BY-NC-SA 4.0 (2.2)
   the wallpaper pair ................................ NOT distributed, hotlinked (2.3)
 

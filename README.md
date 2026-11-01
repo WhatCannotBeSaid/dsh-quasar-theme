@@ -136,9 +136,12 @@ already hidden, and an empty flex row still holds the HeroShell's gap, which rea
 stray blank band rather than as the composer having moved up. With the row
 `display: none` the composer sits where the headline used to be.
 
-**Great Vibes** (SIL OFL 1.1) still ships in the package with its `@font-face` intact —
-this round removed a rendering, not an asset, so a rollback costs no download. The
-composer card, the workspace picker and the two dropdowns on that page are untouched.
+**No font ships any more.** Earlier rounds carried Great Vibes (SIL OFL 1.1) with an
+inline `@font-face`; on 2026-10-31 every font change in the theme was removed at the
+user's request, so the asset, the `@font-face`, the two font tokens and the composer's
+caret-metric face are all gone. The brand wordmark keeps its Bahnschrift stack, which is
+CSS naming a family, not a shipped file. The composer card, the workspace picker and the
+two dropdowns on that page are untouched.
 
 ### The composer's control row
 
@@ -305,7 +308,6 @@ without licensing them. No trademark rights are granted here.
 | Our code — `index.js`, `src/`, `tools/`, `client.js` | MIT | Keep the copyright and licence notice. Commercial use of the code is fine. |
 | Project text — this README, `docs/`, `NOTICE`, `LICENSE` | CC BY-NC-SA 4.0 | Credit, link the licence, note changes, keep it non-commercial, share alike. |
 | Brand marks — `build/whale-maid-small-monochrome-diagonal.svg`, `build/brand-mark*.png`, `build/brand-mark.jpg` | CC BY-NC-SA 4.0 | Same terms, and this is third-party artwork: see below. |
-| Font — `build/great-vibes-latin.woff2` | SIL OFL 1.1 | Keep the notice; do not sell the font on its own. |
 | The two background wallpapers | **Hotlinked, not distributed, not licensed here.** | This project grants you no rights in them; the credits below are attribution only. |
 
 Because the brand marks forbid commercial use, **the package as a whole may not
@@ -337,7 +339,7 @@ slot and click box, with the SVG drawn at 28×28 inside it. The earlier cropped
 the tree for rollback only, under the same terms. Commercial use of this artwork
 needs permission from the rights holders above.
 
-**Font.** "Great Vibes" by TypeSETit, SIL OFL 1.1.
+**Font.** No font is redistributed: every family named in the stylesheets is referenced by name only.
 
 **Wallpapers — hotlinked with credit, never redistributed.** Two background
 images are part of the theme's intended look. Since 2026-10-09 (D79) neither is

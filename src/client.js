@@ -453,6 +453,9 @@
         /* 会话行吸积流（第五十三轮）：尾流必须由绿点自己走过的轨迹生成，CSS 关键帧做不到，
            只能每帧采样写 path。同样挂在这里，不新增 effect（cli.11d 钉了恰好九个）。 */
         var stopAccretion = mountAccretion()
+        /* 输入卡换页转场（2026-11-01 第七十一轮）：新会话页的居中位与对话页的贴底位之间
+           补一段位移 + 淡入。同样挂在这里，不新增 effect。 */
+        var stopComposerSwap = mountComposerTransition()
         return () => {
           /* The sheet goes first: it is the one thing whose absence is visible in
              the next paint. What is left only retracts state the sheet keyed on, and
@@ -468,6 +471,7 @@
           if (document.body) document.body.removeAttribute('data-uni-motion')
           if (typeof stopGravity === 'function') stopGravity()
           if (typeof stopAccretion === 'function') stopAccretion()
+          if (typeof stopComposerSwap === 'function') stopComposerSwap()
         }
       }, 'universe: paint layer')
 
@@ -758,6 +762,98 @@
          the card's edges, that clamp is the branch that actually runs. */
 
       ctx.effect(() => deferEffect(() => mountCentredPanels()), 'universe: centred panels')
+
+      /* ------------------------------------------------------------------------
+         Round 65 (2026-11-01) -- the composer's "has text" state, for the hero page's
+         ghost card.
+
+         The ghost card (src/theme.css, the composer-card block) thins to a ~0.10 fill
+         while the pointer is away and comes back on ':hover' / ':focus-within'. The
+         third condition the design tree agreed on -- "there is text in the card" --
+         cannot be a selector: the composer is a Lexical editor,
+         'div[role="textbox"][data-composer-input="true"]', not a textarea. There is no
+         ':placeholder-shown' to test, and the empty editor still carries a
+         '<p><br></p>' body, so its 'textContent' is not empty either.
+
+         So the fact is published as an attribute, 'data-uni-composer-typed', and the
+         sheet tests only that. Keeping the read here rather than in CSS keeps the
+         "is this empty?" judgement in one place: the editor's ways of saying "empty"
+         (a zero-width space, a placeholder node, a stray <br>) are exactly what a
+         selector would get subtly wrong.
+
+         Why these three events and no MutationObserver. 'input' fires on typing,
+         paste and undo -- every path that changes text. 'focusin'/'focusout' re-check
+         at the two moments text can change with no 'input' in between (Lexical
+         normalising on blur, a draft landing as the card takes focus). An observer
+         would be the complete answer, but it would fire on every streamed token of
+         every conversation, while this state is only ever read by a rule already gated
+         on the hero page -- a cost with no reader.
+
+         Reads are batched into one animation frame: Lexical mutates its DOM during
+         the 'input' handler's own turn, and the frame after is when those mutations
+         have landed. Nothing is written when the answer has not changed, so a card
+         that is not being typed into produces no attribute writes at all.
+
+         Known bound: a card prefilled by something that fires none of the three events
+         (a restored draft landing while the page is already unfocused) keeps the ghost
+         fill until the reader touches it. Every user-driven path hits one of the
+         three. */
+      function composerHasText(card) {
+        var editor = card.querySelector("[data-composer-input]")
+        if (editor === null) editor = card.querySelector("[role='textbox']")
+        if (editor === null) return false
+        /* Character codes, not a regex with escapes: this file is interpolated verbatim
+           into the bundle, and U+200B..U+200D / U+FEFF are the ways an editor spells
+           "empty" inside a string. Whitespace counts as empty too. */
+        var text = editor.textContent || ''
+        for (var i = 0; i < text.length; i += 1) {
+          var code = text.charCodeAt(i)
+          if (code === 0x200b || code === 0x200c || code === 0x200d || code === 0xfeff) continue
+          if (code === 32 || code === 9 || code === 10 || code === 13) continue
+          return true
+        }
+        return false
+      }
+
+      function syncComposerTyped() {
+        var cards = document.querySelectorAll('[data-composer-card]')
+        for (var i = 0; i < cards.length; i += 1) {
+          var card = cards[i]
+          var typed = composerHasText(card)
+          if (typed === (card.getAttribute('data-uni-composer-typed') === 'true')) continue
+          if (typed) card.setAttribute('data-uni-composer-typed', 'true')
+          else card.removeAttribute('data-uni-composer-typed')
+        }
+      }
+
+      function mountComposerTyped() {
+        var frame = null
+        function flush() {
+          frame = null
+          syncComposerTyped()
+        }
+        function schedule() {
+          if (frame !== null) return
+          frame = typeof requestAnimationFrame === 'function'
+            ? requestAnimationFrame(flush)
+            : setTimeout(flush, 16)
+        }
+        syncComposerTyped()
+        document.addEventListener('input', schedule, true)
+        document.addEventListener('focusin', schedule, true)
+        document.addEventListener('focusout', schedule, true)
+        return function () {
+          document.removeEventListener('input', schedule, true)
+          document.removeEventListener('focusin', schedule, true)
+          document.removeEventListener('focusout', schedule, true)
+          if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
+        }
+      }
+
+      /* The attribute carries a value rather than being bare, for the same reason the
+         theme's other hooks do ('data-uni-motion', 'data-uni-black-hole'): one shape to
+         read in the sheet and in a devtools console. */
+      ctx.effect(() => deferEffect(() => mountComposerTyped()), 'universe: composer typed state')
 
       /* Read-only surface for troubleshooting and for the delivery docs. */
       exports.manifest = MANIFEST

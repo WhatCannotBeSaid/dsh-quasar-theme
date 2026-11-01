@@ -49,8 +49,12 @@ const has = (relative) => existsSync(join(ROOT, relative))
  *  total 55 -> 63. Round 34 UNDID it: the user asked for the body and the UI to go back
  *  under D1 alone, with D1 on the Roam `--body-font` stack. The eight shorthands therefore
  *  left the map and the plan is back to A 41 + B 14 = 55. D74 in `docs/design.md` records
- *  the split as tried-and-reverted, not as a live decision. */
-const PLANNED = { A: 41, B: 14, total: 55 }
+ *  the split as tried-and-reverted, not as a live decision.
+ *  2026-10-31 (font strip): B 14 -> 12, total 55 -> 53, because the user asked for every
+ *  font change to leave the theme. `--dsw-font-family` and `--ds-font-family-code` left
+ *  the map together with the Great Vibes asset and the CP Caret Metric face. The brand
+ *  wordmark's Bahnschrift stack is CSS in theme.css, not a token, so it stays. */
+const PLANNED = { A: 41, B: 12, total: 53 }
 
 const tokensDoc = JSON.parse(read('src/tokens.json'))
 const TOKENS = tokensDoc.tokens

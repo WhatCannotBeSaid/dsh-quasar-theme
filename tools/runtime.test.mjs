@@ -592,9 +592,9 @@ test('A4: the cycle ends dimmed, never black, and the ink only ever falls', () =
   }
 })
 
-test('A5: the dot arrives on the floor and leaves from the same floor, so the seam is one level', () => {
-  /* 用户 m01217「还是有一瞬的全黑」与 m01308「没有连贯感」。点必须两头都压在 floor 上：
-     落底时收到 floor，出生时又从 floor 长回满亮，中间才是满亮的头部亮度。 */
+test('A5: the moving dot fades smoothly to zero at both spatially separate endpoints', () => {
+  // Equal nonzero alpha at different coordinates was still a teleport. The trail,
+  // tested by A7 and A8, carries visibility while the single dot crosses the seam.
   const source = read('src/runtime/accretion.js')
   const api = vm.runInNewContext(
     between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
@@ -603,19 +603,20 @@ test('A5: the dot arrives on the floor and leaves from the same floor, so the se
   )
 
   for (const floor of [0.34, 0.42]) {
-    /* 出生第一帧就停在 floor 上 —— 与上一轮落底那一档相等。 */
-    assert.ok(Math.abs(api.dot(0, 0, floor) - floor) < 1e-12, 'the dot must appear on the floor')
+    assert.equal(api.dot(0, 0, floor), 0, 'the outer endpoint must not pop into view')
     /* 一轮中段是满亮的头部亮度。 */
     assert.ok(Math.abs(api.dot(0.5, 0, floor) - api.age[0]) < 1e-12, 'the dot never reaches full brightness')
-    /* 落底那一帧也是 floor。 */
-    assert.ok(Math.abs(api.dot(1, 1, floor) - floor) < 1e-12, 'the dot must land on the floor, not on zero')
+    assert.equal(api.dot(1, 1, floor), 0, 'the inner endpoint must disappear before wrapping')
+    const epsilon = 1e-5
+    assert.ok(api.dot(epsilon, 0, floor) / epsilon < 0.01, 'birth slope must approach zero')
+    assert.ok(api.dot(1 - epsilon, 1 - epsilon, floor) / epsilon < 0.01, 'death slope must approach zero')
     /* 交接的连续性：这一轮的最后一帧与下一轮的第一帧必须是同一个数。 */
     assert.ok(Math.abs(api.dot(1, 1, floor) - api.dot(0, 0, floor)) < 1e-12, 'the seam jumps between cycles')
-    /* 全程落在 [floor, 头部亮度] 里：既不掉到黑，也不越过满亮。 */
+    /* 光点可归零，但不越过头部亮度；跨圈可见性由整个图元验证。 */
     for (let d = 0; d <= 20; d += 1) {
       for (let u = 0; u <= 1; u += 0.05) {
         const value = api.dot(u, d / 20, floor)
-        assert.ok(value >= floor - 1e-12, `the dot dropped below the floor at u ${u}`)
+        assert.ok(value >= 0, `the dot alpha became negative at u ${u}`)
         assert.ok(value <= api.age[0] + 1e-12, `the dot outran full brightness at u ${u}`)
       }
     }
@@ -718,4 +719,186 @@ test('A7: the hand-off layer carries the seam with its bands and hands over no s
   }
   assert.ok(Math.abs(total - api.len(full)) < 0.06, `the hand-off layer does not cover the curve: ${total} vs ${api.len(full)}`)
   assert.ok(Math.hypot(first.x - api.at(1).x, first.y - api.at(1).y) < 0.02, 'the hand-off layer must start where the dot lands')
+})
+
+function accretionFixture() {
+  class Element {
+    constructor(name, attrs = {}) { this.name = name; this.attrs = attrs; this.children = []; this.parentNode = null; this.style = {}; this.dataset = {} }
+    setAttribute(key, value) { this.attrs[key] = String(value) }
+    getAttribute(key) { return this.attrs[key] ?? null }
+    appendChild(child) { child.parentNode = this; this.children.push(child); return child }
+    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null }
+    closest() { let el = this; while (el && !el.attrs['data-row-key']) el = el.parentNode; return el }
+    get isConnected() { return this === root || this.parentNode?.isConnected === true }
+  }
+  const root = new Element('html')
+  const body = root.appendChild(new Element('body'))
+  let now = 0
+  let id = 0
+  const frames = new Map()
+  const observers = []
+  const descendants = el => el.children.flatMap(child => [child, ...descendants(child)])
+  const document = {
+    body, documentElement: root, createElementNS: (_, name) => new Element(name),
+    querySelectorAll: selector => {
+      assert.equal(selector, "svg[data-state='ongoing']")
+      return descendants(root).filter(el => el.name === 'svg' && el.getAttribute('data-state') === 'ongoing')
+    },
+  }
+  const mount = vm.runInNewContext(read('src/runtime/accretion.js') + '\nmountAccretion', {
+    document, performance: { now: () => now },
+    window: { requestAnimationFrame: fn => { frames.set(++id, fn); return id }, cancelAnimationFrame: n => frames.delete(n) },
+    getComputedStyle: () => ({ getPropertyValue: () => '0.34' }),
+    MutationObserver: class {
+      constructor(fn) { this.fn = fn; observers.push(this) }
+      observe(target, options) { this.target = target; this.options = options }
+      disconnect() { this.disconnected = true }
+    },
+  })
+  const add = key => {
+    const host = body.appendChild(new Element('div', { 'data-row-key': key }))
+    const svg = host.appendChild(new Element('svg', { 'data-state': 'ongoing' }))
+    return { host, svg }
+  }
+  const mutate = (target = root, attributeName = null) => {
+    const type = attributeName === null ? 'childList' : 'attributes'
+    for (const observer of observers) {
+      const options = observer.options
+      if (observer.disconnected || !options[type]) continue
+      if (observer.target !== target && !(options.subtree && descendants(observer.target).includes(target))) continue
+      if (type === 'attributes' && options.attributeFilter && !options.attributeFilter.includes(attributeName)) continue
+      observer.fn([{ type, target, attributeName }])
+    }
+  }
+  return {
+    mount, add, frames, observers, descendants, mutate,
+    move: (row, other) => { row.host.removeChild(row.svg); other.host.appendChild(row.svg); row.host = other.host },
+    replace: row => { row.host.removeChild(row.svg); row.svg = row.host.appendChild(new Element('svg', { 'data-state': 'ongoing' })) },
+    reduced: value => { body.dataset.uniMotion = value ? 'reduced' : 'full'; mutate(body, 'data-uni-motion') },
+    step: time => { now = time; const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(time)) },
+    group: row => row.svg.children.find(el => el.getAttribute('class') === 'uni-acc'),
+    dot: row => descendants(row.svg).find(el => el.name === 'circle'),
+    visible: row => descendants(row.svg).some(el => {
+      if (el.name === 'circle') return Number(el.style.opacity) > 0
+      if (el.name !== 'path' || !el.getAttribute('d')) return false
+      return el.parentNode.style.display !== 'none' && Number(el.getAttribute('stroke-opacity')) > 0
+    }),
+  }
+}
+
+test('A8: mounted animation has no blank frame through repeated cycle seams and paints before first RAF', () => {
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  assert.ok(f.visible(row), 'mount must not hide the official icon with empty graphics')
+  assert.equal(f.group(row).children[0].style.display, 'none', 'first cycle must not invent a previous trail')
+  for (let ms = 0; ms <= 6500; ms += 1000 / 144) {
+    f.step(ms)
+    assert.ok(f.visible(row), `blank animation at ${ms}ms`)
+    assert.equal(f.descendants(row.svg).filter(el => el.name === 'circle').length, 1)
+  }
+  dispose()
+  assert.equal(f.frames.size, 0)
+  assert.equal(row.svg.children.length, 0)
+  assert.ok(f.observers.every(observer => observer.disconnected))
+})
+
+test('A9: SVG or group replacement preserves phase; a reused row key starts a new visible cycle', () => {
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  f.step(500)
+  const before = { ...f.dot(row).attrs }
+  const old = f.group(row)
+  f.replace(row)
+  f.mutate()
+  assert.deepEqual(f.dot(row).attrs, before, 'SVG replacement reset the trajectory')
+  assert.equal(old.parentNode, null, 'replaced SVG retained stale theme graphics')
+  row.svg.removeChild(f.group(row))
+  f.mutate()
+  assert.deepEqual(f.dot(row).attrs, before, 'child replacement reset the trajectory')
+  row.host.setAttribute('data-row-key', 'session:other')
+  f.mutate(row.host, 'data-row-key')
+  assert.notEqual(f.dot(row).getAttribute('cx'), before.cx, 'virtual row reuse inherited another session phase')
+  assert.ok(f.visible(row))
+  assert.equal(row.svg.children.length, 1, 'repeated sync duplicated graphics')
+  dispose()
+})
+
+test('A10: parent completion removes its graphics while independently ongoing child keeps its own state', () => {
+  const f = accretionFixture()
+  const parent = f.add('session:parent')
+  const child = f.add('session:child')
+  const dispose = f.mount()
+  f.step(500)
+  const childGroup = f.group(child)
+  parent.svg.setAttribute('data-state', 'complete')
+  f.mutate(parent.svg, 'data-state')
+  assert.equal(f.group(parent), undefined, 'completed parent still has running graphics')
+  assert.equal(parent.svg.getAttribute('data-state'), 'complete')
+  assert.equal(child.svg.getAttribute('data-state'), 'ongoing')
+  assert.equal(f.group(child), childGroup, 'parent completion remounted the child')
+  f.step(600)
+  assert.ok(f.visible(child))
+  child.svg.setAttribute('data-state', 'stopped')
+  f.mutate(child.svg, 'data-state')
+  f.step(700)
+  assert.equal(f.frames.size, 0, 'no ongoing row should leave a perpetual RAF loop')
+  assert.equal(f.group(child), undefined)
+  dispose()
+})
+
+test('A11: reduced motion is static, resumes without duplicate graphics and disposes cleanly', () => {
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  f.reduced(true)
+  f.step(500)
+  const still = { ...f.dot(row).attrs }
+  assert.equal(f.frames.size, 0)
+  assert.equal(f.dot(row).style.opacity, '1')
+  f.step(1000)
+  assert.deepEqual(f.dot(row).attrs, still)
+  f.reduced(false)
+  f.step(1100)
+  assert.notEqual(f.dot(row).getAttribute('cx'), still.cx)
+  assert.equal(row.svg.children.length, 1)
+  dispose()
+  assert.equal(f.frames.size, 0)
+})
+
+test('A12: moving a reused SVG across row hosts cannot inherit its previous host phase', () => {
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const other = f.add('session:other')
+  other.svg.setAttribute('data-state', 'complete')
+  const dispose = f.mount()
+  f.step(500)
+  const before = f.dot(row).getAttribute('cx')
+  row.svg.removeChild(f.group(row))
+  f.move(row, other)
+  f.mutate(row.host)
+  assert.notEqual(f.dot(row).getAttribute('cx'), before)
+  assert.ok(f.visible(row))
+  dispose()
+})
+
+test('A13: key-only row reuse is observed even with RAF stopped by reduced motion', () => {
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  const initialX = f.dot(row).getAttribute('cx')
+  f.reduced(true)
+  f.step(500)
+  assert.equal(f.frames.size, 0)
+  const previous = f.group(row)
+  row.host.setAttribute('data-row-key', 'session:other')
+  f.mutate(row.host, 'data-row-key')
+  assert.notEqual(f.group(row), previous, 'key-only reuse was not observed')
+  assert.equal(previous.parentNode, null)
+  assert.ok(f.visible(row))
+  f.reduced(false)
+  f.step(500)
+  assert.equal(f.dot(row).getAttribute('cx'), initialX, 'reused row did not restart at its visible birth phase')
+  dispose()
 })
