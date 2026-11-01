@@ -350,11 +350,11 @@ test('trace 的四种终态互斥且可区分：步数预算耗尽不等于物�
   assert.equal(short.radius,undefined)
   assert.equal(short.steps,4,`预算 4 步时就该正好停在 4 步，实际 ${short.steps}`)
 })
-test('字符层：环带里的有效盘格照常落字，被捕获的格子一个都不落',()=>{
-  /* 修复前 draw() 有一条 `if (gd >= horizon - 1 && gd <= 150) continue`，在 shade 之前
-     就把阴影外整条 150px 环带里的盘格跳过了。150 是固定像素：1256×821 只挡掉 2.6%，
-     还是挡掉 65%，640×360 挡掉 74%，同一批几何在小窗口被吃掉大半。
-     这条用例在 640×360 上重建同一副网格，把「有盘交点 / 真的落字」分开断言。 */
+test('字符层：没有环层时环带里的有效盘格照常落字，被捕获的格子一个都不落',()=>{
+  /* 第三十一阶段起，环带让位只在「环层烘出来了」时生效：边缘包络来自 bakeRing，
+     没有 offscreen canvas（测试桩、精简 DOM、烘焙失败）就没有包络，也就不该为不存在的环
+     清掉盘面。这条用例走纯 ASCII 那条路，锁住「不排除」这一半行为。
+     另一条用例（下面）开 canvas2d，锁住「有环时让位」那一半。 */
   const f=fixture(null,{width:640,height:360}),r=f.api.create(f.canvas)
   f.drain();assert.equal(r.stats().ready,true)
   const W=640,H=360,short=Math.min(W,H)
@@ -381,10 +381,10 @@ test('字符层：环带里的有效盘格照常落字，被捕获的格子一�
   }
   /* 落字的每一格都必须真的有盘交点：遮挡没有放松，没有交点的格子照样一个字都不落。 */
   for(const key of at.keys())assert.ok(hit.has(key),`${key} 没有盘交点却落了字`)
-  /* 旧规则下这里必须是 0；现在是 570 格里的绝大多数 —— 这就是被无依据排除掉的那批。 */
+  /* 没有环层时不排除：旧规则下这里必须是 0，现在是 570 格里的绝大多数。 */
   let inBand=0
   for(const key of at.keys())if(band.has(key))inBand++
-  assert.ok(inBand>300,`环带里只落了 ${inBand} 格字，150px 排除疑似被恢复`)
+  assert.ok(inBand>300,`环带里只落了 ${inBand} 格字，没有环层却在让位`)
   assert.ok(inBand<=band.size)
   /* 阴影圆内部那几格是近侧盘面压在洞前，改动前后都照常落字（不属于本阶段范围）。 */
   assert.ok(inside.size>0,'这个窗口应当有投影落在阴影圆内的近侧盘面')
@@ -392,7 +392,46 @@ test('字符层：环带里的有效盘格照常落字，被捕获的格子一�
   assert.ok(hit.size-at.size<=Math.ceil(hit.size*.02),`有交点 ${hit.size} 格，实际落字 ${at.size} 格`)
   r.dispose()
 })
-
+test('字符层：环层就绪后环上的盘格全部让位，环外照常落字',()=>{
+  /* 第十五阶段把环交给 Canvas 精细层之后，盘格在环的位置上照常显影，环从字缝里透出来，
+     读成一圈零散杂点。这里在 shade 之前跳过环带里的盘格。
+     边界不能是固定像素：环峰随方位在 140..215px 之间移动，下方被前景盘拉出一段外扩。
+     生产按 bakeRing 记下的方位包络 edge[方位] 查表，只清环真有像素的方向。 */
+  const f=fixture(null,{width:640,height:360},{canvas2d:true}),r=f.api.create(f.canvas)
+  f.drain();assert.equal(r.stats().ready,true)
+  const ring=r.stats().ring
+  assert.ok(ring,'环层必须烘出来，否则这条用例测不到让位逻辑')
+  assert.equal(ring.state,'ready')
+  assert.ok(ring.edgeMax>0&&ring.edge instanceof Float32Array,'方位包络必须随环层一起发布')
+  const BINS=ring.edge.length
+  const W=640,H=360,short=Math.min(W,H)
+  let cw=Math.max(6,Math.sqrt(W*H/(16000*1.5)))
+  const cols=Math.max(1,Math.floor(W/cw));cw=W/cols
+  const rows=Math.max(1,Math.floor(H/(cw*1.5)));const ch=H/rows
+  const CRIT_RATIO=3*Math.sqrt(3)/Math.sqrt(60*60-(1-2/60)*27)/(3*Math.sqrt(3)/60/0.34)
+  const horizon=CRIT_RATIO*short/2,baseX=W/2,baseY=H/2
+  /* 与生产同一个字符格让位余量：格心到格角再加 1px。 */
+  const clear=Math.sqrt(cw*cw+ch*ch)/2+1
+  const at=new Map()
+  for(const p of f.placed){
+    const col=Math.round(p.x/cw-.5),row=Math.round(p.y/ch-.5)
+    at.set(col+','+row,p)
+  }
+  assert.ok(at.size>0,'环外必须还有字')
+  let banded=0,outside=0
+  for(const key of at.keys()){
+    const parts=key.split(','),col=Number(parts[0]),row=Number(parts[1])
+    const gx=(col+.5)*cw-baseX,gy=(row+.5)*ch-baseY,gd=Math.sqrt(gx*gx+gy*gy)
+    /* 阴影圆内那几格是近侧盘面压在洞前，不属于环，生产也不排除。 */
+    if(!(gd>horizon))continue
+    const bin=(((Math.atan2(gy,gx)+Math.PI)/(Math.PI*2)*BINS)|0)%BINS
+    if(gd<=ring.edge[bin]+clear)banded++
+    else outside++
+  }
+  assert.equal(banded,0,`环带里还有 ${banded} 格字，让位没有生效`)
+  assert.ok(outside>100,`环外只剩 ${outside} 格字，让位连带把盘面挖空了`)
+  r.dispose()
+})
 /* ================= 第二十三阶段：耗尽语义闭环与角度边界 =================
    第二十二阶段只让 trace 能返回 'exhausted'，消费者没跟上：
      · chunk 拿到耗尽格照样置 ready=true；
@@ -482,6 +521,8 @@ test('消费者契约：环缓存只要有耗尽射线就整张不发布', () =>
   assert.ok(ss.ring.exhausted > 0, '120 步预算下确实有射线首轮算不完')
   assert.equal(ss.ring.retried, ss.ring.exhausted, '每个耗尽像素只重算一次')
   assert.equal(ss.ring.unresolved, 0)
+  /* drawn 与 attempted 相等：环层的落笔判据只看 trace 的 ring 权重，不看盘命中。
+     盘命中像素照常写进遮罩，字符层靠 draw() 的方位包络单独让位。 */
   assert.equal(ss.ring.drawn, ss.ring.attempted)
   assert.equal(saved.bakes.length, 1)
   assert.equal(alphaPixels(saved.bakes), 304, '重算救回的遮罩必须与默认预算逐像素相同')
@@ -499,10 +540,10 @@ test('消费者契约：环缓存只要有耗尽射线就整张不发布', () =>
   assert.equal(s2.ring.drawn, 0, '不完整的遮罩一个像素都不能发布')
   assert.equal(bad.bakes.length, 0, 'putImageData 都不许发生')
   assert.equal(alphaPixels(bad.bakes), 0, '失败分支不许产生任何非零 alpha 像素')
-  /* 4 步预算下一条射线都走不到落像素那一步，discarded 自然是 0；换 40 步预算才真会
+  /* 低预算下一条射线都走不到落像素那一步，discarded 自然是 0；预算抬到 100 步才真会
      「已经画出来了、之后才发现有射线没算完」。这时必须把丢掉的数量报出来，
      否则从 stats 上看不出整张遮罩是被丢弃的。 */
-  const part = fixture(injectBudget(40), { width: 320, height: 200 }, { canvas2d: true })
+  const part = fixture(injectBudget(100), { width: 320, height: 200 }, { canvas2d: true })
   const r3 = part.api.create(part.canvas)
   part.drain()
   const s3 = r3.stats()

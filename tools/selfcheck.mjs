@@ -290,22 +290,29 @@ checks.check('css.17', 'the black hole is framed by the main+rightbar container,
   return /data-uni-black-hole/.test(sheet) || 'the canvas is not scoped to the black-hole page'
 })
 
-/* 2026-10-31（第五十三轮）：会话行 running 从「预画的四层」重做成「一个绿点 + 实时生成的
- * 尾流」。用户规格的直接后果是**运动搬进了 runtime**，所以这里钉的是：
- *   css.18  官方那圈 loading 环必须藏起来；绿点与六段尾巴必须有自己的颜色/宽度/不透明度；
- *           中心不许再有任何实体（第五十五轮撤掉暗核后，这一条改成反向断言）；
- *           这一格不许漏到 pending 或完成未读
+/* 2026-11-02（m00676 / m00682 / m00695 / m00698 / m00704，grilling 定案）：会话行 running
+ * 从「螺旋吸积流」重做成「日冕弧带」。用户的判据有两条：位置连续（单一主体、逐帧不瞬移）与
+ * 形状连续（轮廓任何时刻都不断口、不重新起笔）。螺旋是开口曲线，外圈 r=6.2 与中心 r=1 相距
+ * 5.2px，单主体走完一轮必须跨过这段位移 —— 淡入淡出、交接残影、双流相位都只能盖住亮度，
+ * 盖不住位移。所以这一格改成闭合环上的一段弧带，六段尾迹 / ghost / 双流 / 留底亮度全部删除。
+ * 这里钉的是：
+ *   css.18  官方那圈 loading 环必须藏起来，且只在我们那组挂上来之后才藏；弧带要有自己的
+ *           颜色、笔宽与圆头；头段与尾段各有粗细；这一格不许漏到 pending 或完成未读；
+ *           留底亮度（--uni-acc-floor）与六段 t0~t5 的规则必须已经消失
+ *           亮档弧带绿是压暗过的显式 hex（第七十六轮，用户 m00875），并用真实 WCAG
+ *           公式对三档浅底算到 4.5:1 以上；暗档仍读宿主 success 令牌（冻结）
  *   acc.1   采样循环挂进现有 paint layer effect 并随它一起撤走，不新增 effect（cli.11d 钉九个）
- *   acc.2   参数逐字照抄用户定稿：周期 1300ms、半径 6.2 → 1、点直径 2.2、总转 540°、
- *           0.8 起级联熄灭；轨迹必须一路采回 u = 0（用户第二轮：要的是从出现到消失的全部轨迹）
- *   acc.3   不预绘：图元只有 g/path/circle，没有 dasharray 环、没有渐变、没有滤镜 */
+ *   acc.2   参数逐字照抄定稿：圆 R = 5.6、圆心 (7,7)、周期 1300ms、顺时针（用户 m00844 纠正过方向）、弧长 0.28~0.44
+ *           呼吸、头段 40%、尾段衰减 [0.85, 0.6, 0.38]、角速度调制 0.1；每帧重写四段 d，
+ *           不用 CSS 旋转、不用 dashoffset；不许再有 tail span / ghost / 螺旋几何
+ *   acc.3   不预绘：图元只有 g/path，没有 dasharray 环、没有渐变、没有滤镜 */
 checks.check('css.18', 'the accretion flow binds to the running spinner and nothing else', () => {
   const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
   if (!/svg\[data-state='ongoing'\][^{}]*>\s*g:not\(\.uni-acc\)[^{}]*\{[^}]*display:\s*none/.test(sheet)) {
     return 'the official ring is still visible, so the icon reads as a loading circle'
   }
   /* 藏官方那层的前提是「我们那组已经挂上来」（:has(> g.uni-acc)）：否则脚本没跑起来、
-     或者还没 attach 的那一帧，环被藏了而我们的点还没画，那一格直接是空的。 */
+     或者还没 attach 的那一帧，环被藏了而我们的弧带还没画，那一格直接是空的。 */
   if (!/:has\(> g\.uni-acc\)/.test(sheet)) {
     return 'the ring is hidden before the accretion group exists, which blanks the icon'
   }
@@ -315,28 +322,108 @@ checks.check('css.18', 'the accretion flow binds to the running spinner and noth
     return 'the svg paints a centre again: the gravity centre must stay invisible'
   }
   if (/--uni-acc-core/.test(sheet)) return 'a core token survived the removal'
-  if (!/svg\[data-state='ongoing'\] \.uni-acc-dot[^{}]*\{[^}]*fill:/.test(sheet)) {
-    return 'the dot has no paint of its own'
+  /* 弧带本体：无填充、圆头、有描边与笔宽。缺任何一条，16px 格里就退化成一条方头细线。 */
+  if (!/svg\[data-state='ongoing'\] \.uni-acc-arc[^{}]*\{[^}]*fill:\s*none/.test(sheet)) {
+    return 'the arc is filled, so it reads as a pie slice instead of a trail'
   }
-  /* 六段＝六个年龄段：每段都要有自己的笔宽，缺一段尾巴就会在接缝处断掉。亮度第五十七轮
-     搬到 accretion.js（最老那段要在退场时升到留底亮度），所以这里只钉笔宽，亮度改由
-     acc.2 与 A4 钉。 */
+  if (!/svg\[data-state='ongoing'\] \.uni-acc-arc[^{}]*\{[^}]*stroke:\s*var\(--uni-acc-trail\)/.test(sheet)) {
+    return 'the arc has no colour of its own'
+  }
+  if (!/svg\[data-state='ongoing'\] \.uni-acc-arc[^{}]*\{[^}]*stroke-linecap:\s*round/.test(sheet)) {
+    return 'the arc has square ends, so its head is not the one round subject the user asked for'
+  }
+  if (!/svg\[data-state='ongoing'\] \.uni-acc-arc[^{}]*\{[^}]*stroke-width/.test(sheet)) {
+    return 'the arc has no width'
+  }
+  /* 头亮尾淡（用户 m00698 选 B）：头段换亮色且更粗，尾段细一档。 */
+  if (!/svg\[data-state='ongoing'\] \.uni-acc-arc-head[^{}]*\{[^}]*stroke:\s*var\(--uni-acc-dot\)/.test(sheet)) {
+    return 'the head segment does not use the bright dot token'
+  }
+  if (!/svg\[data-state='ongoing'\] \.uni-acc-arc-head[^{}]*\{[^}]*stroke-width:\s*1\.3/.test(sheet)) {
+    return 'the head segment is not thicker than the tail'
+  }
+  if (!/svg\[data-state='ongoing'\] \.uni-acc-arc-tail[^{}]*\{[^}]*stroke-width:\s*1\b/.test(sheet)) {
+    return 'the tail segment has no thinner width'
+  }
+  /* 留底亮度（第五十七轮）与六段尾迹（第五十三轮）是螺旋时代的产物：弧带是闭合环上的一段，
+     没有「换轮」这回事，两条都必须已经消失。 */
+  if (/--uni-acc-floor/.test(sheet)) return 'the hand-off floor survived: the arc band has no seam to mask'
   for (const part of ['t0', 't1', 't2', 't3', 't4', 't5']) {
-    const rule = new RegExp("svg\\[data-state='ongoing'\\] \\.uni-acc-" + part + '[^{}]*\\{[^}]*stroke-width')
-    if (!rule.test(sheet)) return 'the ' + part + ' tail segment has no width'
+    if (new RegExp("\\.uni-acc-" + part + "\\b").test(sheet)) {
+      return 'the ' + part + ' tail segment survived the move to a single arc'
+    }
   }
-  /* 第五十七轮（用户 m01091「光点消失到再出现会有一瞬间全黑」）：盒子放到 16px，并留下一档
-     亮度让两头接上。两条都必须是样式表里的显式声明 —— 少了 width/height 盒子仍是官方 14px，
-     少了留底就退回每轮归零、中间那 180ms 还是黑的。 */
+  if (/\.uni-acc-dot\s*\{/.test(sheet)) return 'a separate dot rule survived: the arc band is the dot now'
+  /* 盒子：官方那枚 svg 是 14px，第五十七轮提到 16px（用户 m01092）。 */
   if (!/svg\[data-state='ongoing'\]\s*\{[^}]*width:\s*16px/.test(sheet)) {
     return 'the running box never grew to 16px, so the mark is still smaller than the official ring'
   }
-  if (!/--uni-acc-floor:\s*\.34/.test(sheet)) return 'the dark-mode floor is gone: the cycle dies to black again'
-  if (!/body:not\(\[data-ds-dark-theme\]\)\s*\{[^}]*--uni-acc-floor:\s*\.42/.test(sheet)) {
-    return 'the light-mode floor is missing, so the hand-off blinks on a pale background'
-  }
   if (/data-state='(pending|warning|done|error)'\][^{}]*\{[^}]*uni-acc/.test(sheet)) {
     return 'the accretion layer leaked onto another state'
+  }
+  /* 亮档弧带绿（2026-11-02 第七十六轮，用户 m00875：「找一个对比度更高的绿色」）。
+     亮档不再直接继承宿主那枚灰绿，而是在它上面做 oklch 派生（css.8 不许主题自造字面色
+     值）。派生值没法用一个 hex 去钉，所以这里按 tokens.json 的宿主亮档值把公式真算一遍，
+     再用 WCAG 公式量对比度：公式被改成更浅、更低彩度或更黄的绿，这里就红。 */
+  if (!/body:not\(\[data-ds-dark-theme\]\)\s*\{[^}]*--uni-acc-dot:\s*oklch\(from var\(--dsw-alias-state-success-primary\)/.test(sheet)) {
+    return 'the light-mode arc green is not pinned: light still inherits the faded host success token'
+  }
+  const lightFormula = /oklch\(from var\(--dsw-alias-state-success-primary\)\s*([\d.]+)\s*calc\(c \* ([\d.]+)\)\s*h\)/.exec(sheet)
+  if (!lightFormula) return 'the light-mode arc colour is no longer an oklch derivation of the host green'
+  if (!new RegExp('--uni-acc-trail:\\s*oklch\\(from var\\(--dsw-alias-state-success-primary\\)\\s*' +
+    lightFormula[1] + '\\s*calc\\(c \\* ' + lightFormula[2] + '\\)\\s*h\\)').test(sheet)) {
+    return 'the light-mode head and trail ended up as different colours'
+  }
+  if (!/body\s*\{[^}]*--uni-acc-dot:\s*var\(--dsw-alias-state-success-primary\)/.test(sheet)) {
+    return 'dark lost its host success token: the dark palette is frozen and must keep reading the alias'
+  }
+  const lin = (v) => {
+    const c = v / 255
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  }
+  const toRgb = (hex) => {
+    const n = parseInt(hex.slice(1), 16)
+    return [n >> 16 & 255, n >> 8 & 255, n & 255]
+  }
+  const oklchOf = (hex) => {
+    const [r, g, b] = toRgb(hex).map(lin)
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+    const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+    const A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+    const B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+    return [L, Math.hypot(A, B), Math.atan2(B, A)]
+  }
+  const srgbOf = (L, C, H) => {
+    const a = C * Math.cos(H)
+    const b = C * Math.sin(H)
+    const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3)
+    const m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3)
+    const s = Math.pow(L - 0.0894841775 * a - 1.2914855480 * b, 3)
+    return [
+      4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+    ].map((c) => {
+      const v = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055
+      return Math.round(Math.min(1, Math.max(0, v)) * 255)
+    })
+  }
+  const lum = (rgb) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
+  const contrast = (a, b) => {
+    const x = lum(a)
+    const y = lum(b)
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+  }
+  const hostGreen = TOKENS['--dsw-alias-state-success-primary'].light
+  const hostOklch = oklchOf(hostGreen)
+  const derived = srgbOf(parseFloat(lightFormula[1]), hostOklch[1] * parseFloat(lightFormula[2]), hostOklch[2])
+  for (const bg of ['#f9fafc', '#eff2f5', '#e8ebef']) {
+    const measured = contrast(derived, toRgb(bg))
+    if (measured < 4.5) {
+      return 'the light-mode arc green only reaches ' + measured.toFixed(2) + ':1 on ' + bg + ' (WCAG AA needs 4.5)'
+    }
   }
   return true
 })
@@ -349,92 +436,106 @@ checks.check('acc.1', 'the sampler rides the paint layer effect and leaves with 
 })
 checks.check('acc.2', 'the sampler carries the numbers the user approved', () => {
   const want = [
+    /* 用户 m00704 定稿：周期 1300ms（pending 是 2600ms，同一格两个状态速度不同才好区分）。 */
     ['UNI_ACC_CYCLE', '1300'],
-    /* 第五十四轮（用户 m00896 选 A）：「又小又细」→ 外半径 5 → 6.2、点直径 1.8 → 2.2。
-       第五十五轮（用户 m00986、m00990 选 A）：中心不再有暗核，落点收到 1.0 ——
-       没有实体挡在中心，点要一直落到虚空里再熄灭。 */
-    ['UNI_ACC_R0', '6.2'],
-    ['UNI_ACC_R1', '1'],
-    ['UNI_ACC_DOT', '1.1'],
-    /* 第五十五轮（用户 m00999 选 B）：级联熄灭。0.8 起收，最老那段错开 45% 才起步。 */
-    ['UNI_ACC_FADE_FROM', '0.8'],
-    ['UNI_ACC_FADE_STAGGER', '0.45'],
-    ['UNI_ACC_BANDS', '6'],
-    /* 第五十七轮（用户 m01092 选 A）：盒子 14 → 16px，整套几何乘 16/14。 */
+    /* 圆 R = 5.6、圆心 (7,7)：屏幕半径 6.4px、直径 12.8px，与官方那枚 r=9.5 同量级。 */
+    ['UNI_ACC_RING', '5.6'],
+    ['UNI_ACC_CX', '7'],
+    ['UNI_ACC_CY', '7'],
+    /* 弧长呼吸 0.28 ~ 0.44 圈（用户 m00695「允许」）。定长就是 spinner 换皮，所以这是必需的。 */
+    ['UNI_ACC_ARC_MIN', '0.28'],
+    ['UNI_ACC_ARC_MAX', '0.44'],
+    /* 头段占 40%（用户 m00698 选 B：头亮尾淡，尾到 0.38）。 */
+    ['UNI_ACC_HEAD', '0.4'],
+    /* 角速度每圈两次微加速 ±10%（用户 m00695）。 */
+    ['UNI_ACC_WOBBLE', '0.1'],
     ['UNI_ACC_BOX', '16'],
-    /* 第六十一轮（用户 m01594 选 A）：旧一代不再额外乘系数，直接沿用自己收尾时的逐段亮度，
-       收尾系数是 UNI_ACC_END。第六十二轮（m01745）拿掉停在中心的那颗点，只留住形状的
-       交接层，所以 UNI_ACC_HANDOFF 那个「点留多久」的窗口也一并消失。 */
-    ['UNI_ACC_END', '0.35']
+    ['UNI_ACC_SAMPLES', '8'],
+    ['UNI_ACC_TAIL_SAMPLES', '6'],
+    ['UNI_ACC_STILL_T', '0.22']
   ]
   for (const [name, value] of want) {
     const found = new RegExp('var ' + name + ' = ([0-9.]+)').exec(accretionJs)
     if (found === null) return name + ' is not declared'
     if (Number(found[1]) !== Number(value)) return name + ' is ' + found[1] + ', the spec says ' + value
   }
-  /* 第五十七轮：年龄段亮度表与留底兜底值都在 JS 里，而且有效亮度必须走 bandAlpha ——
-     最老那段要抬到 floor，用「年龄亮度 × 级联权重」那条路算不出来。 */
-  if (!/var UNI_ACC_AGE = \[0\.55, 0\.34, 0\.2, 0\.12, 0\.07, 0\.04\]/.test(accretionJs)) {
-    return 'the age ramp is not the one that was shipped'
+  /* 尾段三档衰减必须逐字一致：0.85 / 0.6 / 0.38 —— 头亮尾淡的「淡」全靠这张表。 */
+  if (!/var UNI_ACC_TAIL_DECAY = \[0\.85, 0\.6, 0\.38\]/.test(accretionJs)) {
+    return 'the tail decay ramp is not the one that was agreed'
   }
-  if (!/function uniAccretionBandAlpha\(index, death\)/.test(accretionJs)) {
-    return 'the band alpha helper is gone, so the tail cannot be dimmed evenly'
+  /* 相位重映射：θ(t) = 2π(t − w·sin(4πt)/(4π))，导数恒正、一圈闭合。 */
+  if (!/function uniAccretionTurn\(t\)/.test(accretionJs)) return 'the phase remap is gone'
+  if (!/return w - UNI_ACC_WOBBLE \* Math\.sin\(4 \* Math\.PI \* w\) \/ \(4 \* Math\.PI\)/.test(accretionJs)) {
+    return 'the two-per-turn acceleration is not the agreed formula'
   }
-  if (!/uniAccretionBandAlpha\(i, death\)/.test(accretionJs)) {
-    return 'draw never calls the band alpha helper'
+  /* 弧长：MID + SWING·cos(2πt)，每圈呼吸一次。 */
+  if (!/function uniAccretionSpan\(t\)/.test(accretionJs)) return 'the breathing span is gone'
+  if (!/return UNI_ACC_ARC_MID \+ UNI_ACC_ARC_SWING \* Math\.cos\(2 \* Math\.PI \* t\)/.test(accretionJs)) {
+    return 'the span no longer breathes once per turn'
   }
-  /* 用户 m01544「走过的轨迹会突然亮一下再变暗」：留底不能是抬升。收尾只能把每段按自身
-     亮度等比压暗（乘 UNI_ACC_END 到 1 之间的系数），任何一段都不许被抬起。 */
-  if (/UNI_ACC_AGE\[pick\] \+ /.test(accretionJs)) {
-    return 'a band is lifted by an additive floor again, so the trail brightens as the dot lands'
+  /* 整体亮度 0.75 ~ 1，跟着弧长走。 */
+  if (!/function uniAccretionGlow\(span\)/.test(accretionJs)) return 'the glow ramp is gone'
+  if (!/return 0\.75 \+ 0\.25 \* k/.test(accretionJs)) return 'the glow no longer rides the span'
+  /* 顺时针（用户 m00844「方向反了！现在是逆时针，改成顺时针」）：头端角度递增。 */
+  if (!/function uniAccretionHeadAngle\(t\)/.test(accretionJs)) return 'the head angle helper is gone'
+  if (!/return -Math\.PI \/ 2 \+ Math\.PI \* 2 \* uniAccretionTurn\(t\)/.test(accretionJs)) {
+    return 'the arc no longer runs clockwise, which is the direction the user asked for'
   }
-  if (!/var left = UNI_ACC_END \+ \(1 - UNI_ACC_END\) \* uniAccretionWeight\(death, rank\)/.test(accretionJs)) {
-    return 'the end-of-cycle factor is not proportional to each band brightness'
+  if (!/function uniAccretionArc\(from, to, steps\)/.test(accretionJs)) return 'the arc sampler is gone'
+  if (!/function uniAccretionPath\(points\)/.test(accretionJs)) return 'the polyline writer is gone'
+  if (!/function uniAccretionSegments\(t\)/.test(accretionJs)) return 'the segment splitter is gone'
+  /* 四段：一段头 + 三段尾；头段满亮，尾段乘衰减表。 */
+  if (!/alpha: glow\n/.test(accretionJs.replace(/\r/g, ''))) return 'the head segment lost its own alpha'
+  if (!/alpha: glow \* UNI_ACC_TAIL_DECAY\[i\]/.test(accretionJs)) {
+    return 'the tail segments no longer follow the decay ramp'
   }
-  /* 用户 m01217「还是有一瞬的全黑」：尾巴留底不够，点本身也在 rank 0 上归零，于是收尾那
-     一百多毫秒里屏幕上只剩最外一小段暗弧。点必须两头都压在 floor 上，与尾巴分开放。 */
-  if (!/function uniAccretionDotAlpha\(u, death, floor\)/.test(accretionJs)) {
-    return 'the dot has no floor of its own, so it still blinks out before it lands'
+  /* 单一主体：图元是一个缩放组 + 四条 path，没有 circle、没有第二个点。 */
+  if (!/class: 'uni-acc', transform: 'scale\(' \+ UNI_ACC_K \+ '\)'/.test(accretionJs)) {
+    return 'the scaled group is not the one that was agreed'
   }
-  if (!/row\.dot\.style\.opacity = uniAccretionDotAlpha\(u, death, floor\)/.test(accretionJs)) {
-    return 'draw still kills the dot with the cascade weight'
+  if (/'uni-acc-arc uni-acc-arc-head'/.test(accretionJs) === false) return 'the head path has no class of its own'
+  if (/'uni-acc-arc uni-acc-arc-tail'/.test(accretionJs) === false) return 'the tail paths have no class of their own'
+  if (/createElementNS\(SVG_NS, 'circle'\)/.test(accretionJs)) return 'a separate dot is back: the arc band is the subject'
+  /* 每帧重写 d 与 stroke-opacity，不用 CSS 旋转、不用 dashoffset。 */
+  if (!/row\.arcs\[i\]\.setAttribute\('d', uniAccretionPath\(uniAccretionArc\(segment\.from, segment\.to, segment\.steps\)\)\)/.test(accretionJs)) {
+    return 'the frame never recomputes the geometry'
   }
-  /* 用户 m01308「没有连贯感、还是有中断」+ 第六十轮（用户 m01412「看起来突然从内圈跳到外圈」）：
-     交接层一项顶两件事 —— 上一轮走完的整条曲线（几何写死）盖住「几何清零」那一帧，同时让
-     旧一代陪新点走一小段，单粒子交接才不是瞬移。第六十一轮（m01594 选 A）把它做成两层共用
-     一条曲线：原来的整曲线残影路径删掉，交接层逐段沿用自己收尾时的亮度。 */
-  if (!/function uniAccretionHandoffAlpha\(index, u\)/.test(accretionJs)) {
-    return 'the hand-off layer lost its per-band alpha, so the seam jumps'
+  if (!/row\.arcs\[i\]\.setAttribute\('stroke-opacity', segment\.alpha\.toFixed\(3\)\)/.test(accretionJs)) {
+    return 'the frame never writes the per-segment brightness'
   }
-  if (!/return uniAccretionBandAlpha\(index, 1\) \* left \* left/.test(accretionJs)) {
-    return 'the hand-off bands no longer start from the brightness they ended on'
+  if (/stroke-dasharray/.test(accretionJs)) return 'the arc is faked with dashes again'
+  if (/setAttribute\('transform'/.test(accretionJs)) return 'the arc is spun by a transform instead of by its geometry'
+  /* 兜底帧：只画一帧静态弧带，不跑时间轴。 */
+  if (!/paint\(row, UNI_ACC_STILL_T\)/.test(accretionJs)) return 'the still frame no longer uses the fixed phase'
+  /* 螺旋时代的机制必须全部消失 —— 它们存在的唯一理由是给开口曲线的终点打掩护。
+     任何一条回来，都说明有人又把「点从中心消失又在外圈出现」那条路修回来了。 */
+  for (const dead of [
+    'UNI_ACC_TAIL_SPAN',
+    'UNI_ACC_TAIL_FROM',
+    'UNI_ACC_TAIL_GROW',
+    'UNI_ACC_DOT_DIM',
+    'UNI_ACC_STAGGER',
+    'UNI_ACC_AGE',
+    'UNI_ACC_FADE_FROM',
+    'UNI_ACC_BORN',
+    'UNI_ACC_R0',
+    'UNI_ACC_R1',
+    'UNI_ACC_END',
+    'UNI_ACC_RESIDUE_FADE',
+    'uni-acc-ghost',
+    'uniAccretionRemnant',
+    'uniAccretionHandoffAlpha',
+    'uniAccretionBandAlpha',
+    'uniAccretionDotAlpha',
+    'uniAccretionTrail'
+  ]) {
+    if (new RegExp('\\b' + dead + '\\b').test(accretionJs)) {
+      return dead + ' came back, which means the open-ended spiral is back too'
+    }
   }
-  if (!/row\.ghostTails\[i\]\.setAttribute\('stroke-opacity', uniAccretionHandoffAlpha\(i, u\)\.toFixed\(3\)\)/.test(accretionJs)) {
-    return 'paintHandoff never drives the hand-off bands'
-  }
-  /* 用户 m01745：「去掉绿点到达终点后在中心位置闪一下的绿点」。交接层只准留形状 ——
-     那颗停在正中的点必须彻底不再存在，否则它读作第二颗粒子。 */
-  if (/uniAccretionHandoffDot/.test(accretionJs)) return 'the hand-off dot came back to the centre'
-  if (/UNI_ACC_HANDOFF/.test(accretionJs)) return 'a hand-off window for a dot that no longer exists survived'
-  if (/ghostDot/.test(accretionJs)) return 'a circle is still appended to the hand-off layer'
-  if (!/class: 'uni-acc-ghost'/.test(accretionJs)) return 'the hand-off group is never attached'
-  if (/uni-acc-residue/.test(accretionJs)) return 'the separate residue path survived the merge'
-  if (/uni-acc-residue/.test(css)) return 'the residue layer still has a rule in the stylesheet'
-  /* 交接层不许「此消彼长」也不许被整组乘子二次压暗：亮度只能减，且减在逐段上。 */
-  if (/row\.ghost\.style\.opacity = /.test(accretionJs)) {
-    return 'the hand-off group is dimmed as a whole again, so its bands no longer match the last frame'
-  }
-  /* 第五十五轮（用户 m00993 选 B）：1.25 圈 → 1.5 圈。落程从 3.8 涨到 5.2，圈数不加
-     则相邻两趟的径向间隔会松到读不成螺旋。 */
-  if (!/Math\.PI \* 2 \* 1\.5/.test(accretionJs)) return 'the 540-degree total turn is missing'
-  if (/Math\.PI \* 2 \* 1\.25/.test(accretionJs)) return 'the old 450-degree turn is back'
-  /* 第二稿的要害：尾巴量到出生点为止，不许再出现「往回走固定 4px」那种截断。 */
-  if (!/uniAccretionAt\(0\)/.test(accretionJs)) return 'the trail never reaches u = 0'
-  if (/UNI_ACC_TAIL\b/.test(accretionJs)) return 'the fixed-length tail is back'
-  /* 兜底帧不再只截 2px：静态形态要能读出整条向内收紧的螺旋。 */
-  if (/UNI_ACC_STILL_TAIL/.test(accretionJs)) return 'the still frame is back to a stub tail'
   return true
 })
+
 checks.check('acc.3', 'nothing is pre-drawn: no ring, no spiral, no glow', () => {
   if (/data-state='ongoing'\][^{}]*\{[^}]*stroke-dasharray/.test(css)) {
     return 'a dashed ring is back in the running state'
@@ -531,9 +632,15 @@ checks.check('css.7', 'every selector in theme.css is body/:root/#root, a body p
 })
 checks.check('css.8', 'theme.css invents no colour of its own', () => {
   /* Every colour in the sheet must come from a token or be `transparent`; a literal
-   * hex would be a second source of truth for a colour the token layer owns. */
+   * hex would be a second source of truth for a colour the token layer owns.
+   *
+   * 唯一豁免（2026-11-01 第七十二轮）：置顶标题的「星云流光」四色渐变。那四枚色是
+   * 用户给定的外部色值规范（精确到 hex），而令牌层装不下它 —— tok.1 钉死 53 项、
+   * tok.6 要求令牌名以 --dsw-/--ds-/--dsh- 开头。豁免窄到一条声明：只有
+   * `--uni-pin-flow` 的取值里允许字面量，别的位置写 hex 仍然报错。 */
   const withoutComments = paintCss.replace(/\/\*[\s\S]*?\*\//g, '')
-  const literals = withoutComments.match(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/g) ?? []
+  const scanned = withoutComments.replace(/--uni-pin-flow\s*:[^;}]*/g, '')
+  const literals = scanned.match(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/g) ?? []
   return literals.length === 0 || `literal colours: ${literals.join(', ')}`
 })
 checks.check('css.9', 'the shell rescue empties rather than recolours', () => {
@@ -1084,10 +1191,15 @@ checks.check('cli.11d', 'the client half owns exactly ten effects including the 
 const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, '')
 checks.check('glass.1', 'the sheet names the liquid-glass filters the client half builds', () => {
   const named = [...new Set([...cssRules.matchAll(/url\(#(uni-lg-[a-z-]+)\)/g)].map((m) => m[1]))]
-  /* One since C1: the six guide entries in the right column. Pinned rather than left
-     open — a further surface must come with its own declared intent. */
-  if (named.length !== 1) {
-    return `${named.length} liquid-glass filter ids in the sheet, expected 1`
+  /* Five since 2026-11-02: the guide's six right-column entries, the composer card
+     again after the user asked for the refraction back by name (D107), the
+     edited-files card after he asked for its base colour to become glass, the
+     queued-message panel once it stopped being fused to the composer card, and the
+     deliverable card after he asked for its preview button's base colour to go.
+     Pinned rather than left open — a further surface must come with its own
+     declared intent. */
+  if (named.length !== 5) {
+    return `${named.length} liquid-glass filter ids in the sheet, expected 5`
   }
   for (const id of named) {
     if (!clientJs.includes(`'${id}'`)) {
@@ -1095,20 +1207,24 @@ checks.check('glass.1', 'the sheet names the liquid-glass filters the client hal
     }
   }
   const built = [...new Set([...clientJs.matchAll(/id: '(uni-lg-[a-z-]+)'/g)].map((m) => m[1]))]
-  /* Two always: the composer card's filter is unused by the sheet yet must stay
-     constructed, or restoring C1's two CSS lines would land on a filter that is gone. */
+  /* Five always: the composer card's filter must stay constructed even while the
+     sheet leaves it out, or restoring C1's two CSS lines would land on a filter that
+     is gone; the edited-files card, the queued-message panel and the deliverable card
+     are the third, fourth and fifth consumers. */
   if (!built.includes('uni-lg-input')) {
     return 'src/client.js no longer builds uni-lg-input, so C1 has no rollback path'
   }
-  if (built.length !== 2) {
-    return `src/client.js builds ${built.length} glass filters, expected 2 (input + guide)`
+  if (built.length !== 5) {
+    return `src/client.js builds ${built.length} glass filters, expected 5 (input + guide + card + panel + deliverable)`
   }
   return true
 })
 checks.check('glass.2', 'every url() filter keeps its blur-only fallback in front of it', () => {
   const rules = cssRules.split('}').filter((rule) => rule.includes('url(#uni-lg-'))
-  /* The guide's rule only, since C1 dropped the composer card's url() line. */
-  if (rules.length !== 1) return `${rules.length} rules name a url() glass filter, expected 1`
+  /* Six since 2026-11-02: the guide's rule, the composer card's resting rule, its
+     hover rule that pushes the same filter thicker, the edited-files card, the
+     queued-message panel, and the deliverable card. */
+  if (rules.length !== 6) return `${rules.length} rules name a url() glass filter, expected 6`
   for (const rule of rules) {
     for (const prop of ['backdrop-filter', '-webkit-backdrop-filter']) {
       const blur = rule.indexOf(`${prop}: blur(`)

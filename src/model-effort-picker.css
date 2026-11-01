@@ -390,8 +390,12 @@
   z-index: -1;
   border-radius: inherit;
   background: var(--dsw-menu-surface-fill);
-  -webkit-backdrop-filter: var(--dsw-menu-backdrop-filter);
-  backdrop-filter: var(--dsw-menu-backdrop-filter);
+  /* 2026-11-01（D107 ①）：用户点名「把弹层降到卡片的厚度」。这块面板是从输入卡的模型
+     按钮弹出来的，原来直接吃 `--dsw-menu-backdrop-filter`（本主题定成 20px/130%），
+     比装它的那张卡厚五倍。改成与卡片同一个材质参数 —— `--cp-glass-composer` 定义在
+     body 上，面板 portal 到 body 之后仍然继承得到；饱和也从 130% 提到卡片的 135%。 */
+  -webkit-backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
+  backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
   pointer-events: none;
 }
 

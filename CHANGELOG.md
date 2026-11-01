@@ -8,6 +8,91 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Added
 
+- **亮档弧带换成更高对比度的绿（2026-11-02 第七十六轮）。** 用户逐字：「再优化一下亮色下
+  的配色，现在不够显眼，应该也是对比度不够的原因，找一个对比度更高的绿色」。量下来，亮档
+  继承的宿主 `--dsw-alias-state-success-primary` 是 `#397949`（oklch 0.521 0.100 150），
+  对 `#f9fafc` 有 5.02:1，但它是一枚**灰绿**：彩度只有 0.10，再乘上弧带自己的
+  `stroke-opacity`（三尾段 0.85 / 0.6 / 0.38 × 呼吸 0.75~1）之后，在 `#e8ebef` 那类偏灰
+  的浅底上只剩 4.38:1，1.3px 的弧就糊了。`css.8` 不许主题自造字面色值，所以不改 hex，
+  而是在宿主绿上做 oklch 派生：`body:not([data-ds-dark-theme])` 里把 `--uni-acc-dot` 与
+  `--uni-acc-trail` 一起换成
+  `oklch(from var(--dsw-alias-state-success-primary) 0.48 calc(c * 1.5) h)` —— 明度
+  0.521 → 0.48、彩度 ×1.5（0.100 → 0.150）、色相不动，派生结果约 `#007329`：仍是同一支
+  绿，更深更饱和。实测对比度从 `#f9fafc` 5.02 → 5.77、`#eff2f5` 4.67 → 5.36、
+  `#e8ebef` 4.38 → 5.04，三档全部过 WCAG AA 4.5:1。暗档一个字节都没动：`body` 里仍读宿主
+  令牌，深底上那枚 `#7fcc94` 本来就有 7:1 以上，且 `dark.2` 钉住每一个暗档值。门禁：
+  `selfcheck` 的 `css.18` 新增「亮档派生公式 + 头尾同色 + 暗档仍读宿主令牌」三条断言，
+  并按 `src/tokens.json` 的宿主亮档值把 oklch 公式真算一遍、用 WCAG 公式量三档浅底都
+  ≥ 4.5:1（公式被改浅、改灰或改黄就红）—— 120 断言全绿；`npm test` 五套 83 通过；
+  `client.js` 重建 188311 chars（boot mark `uni-boot/9b6ba813`），`build-client --check`
+  与 src 一致。
+
+- **会话行 running 从螺旋吸积流改成日冕弧带（2026-11-02 第七十五轮）。** 用户逐字：
+  「感觉还是螺旋结构的问题，只有完整的圆才能实现连续」，随后在 grilling 里把判据钉成两条
+  （m00676 选 C）：位置连续（单一主体、逐帧不瞬移）**且**形状连续（轮廓任何时刻都不断口、
+  不重新起笔）；m00685 同意「放弃开口形态，但要是宇宙主题」。这两条判掉了整条吸积流 ——
+  螺旋是开口曲线，外圈 `r = 6.2` 与中心 `r = 1` 相距 5.2px，单主体走完一轮必须跨过这段位移，
+  而淡入淡出、静止交接层、会动的 ghost、双流相位交错都只能盖住亮度，盖不住位移（m00682）。
+  于是这一格换成**闭合圆环上的一段弧带**：`UNI_ACC_RING = 5.6`、圆心 `(7,7)`、周期
+  `UNI_ACC_CYCLE = 1300`、顺时针（m00844「方向反了！现在是逆时针，改成顺时针」纠正过方向，
+  头端角度改成 `−π/2 + 2π·turn(t)`）；弧长在 `0.28 ~ 0.44` 圈之间每圈呼吸一次
+  （`UNI_ACC_ARC_MIN / MAX`，用户 m00695 允许），整体亮度 `0.75 + 0.25·k` 跟着呼吸走；
+  头段占 40%、三尾段各乘 `[0.85, 0.6, 0.38]`（m00698 选 B：头亮尾淡）；角速度每圈两次微加速
+  `θ(t) = 2π(t − 0.1·sin(4πt)/(4π))` —— 匀速定长弧就是官方 spinner 换皮，变速与呼吸是
+  这一格与默认 loading 的唯一分界。弧带本身即主体，头端 round cap 收成圆头，不再另画
+  `circle`；每帧重写四段 `d` 与 `stroke-opacity`，不用 CSS 旋转、不用 `dashoffset`。
+  删除：六段尾迹（`uni-acc-t0~t5`）、`uni-acc-ghost` 交接层、`uniAccretionRemnant`、
+  双流（`UNI_ACC_STAGGER` / `UNI_ACC_DOT_DIM` / `UNI_ACC_TAIL_SPAN` / `UNI_ACC_AGE` /
+  `UNI_ACC_BORN` / `UNI_ACC_FADE_FROM` / `uniAccretionDotAlpha` / `uniAccretionBandAlpha`）——
+  它们存在的唯一理由是给开口曲线的终点打掩护。`src/theme.css` 同步改：`.uni-acc-dot` 的
+  fill、六段 `t0~t5` 的笔宽、`--uni-acc-floor`（.34 / 亮档 .42）与「留底亮度」注释全部删除，
+  换成 `.uni-acc-arc`（无填充 / 圆头 / 1.15 笔宽）、`.uni-acc-arc-head`（亮色 + 1.3）、
+  `.uni-acc-arc-tail`（1.0）三条规则；官方那两枚 `r = 9.5` 的圆仍只在 `:has(> g.uni-acc)`
+  成立时隐藏，盒子仍是 16px。门禁：`selfcheck` 的 `css.18` 与 `acc.2` 整段重写（钉 RING /
+  CX / CY / CYCLE / ARC_MIN / ARC_MAX / HEAD / WOBBLE / TAIL_DECAY / STILL_T，逐条钉
+  `turn` / `span` / `glow` / `head` / `arc` / `path` / `segments`，并反向断言 18 个旧机制名字
+  一个都不许回来），120 断言全绿；`npm test` 的 Accretion 套件 A1~A15 整段重写（闭环几何、
+  四段首尾相接、头段 40% 弧长误差 < 1%、逐帧头端位移 < 0.6 设计单位、reduced-motion 只画一帧
+  且不留 RAF 循环），五套 83 通过；`client.js` 重建 188103 chars（boot mark `uni-boot/f3f0ba73`），
+  `build-client --check` 与 src 一致。
+
+- **交接层改成会动的 ghost：上一代尾迹每帧向中心收缩（2026-11-01 第七十四轮）。** 用户逐字：
+  「采用方案 3：回到单流，并用会动的 ghost；换轮时那 0.25 轮里，上一代尾迹每帧重新计算，
+  并持续向中心收缩，屏幕上始终只显示一颗点」。双流那条路（相位交错两颗点）整条撤掉，回到
+  单流；接缝不再靠一张静止快照顶着 —— `uniAccretionGhostD` 的缓存几何与 `UNI_ACC_GHOST_D`
+  一起删除，新增 `uniAccretionRemnant(tail)`：从落点 `u = 1` 采回到 `tail`，窗口内
+  `tail = u / UNI_ACC_RESIDUE_FADE` 从 0 涨到 1，六段 `d` 与 `stroke-opacity` 每帧一起重写，
+  于是外端持续往中心收、窗口走完退成一个点、整层 `display: none`。
+  逐段亮度仍是 `uniAccretionBandAlpha(i, 1)` 起淡（只减不增，接缝逐段相等），中心仍然不画点。
+  门禁：`acc.2` 增钉 `uniAccretionRemnant(tail)`、`uniAccretionRemnant(u / UNI_ACC_RESIDUE_FADE)`、
+  每帧重写 `d`，并反向断言 `UNI_ACC_GHOST_D` 不许回来；A7 改成验证「窗口第一帧仍是 u = 1 的
+  整条曲线、外端随 tail 单调收缩、tail = 1 退成零长」，新增 A15 在挂载动画里验证「窗口内总长
+  变短、窗口外整层收掉」；`npm test` 82 通过，`build-client --check` 与 src 一致。
+
+- **交接窗口收窄（2026-11-01 第七十三轮）。** 用户逐字：「先改动 UNI_ACC_RESIDUE_FADE
+  我看看，不行再让 ghost 也动起来。」`UNI_ACC_RESIDUE_FADE` 0.55 → 0.32：残影层原本要
+  陪新一轮的点走到中途（约 715ms）才散，同屏两条螺旋的时长够长到读成「两个不同的螺旋」；
+  收到 0.32（约 416ms）后旧图在新尾迹长到中段之前退干净，终点只剩一条完整螺旋、一个头。
+  交接层仍是静止快照，只改淡出长度，不动架构。门禁：`selfcheck` 的 `acc.2` 增钉
+  `UNI_ACC_RESIDUE_FADE = 0.32`（120 断言全绿）；`npm test` 里交接窗口的区间断言
+  （`0.3 < fade < 0.8`）与 `hand(i, fade) === 0` 边界仍成立，82 通过；
+  `build-client --check` 与 src 一致。
+
+- **会话行 running 的吸积流补齐出生段与体积变化（2026-11-01 第七十二轮）。** 用户逐字：
+  「修复 uniAccretionDotAlpha 在 u = 0 和 u = 1 时的非零硬跳变……当 u = 0.06（仅 78ms）时，
+  外圈光点就已经 100% 满亮了，太快了，像闪现一样。」三条：① `UNI_ACC_BORN` 0.06 → 0.18
+  （约 234ms），出生段变慢，光点从外圈缓缓凝聚出来；② `draw()` 新增出生包络
+  `birthEnv = u < UNI_ACC_BORN ? u / UNI_ACC_BORN : 1`，六段尾巴的 `stroke-opacity` 改成
+  `uniAccretionBandAlpha(i, death) × birthEnv` —— 原先只压收尾，`u = 0.01` 时外圈刚露头的 `t0`
+  就是 0.55，而内圈交接层只剩 0.19，新旧尾巴在同一帧硬切；乘上之后新周期前 234ms 是外圈渐亮、
+  内圈 ghost 渐暗的交叉淡入淡出；③ 光点半径改成
+  `UNI_ACC_DOT × (0.35 + 0.65 × birthEnv) × (1 − 0.65 × death)`：外圈从 0.35 倍长到 1 倍，
+  落进中心缩回 0.35 倍，体积与亮度一起变，位置跳变读起来轻。门禁：`selfcheck` 的 `acc.2` 增钉
+  `UNI_ACC_BORN = 0.18`、`birthEnv` 那一行、`× birthEnv` 与半径公式（仍 120 断言全绿）；
+  `npm test` 新增 A14 —— 接缝处 `t0` 掉到近零后逐帧爬回 0.55（单帧涨幅 < 0.12，不是一帧跳满），
+  半径中段回到 1.1、两端缩到 ≈ 0.385；五套 82 通过；`build-client --check` 与 src 一致
+  （191792 chars）。
+
 - **输入卡的换页转场（2026-11-01 第七十一轮）。** 用户逐字：「现在输入框在新会话页到对话页的
   转场中没有动画，是直接从原地消失然后在底部出现，我想加一个动画。」根因在宿主，不在本主题：
   新会话页靠 `[data-phase=hero] .scrollBody{justify-content:center}` 把卡片居中，对话页靠

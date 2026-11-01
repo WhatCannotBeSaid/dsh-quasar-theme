@@ -45,3 +45,18 @@ test('S1: release provenance rejects absent, stale, mismatched host or input', (
   assert.ok(evidenceProblems({...record, collectedAt:'2026-01-01'}, hashes, 'test-target', now).length)
   assert.ok(evidenceProblems(record, {...hashes, 'client.js':'changed'}, 'test-target', now).length)
 })
+/* D1（2026-11-01 第十一轮收尾二）：done 交回官方默认样式。
+ * 用户 m01130：「删除 done 全部的代码，恢复成官方默认样式。」于是主题不再有任何
+ * data-state='done' 规则，也没有 --uni-done-star 那枚非官方星色。这条断言只钉一件
+ * 事：那一节不许回来 —— 星色、16px 盒、::after 的 31.25% 都是我们改过的痕迹，任何
+ * 一条回来了，done 就和官方 StateDot 长得不一样了。 */
+test('D1: done keeps the stock StateDot — no done rule, no star colour, no build sheet', () => {
+  const css = readFileSync(join(root, 'src/theme.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  const client = readFileSync(join(root, 'client.js'), 'utf8')
+  assert.equal(css.includes("data-state='done'"), false, 'a done rule came back into the paint layer')
+  assert.equal(css.includes('uni-done'), false, 'the done variable came back')
+  assert.equal(client.includes('--uni-done-star'), false, 'the star colour came back')
+  assert.equal(client.includes('DONE_STAR_CSS'), false, 'the build wiring came back')
+  assert.equal(existsSync(join(root, 'src/done-star.css')), false, 'the star sheet came back')
+  assert.equal(client.includes('mountDoneMark'), false, 'the done JS came back')
+})

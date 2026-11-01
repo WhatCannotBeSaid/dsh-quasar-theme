@@ -156,8 +156,13 @@ body {
      不是颜色，所以它留在这一层。折射那半边不在这里：位移图必须现画（一张固定尺寸的
      图被 feImage 铺到滤镜区域上，挡板深度会随元素比例漂移），而且画的是**滤镜区域**的
      尺寸（盒外扩一个挡板）——所以由 src/client.js 挂在 url(#uni-lg-*) 上，本表只写 id
-     与兜底。4px 是实测值：14px 会把折射赖以可见的高频细节先糊掉，2px 又压不住小字。 */
-  --cp-glass-composer: 4px;
+     与兜底。4px 是实测值：14px 会把折射赖以可见的高频细节先糊掉，2px 又压不住小字。
+     **2026-11-01（D107）改成 3px**：用户点名「降低卡片的厚度，并且把弹层降到卡片的厚度」。
+     3px 是折中——这一轮同时把折射挂回来（D107 ②），「像玻璃」的读数由边缘弯折与
+     `::after` 的高光承担，模糊只需要压住小字；2px 在无折射时是实测过的下限，现在有折射
+     兜着，先落在 3px，观感不够薄再逐个往下试。弹层（菜单材质层与模型/思考档面板）同一轮
+     从 20px 拉到这个值，理由见「卡内弹层与卡片同厚」那一节。 */
+  --cp-glass-composer: 3px;
   /* 2026-10-07：`--cp-glass-menu` 已删除。命令框不再由本表给材质——用户要求
      「与任务框一致的参数」，于是本表对它的材质覆盖整条撤销，它直接吃官方那对令牌
      （`--dsw-menu-surface-fill` + `--dsw-menu-backdrop-filter`）。见下方「与任务框对齐」。 */
@@ -169,6 +174,14 @@ body {
      4px，理由相同：14px 会把折射赖以可见的高频细节先糊掉，2px 压不住小字。折射那半边
      不在本表里（见 src/client.js 的 uni-lg-guide target）。 */
   --cp-glass-guide: 4px;
+  /* 2026-11-01：编辑卡片（changed-files）的液态玻璃。与 guide 同一个 4px —— 卡片是
+     一块内容板，不是输入框，没有 D107 那种「降厚」的要求；与右栏入口卡同厚，读起来
+     是同一种材质。 */
+  --cp-glass-card: 4px;
+  /* 2026-11-02：用户消息气泡的毛玻璃。与 guide / card 同一个 4px。气泡只做材质不做
+     折射 —— 它是每条消息一个实例，数量随会话增长，每个都挂位移图会持续吃 GPU；
+     卡片与入口卡是低频的，气泡是高频的。 */
+  --cp-glass-bubble: 4px;
 }
 body[data-ds-dark-theme] {
   --cp-wall: var(--cp-pick-dark);
@@ -394,26 +407,36 @@ body[data-uni-motion='reduced'] canvas[data-uni-black-hole] {
  * ------------------------------------------------------------------------ */
 
 body {
-  /* 置顶标题的香槟金（用户 2026-10-31 给的 #E6C78F 目标 rgb(230,199,143)）。令牌表
-   * 里没有这枚色，css.8 又不许写字面量，所以从两枚既有令牌混出来：warn-secondary
-   * 本身就是这族暖金（#f0c98b），往 caption 灰里收 11.5%，从「提示用的亮金」退成
-   * 一块不那么艳的香槟。落点实测 rgb(230,197,143) —— G 通道比目标低 2/255，其余两个
-   * 通道逐字节相等；这 0.8% 的差是两色线性混色在 8 位色深下的下限（0.1% 步长扫遍
-   * 27 枚不透明令牌的两两组合，没有一个组合能精确命中），肉眼不可分。 */
+  /* 置顶标题的「星云流光」：135deg 四色线性渐变（用户 2026-11-01 第七十四轮给的精确
+   * 色值规范，逐字：
+   *   linear-gradient(135deg, #00F2FE 0%, #4FACFE 33%, #FF6B9D 66%, #FF512F 100%)）。
+   * 四个色相依次是青（187°）、天蓝（204°）、玫红（345°）、橙红（12°）—— 没有一个
+   * 落在用户当轮点名的禁区：黄（约 40–70°）、绿（约 90–160°）、紫（约 270–330°）。
+   *
+   * 为什么这里破例出现色值字面量：css.8 的原则是「本表不发明颜色，颜色归令牌层」。
+   * 这四枚是**用户给定的外部规范**，而令牌层装不下它 —— tok.1 钉死 53 项、
+   * tok.6 要求令牌名以 --dsw-/--ds-/--dsh- 开头（主题私有名进不去），改既有令牌
+   * 还会撞 DARK_TOKENS_SHA。所以 css.8 对 `--uni-pin-flow` 这一条声明开了窄豁免：
+   * 只有这条声明允许字面量，其余位置照旧禁止。换算成 oklch 一样能过门禁，但那样
+   * 表里读不到用户给的原始色值，日后核对与调整都要反算，得不偿失。
+ *
+ * 一处必须说清的偏差：四个色标自身都不在紫段，但**蓝与玫红之间的插值必然穿过紫**
+ * （暗档 #4FACFE → #FF6B9D、亮档 #2563EB → #E11D48，中点大约落在 280–300°）。
+ * 要严格去掉这段紫，只能在 33% 与 66% 之间再插一个中间色标把过渡引开，代价是偏离
+ * 用户给定的四个精确色值。本轮按给定色值落地，把这条写在明处，等用户裁决要不要插。 */
+  --uni-pin-flow: linear-gradient(135deg, #00F2FE 0%, #4FACFE 33%, #FF6B9D 66%, #FF512F 100%);
+  /* --uni-pin-title 自第七十四轮起不再给标题上色：它现在只剩一个消费者 —— 置顶行
+   * 左侧的开普勒轨道点（--uni-kep-dot / --uni-kep-orbit，见本表 608 起）。这枚
+   * 香槟金（用户 2026-10-31 给的 #E6C78F）原样保留，避免这一轮顺手改掉另一个部件。 */
   --uni-pin-title: color-mix(in srgb, var(--dsw-alias-state-warn-secondary) 88.5%, var(--dsw-alias-label-caption));
-  --uni-pin-glow: color-mix(in srgb, var(--uni-pin-title) 30%, transparent);
 }
 body:not([data-ds-dark-theme]) {
-  /* 亮档目标是 #89672F（rgb(137,103,47)）—— 一块低饱和古铜，比亮档那两枚暖色令牌
-   * （#855900 / #966a12）更灰更蓝。令牌表里没有任何暖中性色带得出这 47 的蓝通道，
-   * 唯一蓝得动的是 business（#546286 的冷石板蓝），所以拿它 25% 把金色压下来：
-   * 落点 rgb(134,104,47)，R 差 3/255、G 差 1、B 逐字节相等。代价写在这里而不是藏起来：
-   * 这一枚色依赖 business 令牌，日后那枚蓝一动，这里的古铜会跟着漂。 */
+  /* 亮档同一支 135deg 渐变，色值由用户按白底可读性压低明度、提高饱和度（逐字：
+   *   linear-gradient(135deg, #0284C7 0%, #2563EB 33%, #E11D48 66%, #EA580C 100%)）。
+   * 四枚依次是青蓝（200°）、宝蓝（221°）、玫红（350°）、橙（21°）—— 同样避开
+   * 黄、绿、紫三个禁区；最暖的一枚停在 21° 的橙，没有滑进黄色段。 */
+  --uni-pin-flow: linear-gradient(135deg, #0284C7 0%, #2563EB 33%, #E11D48 66%, #EA580C 100%);
   --uni-pin-title: color-mix(in srgb, var(--dsw-alias-state-warn-secondary) 75%, var(--dsw-alias-state-business-primary));
-  /* 亮档不加辉光：浅底上任何 text-shadow 都读成脏边，用户点名「不添加明显投影」。
-   * 用一个 transparent 的辉光变量而不是在亮档删掉 text-shadow，是为了下面那条规则
-   * 只需要写一次。 */
-  --uni-pin-glow: transparent;
 }
 
 /* pinned —— 图钉保持官方默认（2026-10-31，第五十一轮）：这行尾那枚 pinIndicator
@@ -438,133 +461,209 @@ body:not([data-ds-dark-theme]) {
  * pinIndicator / rowActions，标题就是第 2 个（与 D43 同一条结构性选法）。`span` 限定
  * 让失配的后果是「没有效果」，而不是把颜色泼到别的元素上。
  *
- * 为什么只有颜色与字重、没有别的：置顶是**独立属性**，与行首图标格互不相干。用户
- * 明确点名过「不要让置顶与状态标记争夺图标区域」，所以这里的置顶效果只有字形本身。 */
+ * 为什么只碰 color / background-image / background-clip / font-weight：置顶是**独立
+ * 属性**，与行首图标格互不相干。用户明确点名过「不要让置顶与状态标记争夺图标区域」，
+ * 所以这里仍然只作用于字形本身 —— background-image 是给字形当填充用的（被 clip 裁进
+ * 笔画里），不是铺成行底色，所以仍然没有背景色、边框、指示条，也不动字号、字间距与
+ * 行高：行尺寸与布局一个像素都没变。
+ *
+ * 前提写在这里而不是留给人猜：这条依赖 background-clip: text。本主题只跑在 Chromium
+ * 上（DSH Web 与桌面端同一内核），这是稳定能力；万一换到不支持的渲染器，后果是这行
+ * 字**看不见**（color 已透明、裁剪却没生效）。没有用 @supports 兜底，因为 css.7 只
+ * 放行 @property 一种 @ 块，其它 @ 块会被判成非契约选择器 —— 兜底写不进去。 */
 body [data-row-key^='session:']:has([class*='pinIndicator']) > span:nth-child(2) {
-  color: var(--uni-pin-title);
+  /* 渐变文字的三件套。`color: transparent` 是让字形镂空、由背景图透出来的那块
+   * （不是「把字藏起来」：没有 background-clip:text 时它才会真的看不见，见下条注释）。
+   * 前缀与标准两条都写：Chromium 认 -webkit-，标准名是给未来兜的同一个值。 */
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-image: var(--uni-pin-flow);
   font-weight: 600;
 }
 
-/* 辉光：只在**未选中**的行上写。
- * 选中行的 text-shadow 归多普勒（见本表 2749 起那块，β=0.045 的横向色散）：两套效果
- * 抢的是同一个通道，所以选中行留在多普勒那条，置顶只保留颜色与字重 —— 这才是「不同
- * 状态各管各的视觉区域」。亮档的 --uni-pin-glow 是 transparent，等于没有投影。
+/* 外光已撤（2026-11-01 第七十五轮，用户逐字：「只要文字本身变色，其他的都不要！」）。
+ * 上一轮这里是 `filter: drop-shadow(0 0 6px …) drop-shadow(0 0 14px …)` 的双层霓虹；
+ * 现在置顶行只剩字形自己的渐变，没有任何阴影、发光、光晕与选中态加成。
+ * 选中行的色散仍归多普勒（本表「会话行选中：引力放大」一节，0.45px 的横向错位），
+ * 而它的颜色是 currentColor —— 字形已透明，那条 text-shadow 自然画不出东西，
+ * 两套效果各管各的视觉区域，互不干扰。
  * 字号、字间距、行高、内边距一个字没动，所以行尺寸与布局都不变。 */
-body [data-row-key^='session:']:has([class*='pinIndicator']):not([aria-selected='true']) > span:nth-child(2) {
-  text-shadow: 0 0 8px var(--uni-pin-glow);
-}
 
 /* --------------------------------------------------------------------------
- * 会话行 Running —— 吸积流（Accretion Flow，2026-10-31 第五十三轮；
- *                                      第五十五轮改成隐式吸积中心，用户 m00986；
- *                                      第五十七轮放盒并留底，用户 m01091 / m01092）
+ * 会话行 Running —— 日冕弧带（Corona Arc，2026-11-02）
  *
- * 用户的规格：一个绿点，尾流必须由绿点自己走过的轨迹实时生成。不许预绘螺旋、圆环、
- * 吸积盘、光晕 —— 而「不预绘」直接判掉了 CSS 关键帧：关键帧只能把一张画好的图整体
- * rotate + scale，尾巴一定是假的。所以这一格的**运动**全部搬进 src/runtime/accretion.js
- * （每帧采样、写六段 path），样式表只剩三件事：
- *   1. 官方那两枚圆藏起来（它们的整圈匀速转正是要去掉的风车感），且只在我们那组
- *      挂上来之后才藏 —— 否则脚本没跑起来的那一帧就是空的
- *   2. 绿点的颜色与盒子的尺寸
- *   3. 六段尾巴的颜色、各自的笔宽（越老越细，颜色始终只有一枚）
+ * 用户的判据（m00676）有两条：位置连续（单一主体、逐帧不瞬移）与形状连续（轮廓任何
+ * 时刻都不断口、不重新起笔）。这两条判掉了此前的吸积流：螺旋是开口曲线，外圈 r=6.2
+ * 与中心 r=1 相距 5.2px，单主体走完一轮必须跨过这段位移 —— 用时隐时现、交接残影、
+ * 双流相位都只能盖住淡入淡出，盖不住位移本身（m00682 的结论）。
  *
- * 中心不画任何东西（第五十五轮）。原本画在 svg background 上的 2px 暗核已撤掉：
- * 引力中心只由「点越转越快、越转越靠内、最后被吃掉」这一个动作暗示，所以这里连
- * 一个浅色圆环、一层光晕都不留 —— 有实体就变成「围着某个东西转」了。
+ * 所以这一格换成闭合环上的一段弧带：
+ *   1. 环上没有端点，一圈走完就回到起点，位置天然连续；
+ *   2. 弧长在 0.28~0.44 圈之间呼吸，头尾都在环上，永远不出现「起笔」；
+ *   3. 弧带本身就是那颗点，头端 round cap 收成圆头，不再另画 circle；
+ *   4. 角速度每圈两次微加速（±10%），弧长与亮度一起呼吸 —— 匀速定长弧就是 spinner 换皮。
  *
- * 尺寸与坐标：盒子上限 16×16（第五十七轮从官方那 14px 提上来），viewBox 仍是 0 0 24 24，
- * 图元画在 `scale(24/14)` 的组里。于是组内 1 设计单位 = 16/14 = 1.143 CSS px —— 下面那些
- * 数字照旧按 14px 设计稿读，屏幕上整体乘 1.143：点直径 2.51px、尾宽 1.31 → 0.71px、
- * 外径 15.5px。
+ * 样式表只做三件事：官方那两枚圆藏起来（且只在我们那组挂上来之后才藏）、
+ * 弧带的颜色与笔宽、头段与尾段的粗细差。所有几何与亮度都在 src/runtime/accretion.js
+ * 里逐帧写（每帧重写四段 d，不用 CSS dashoffset，也不做 CSS 动画）。
  *
- * 亮度（第五十七轮）：年龄段的六档与退场熄灭都在 accretion.js 算，这里一条 opacity 都不
- * 留 —— 因为最老那段收尾时要抬到 `--uni-acc-floor`，那是乘法算不出来的「变亮」。
- *
- * 与 pending 的分界：pending 是固定椭圆 + 匀速绕行（官方原样，本节不碰）；这里是半径
- * 6.2 → 1 内落、越靠近越快、到头级联熄灭重生 —— 一个是「绕」，一个是「落」。
+ * 与 pending 的分界：pending 是固定椭圆 + 匀速绕行（a 6.6 / b 3.6 / 2600ms，官方原样）；
+ * 这里是圆、顺时针（用户 m00844 纠正过方向）、1300ms，一个「绕」一个「转」，半径都不变
+ * 但速度与呼吸不同。
  * ------------------------------------------------------------------------ */
 
 body {
-  /* 唯一一条时间常量与它对齐的节点：周期写在 accretion.js（UNI_ACC_CYCLE = 1300），
-   * 这里只声明颜色、盒子尺寸与留底亮度 —— 样式表不再持有任何动画，也不再持有中心实体。 */
-  /* 绿点与尾巴同色：用户要的是「一个绿点走过留下的尾流」，尾巴与头不同色就会读成两个物体。
-   * 年龄段的六档亮度（0.55 / 0.34 / 0.20 / 0.12 / 0.07 / 0.04）第五十七轮搬进 JS 了：
-   * 最老那段要在退场时升到留底亮度，这种「抬升」用「样式表亮度 × stroke-opacity」算不出来。
-   * 这里只剩笔宽与颜色。 */
+  /* 颜色只有两枚：头段亮（暗档与官方 success 同色），尾段就是同一枚色，靠 stroke-opacity
+   * 逐段递减（0.85 / 0.6 / 0.38 × 整体呼吸），样式表里不写任何 opacity。
+   * 时间常量在 accretion.js（UNI_ACC_CYCLE = 1300），这里不再持有动画。
+   * 亮档不再继承宿主那枚绿，见紧跟着的覆盖块（第七十六轮）。 */
   --uni-acc-dot: var(--dsw-alias-state-success-primary);
   --uni-acc-trail: var(--dsw-alias-state-success-primary);
-  /* 留底亮度：一轮结束时最老那段与绿点都停在这个值上，下一轮整组的进场淡入又从同一个值
-   * 起步 —— 外圈那抹余温直接交给新出生的头，中间不留黑场（用户 m01091 / m01217）。
-   * JS 读这个值，拿不到时用自己的兜底 0.34。 */
-  --uni-acc-floor: .34;
 }
 
-/* 亮档单独抬一档：.34 不透明度在浅底上还是偏弱，交接会重新变成一次跳变。 */
+/* 亮档的弧带绿（2026-11-02 第七十六轮，用户 m00875：「再优化一下亮色下的配色，现在不够
+ * 显眼……找一个对比度更高的绿色」）。
+ * 亮档继承的是宿主 --dsw-alias-state-success-primary，在浅底上其实不低（#397949 对
+ * #f9fafc 5.02:1），但它是一枚灰绿（oklch 0.521 0.100 150），彩度只有 0.10；再乘上弧带
+ * 自己的 stroke-opacity（尾段 0.85 / 0.6 / 0.38 × 呼吸 0.75~1）之后，在 #e8ebef 那类偏灰的
+ * 面上只剩 3~4:1，1.3px 的弧就糊了 —— 用户说的「不够显眼」是这条。
+ * 做法不是换一枚随手挑的绿（css.8 不许主题自造字面色值），而是在宿主绿上做 oklch
+ * 派生：明度 0.521 → 0.48，彩度 ×1.5（0.100 → 0.150），色相不动。派生结果 ≈ #007329，
+ * 仍是同一支绿，只是更深更饱和；对 #f9fafc / #eff2f5 / #e8ebef 三档浅底实测
+ * 5.77 / 5.36 / 5.04:1，连最灰的那档也过了 WCAG AA 4.5:1（原色只有 4.38:1）。
+ * 数值由 tools/selfcheck.mjs 的 css.18 用 tokens.json 的宿主值重算，改 Formula 就红。
+ * 暗档一个字节都不动：暗档冻结（dark.2 逐个钉住），深底上那枚 #7fcc94 本来就有 7:1 以上。 */
 body:not([data-ds-dark-theme]) {
-  --uni-acc-floor: .42;
+  --uni-acc-dot: oklch(from var(--dsw-alias-state-success-primary) 0.48 calc(c * 1.5) h);
+  --uni-acc-trail: oklch(from var(--dsw-alias-state-success-primary) 0.48 calc(c * 1.5) h);
 }
 
 /* 盒子：官方那枚 svg 是 14px，第五十七轮提到 16px（用户 m01092「还是比官方默认的大」）。
- * 槽位本身就是 16×20，占满宽度但不出格；viewBox 仍是 24、组内的 scale(24/14) 不动，
- * 于是整套几何整体乘 16/14 = 1.143 —— 外径 13.55 → 15.5px，官方那环是 12.25px。 */
+ * 槽位本身就是 16×20，占满宽度但不出格；viewBox 仍是 24、组内 scale(24/14)，
+ * 于是环半径 5.6 设计单位 = 6.4px，直径 12.8px。 */
 body svg[data-state='ongoing'] {
   width: 16px;
   height: 16px;
 }
 
-/* 官方那层：两枚 r=9.5 的圆 + 整圈匀速转的 g，一并藏掉。留着任何一枚，读起来都是
- * 一圈 loading 环套着一个点 —— 用户明确不要环。
- * 藏的条件是「我们那组图元已经挂上来了」（:has(> g.uni-acc)）：脚本没跑起来、或这一帧
- * 还没 attach 完，官方那环就地顶着，不会出现「环没了、点还没来」的空格。 */
+/* 官方那层：两枚 r=9.5 的整圆 + 整圈匀速转的 g，一并藏掉（它们的匀速转正是主题当初
+ * 要去掉的风车感）。藏的条件仍是「我们那组图元已经挂上来了」（:has(> g.uni-acc)）：
+ * 脚本没跑起来、或这一帧还没 attach 完，官方那环就地顶着，不会出现空格。 */
 body svg[data-state='ongoing']:has(> g.uni-acc) > g:not(.uni-acc) {
   display: none;
 }
 
-/* 绿点：r=1.1 的设计单位，16px 盒子里是直径 2.51px。不做描边、不加发光 —— 用户要的是
- * 「点」，不是光球。 */
-body svg[data-state='ongoing'] .uni-acc-dot {
-  fill: var(--uni-acc-dot);
-}
-
-/* 六段尾流：同一枚绿色，靠笔宽收细。t0 是头部、t5 是出生点，段号即年龄 —— 每帧的轨迹
- * 总长由 JS 按当前弧长均分给这六段，所以尾巴有多长，六段就一起有多长。亮度不在这里，
- * 由 accretion.js 逐段写 stroke-opacity。
- * stroke-linecap: round 让接缝处不出现方角，相邻段宽度只差 0.12–0.14，看不出台阶。 */
-body svg[data-state='ongoing'] .uni-acc-t0,
-body svg[data-state='ongoing'] .uni-acc-t1,
-body svg[data-state='ongoing'] .uni-acc-t2,
-body svg[data-state='ongoing'] .uni-acc-t3,
-body svg[data-state='ongoing'] .uni-acc-t4,
-body svg[data-state='ongoing'] .uni-acc-t5 {
+/* 弧带：无填充、圆头、无描边叠加。笔宽 1.15 设计单位 = 1.31px，16px 格里读得出方向。 */
+body svg[data-state='ongoing'] .uni-acc-arc {
   fill: none;
   stroke: var(--uni-acc-trail);
   stroke-linecap: round;
-}
-
-body svg[data-state='ongoing'] .uni-acc-t0 {
   stroke-width: 1.15;
 }
 
-body svg[data-state='ongoing'] .uni-acc-t1 {
-  stroke-width: 1.02;
+/* 头段略粗一档并换亮色 —— 「头亮尾淡」靠颜色 + 笔宽 + 逐段 opacity 三层一起给，
+ * 不用真渐变（16px 下渐变看不出，还多一次 paint）。 */
+body svg[data-state='ongoing'] .uni-acc-arc-head {
+  stroke: var(--uni-acc-dot);
+  stroke-width: 1.3;
 }
 
-body svg[data-state='ongoing'] .uni-acc-t2 {
-  stroke-width: .88;
+/* 尾段比头细一点，收束得更快。 */
+body svg[data-state='ongoing'] .uni-acc-arc-tail {
+  stroke-width: 1;
 }
 
-body svg[data-state='ongoing'] .uni-acc-t3 {
-  stroke-width: .75;
+/* --------------------------------------------------------------------------
+ * 会话行 Pending —— 开普勒轨道（2026-11-01 第七十二轮）
+ *
+ * 用户规格（附图「Pending - 开普勒轨道」，m00003）：「沿固定椭圆轨道运行，保持稳定
+ * 周期运动」；图中的「中心引力核心」不要，只需要椭圆轨道和运动光点。附图另给三档
+ * 实际尺寸 16 / 20 / 24px、暗亮两档，以及与 Running 的分界 —— 一个「绕」（半径不变），
+ * 一个「落」（半径逐渐减小、越靠近越快）。
+ *
+ * 钩子为什么是 `span[data-state='warning']`：DSH 0.2.1-rc.5 的会话行只有 ongoing /
+ * warning / done / idle 四个 data-state（primitives 的 StateDot 只对 ongoing 出 svg，
+ * 其余都是 span），没有 pending。warning 就是官方自己的 pendingInteraction（等待审批 /
+ * 计划确认 / 提问），语义上「待处理」最贴近 pending，用户 2026-11-01 指定挂在这一态上。
+ * done（完成未读）与 idle（前导格让给插件槽）不动。
+ *
+ * 为什么官方的琥珀点必须让位：那枚点的位置就是图里「中心引力核心」的位置，留着它
+ * 读起来就是「一颗点围着另一颗点转」。官方这点是 `::after`（inset 20% + currentColor）
+ * 画出来的，所以关的是元素自己的伪元素；改 color 会连带改掉同一个 span 上的派生色。
+ * 官方的 10×10 是 StateDot 写在 style 上的行内宽高，放大到 16px 只能 !important。
+ *
+ * 运动全部在 src/runtime/kepler.js —— 每帧按**弧长**取点（匀速），几何写在 0 0 16 16
+ * 的坐标系里，盒子换 20px / 24px 只是等比缩放。样式表只管颜色、盒子、以及「官方点
+ * 让位」这三件事，一条动画都不持有：CSS 关键帧只能把画好的椭圆整体 rotate，光点会
+ * 跟着椭圆自转，读起来是两个圆在互相打转。
+ *
+ * 颜色：暗档沿用 --uni-pin-title（rgb(230,197,143) 那一族香槟金，本轮之前它同时是
+ * 置顶标题的字色；第七十四轮标题改用渐变之后，这枚色只剩轨道点一个消费者），轨道取
+ * 它 72% 的透明度当细线，光点用满色 —— 附图里轨道比点
+ * 暗得多，同一个色相只差明度，读起来仍是「一颗点带着一条轨道」。58% 在 1:1 的
+ * 16px 上实测糊成一根灰线（0.8px 描边的抗锯齿把颜色摊薄），提到 72% 才读得出金。
+ * ------------------------------------------------------------------------ */
+body {
+  --uni-kep-orbit: color-mix(in srgb, var(--uni-pin-title) 72%, transparent);
+  --uni-kep-dot: var(--uni-pin-title);
 }
 
-body svg[data-state='ongoing'] .uni-acc-t4 {
-  stroke-width: .7;
+/* 亮档光点单独提亮（2026-11-01 第七十三轮）。
+ *
+ * 用户反馈（m00001）：「亮色模式下有点暗，不够亮」。暗档那枚香槟金放在 #111720 上
+ * 是亮的；同一个色值挪到 #eff2f5 那种浅底上，观感就翻成暗棕 —— 浅底上「暗」不是
+ * 明度低，而是跟底色的明度差不够。这枚标记又只有 16px、光点直径 2px，靠压深换
+ * 对比只会换来「发灰」，换不来「亮」。
+ *
+ * 所以亮档不再继承 --uni-pin-title：那枚色当时还要给置顶标题当字色，而字色恰恰需要
+ * 压深才读得出，两件事对明度的要求相反，共用一个值必然有一边将就。
+ *
+ * 第三轮（m00229「试试 #5c4815」）：前面两轮都在往「亮」上走，但浅底上越亮越
+ * 不起眼 —— 亮档要的是和暗档相当的明度差，方向应该反过来：底色浅，标记就得深。
+ * oklch 把 warn-secondary 压到明度 0.412、彩度乘 0.66、色相 +8.5°，落点
+ * rgb(92,72,21) = #5c4815，在 #eff2f5 上是 7.81:1（暗档香槟金在 #111720 上是
+ * 10.92:1），比第一版古铜的 4.63 高七成。轨道取光点 80%，深色细线不再被浅底冲淡。
+ *
+ * 第四轮（m00249「比 #5c4815 再金点，比 #86682f 对比再高点」）：0.412 那档压得太狠，
+ * 色相虽然在 87°，明度一低就读成褐。抬回 0.50、彩度 0.108（比 0.412 档高一半）、
+ * 色相 +9° 到 87.3°，落点 rgb(125,94,0) = #7d5e00 —— 金感回来了，对比 5.38:1 仍
+ * 比第一版古铜的 4.63 高，还没丢到 #86682f 那一档。 */
+body:not([data-ds-dark-theme]) {
+  --uni-kep-dot: color-mix(in oklch, var(--dsw-alias-state-warn-secondary) 60%, var(--dsw-alias-label-primary-foreground));
+  --uni-kep-dot: oklch(from var(--dsw-alias-state-warn-secondary) 0.50 calc(c * 0.98) calc(h + 9));
+  --uni-kep-orbit: color-mix(in srgb, var(--uni-kep-dot) 80%, transparent);
 }
 
-/* 最老那段第五十七轮从 .5 提到 .62：它现在要承担留底亮度，太细的话那抹余温在 16px 下
-   还是读不出来。 */
-body svg[data-state='ongoing'] .uni-acc-t5 {
-  stroke-width: .62;
+/* 光点不带晕（附图 24px 那档有一圈暖晕，16px 那档只有一颗点）：会话行只有 16px 一档，
+   0.8px 的轨道上叠任何 blur，轨道先糊掉。 */
+body [data-row-key^='session:'] span[data-state='warning']:has(> svg.uni-kep) {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+body [data-row-key^='session:'] span[data-state='warning']:has(> svg.uni-kep)::after {
+  display: none;
+}
+
+body [data-row-key^='session:'] span[data-state='warning'] > svg.uni-kep {
+  display: block;
+  width: 16px;
+  height: 16px;
+  /* 椭圆贴着 16px 盒子的边（半长轴 6.6 + 旋转盒半宽 6.0），overflow: visible 让描边
+     不被裁掉半像素。 */
+  overflow: visible;
+}
+
+body [data-row-key^='session:'] span[data-state='warning'] > svg.uni-kep > .uni-kep-orbit {
+  fill: none;
+  stroke: var(--uni-kep-orbit);
+  /* 0.8 单位 = 16px 下的 0.8px：附图里轨道就是一根发丝，比 running 的六段尾流细。 */
+  stroke-width: .8;
+}
+
+body [data-row-key^='session:'] span[data-state='warning'] > svg.uni-kep > .uni-kep-dot {
+  fill: var(--uni-kep-dot);
 }
 
 body::after {
@@ -747,6 +846,13 @@ div[data-windows-menu] {
   pointer-events: none;
   -webkit-backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
+  /* 2026-11-01（D107 ④）：折射回挂到卡片上，用户点名「1234 都做」。这一行必须排在
+     上面那条只带模糊的声明**之后**：不认 `url()` 的引擎在解析期丢掉整条生效值，正好
+     退回毛玻璃（本机实测被丢的是 `-webkit-` 前缀那条，所以上面那行不加 url()）。
+     位移图仍由 src/runtime/glass.js 的 `uni-lg-input` target 按卡片实测尺寸现画。
+     代价是当年 C1 量到的那笔：+98 ms/s，占该页主题开销约三成 —— 现在照付，见下方 C1 段。 */
+  -webkit-backdrop-filter: url(#uni-lg-input) blur(var(--cp-glass-composer)) saturate(135%);
+  backdrop-filter: url(#uni-lg-input) blur(var(--cp-glass-composer)) saturate(135%);
   /* ----------------------------------------------------------------------
    * C1（2026-10-11，用户点名「玻璃去掉 url(#uni-lg-input)」）：位移折射不再挂在输入卡上。
    *
@@ -765,6 +871,84 @@ div[data-windows-menu] {
    * 连门禁一起回退：glass.1 的 named 期望数 1 → 2、glass.2 的 rules 期望数 1 → 2。
    * 改动前的逐字原样见 src/theme.css.bak-20261011-1530-c1c2。
    * ------------------------------------------------------------------- */
+}
+
+/* --------------------------------------------------------------------------
+ * 输入卡的玻璃厚壁（2026-11-01，D107 ②，用户点名「1234 都做」）
+ *
+ * 折射缺席时，「像玻璃」这件事主要靠边缘，不靠模糊：一条顶边亮高光、一条底边暗影、
+ * 一圈内壁亮线，读起来就是一块有厚度的板，而不是一块半透明的色块。这一层是纯着色，
+ * 不挂任何 filter，所以对帧时没有影响（对比之下折射是 +98 ms/s）。
+ *
+ * 为什么用 `::after` 而不是并进 `::before`：`::before` 是模糊背板，两层职责不同 ——
+ * 背板管「身后画面」，厚壁管「这层玻璃自己的边」，混在一起后幽灵态就没法只撤其中一层。
+ * 两个伪元素都是 `z-index: -1`，`::after` 在树序里靠后，于是合成次序是
+ * 模糊背板 → 厚壁 → 内容，与真玻璃一致。
+ *
+ * 颜色一律走 `color-mix(... var(--token) ..., transparent)`：本表禁字面色（css.8）。
+ * 亮档与暗档共用这几行 —— 令牌自己会翻面，不需要第二份数值。
+ * ------------------------------------------------------------------------ */
+[data-composer-card]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: var(--uni-thick-opacity, 1);
+  transition: opacity 200ms linear;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-bg-base) 40%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent),
+    transparent 38%
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * 交互态把玻璃推厚一点（2026-11-01，D107 ③）
+ *
+ * 指针进入卡片时模糊 3px → 10px、饱和 135% → 160%，像厚度被按出来。**瞬切，不做过渡**：
+ * `backdrop-filter` 每变一次都要重算整块背板，逐帧插值模糊半径在这台机器上白烧（同一个
+ * 理由已经写在幽灵态那节的 `backdrop-filter` 瞬切注释里）。要试过渡，先量帧时再决定。
+ * 选择器不需要 body 前缀：`[data-composer-card]:hover` 自身就带 data-* 契约属性（css.7）。
+ * 幽灵态不受影响 —— 它的条件里带着 `:not(:hover)`，指针一进来那条规则就整条退出匹配。
+ * ------------------------------------------------------------------------ */
+[data-composer-card]:hover::before {
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: url(#uni-lg-input) blur(10px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(160%);
+  backdrop-filter: url(#uni-lg-input) blur(10px) saturate(160%);
+}
+
+/* --------------------------------------------------------------------------
+ * 卡内弹层与卡片同厚（2026-11-01，D107 ①）
+ *
+ * 用户原话：「把弹层降到卡片的厚度」。改前弹层吃 `--dsw-menu-backdrop-filter`
+ * （本主题把它定成 blur(20px) saturate(130%)，src/tokens.json:237-238），而卡片是 4px
+ * —— 同一个输入框里弹出来的菜单比装它的那块玻璃厚五倍，观感是玻璃上又盖了块磨砂板。
+ *
+ * 为什么不去改那对共享令牌：`--dsw-menu-backdrop-filter` 与 `--dsw-menu-surface-fill`
+ * 有十几个消费者（TodoPanel、ContextMeter、GoalBar、MenuSurface…），动它等于顺手改掉
+ * 半个界面，超范围。所以只覆盖「从输入卡里弹出来」的那两块：
+ *
+ *   1. 命令框 / 工作区 / 预设这些 MenuSurface 材质层 —— 用 `aria-expanded` 认领：
+ *      菜单 portal 到 body，CSS 里没有指向触发者的反向选择器，但触发器在卡片体内、
+ *      开合时自己的 `aria-expanded` 跟着翻（第 63 轮量 anchored 面板时记下的同一事实）。
+ *      hero 页另加一条 `[data-phase='hero']` 兜底：那一页的弹层全来自输入卡，而工作区
+ *      与预设两颗触发器是否带 `aria-expanded` 不做假设。
+ *   2. 模型 / 思考档面板 —— 那是本主题自己的组件（`[data-uni-mep]`），直接在同一份
+ *      样式里改成同厚，不经过这里。
+ *
+ * 只改模糊与饱和，不挂折射：折射要按每个面的尺寸各画一张位移图（glue.1 的 id 计数会
+ * 跟着涨），两片材质厚度一致已经足够读作同一块玻璃。
+ * ------------------------------------------------------------------------ */
+body:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'])
+  [data-menu-material='translucent'] > [aria-hidden='true'] {
+  -webkit-backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
+  backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
 }
 
 /* --------------------------------------------------------------------------
@@ -867,6 +1051,10 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='
      只写 `none`、不重抄激活态的值：条件不成立时整条退出匹配，官方 elevation 自动回来
      （与 2026-10-08 第三十一轮「恢复官方 elevation」不冲突：那条管的是常态）。 */
   box-shadow: none;
+  /* 厚壁那一层（`::after`，D107 ②）在幽灵态一起撤：它是纯着色的顶边高光与内壁亮线，
+     留着就等于给一张近乎透明的卡勾了一圈边，幽灵态又变回「有边的板」。用变量而不是
+     再抄一遍上面那条长链：`::after` 是卡片的伪元素，自定义属性按继承下来。 */
+  --uni-thick-opacity: 0;
 }
 /* 两档的百分比**故意不同**，这是观感对齐、不是基准分档：
    令牌自身 α=0.302（构建产物的 TOKENS 表与 src/tokens.json 的 `surfaceAlphaOverride` 一致，
@@ -3015,4 +3203,235 @@ body[data-uni-motion] [class*='HOHHba_header'] {
 body[data-uni-motion] [class*='HOHHba_header']:hover:not(:disabled),
 body[data-uni-motion] [class*='HOHHba_header']:focus-visible {
   background-color: transparent;
+}
+
+/* --------------------------------------------------------------------------
+ * 编辑卡片（changed-files）的液态玻璃（2026-11-01）
+ *
+ * 用户原话是「去掉这张卡片的全部底色，改成液态玻璃效果」。官方把卡面写成
+ * `background: var(--dsw-alias-bg-layer-1)`（亮档 #f9fafc、暗档 #1e252f），那是一条
+ * 不透明底 —— 玻璃要能看见身后的画面，底必须先清掉，材质才有东西可采样。
+ *
+ * 与输入卡同一套三段式：卡面 `background: transparent`、`::before` 模糊背板（兜底行
+ * + url() 折射行）、`::after` 玻璃厚壁。材质必须落在伪元素上，理由见「输入卡的液态
+ * 玻璃」那节：任何挂在卡片自身的 filter 都会把卡片变成层叠上下文，而这张卡片里有一个
+ * portal 出去的 tooltip。
+ *
+ * 位移图由 src/runtime/glass.js 的 `uni-lg-card` target 按卡片实测尺寸现画。卡片收起
+ * 态高度一致，所以右栏入口卡那种「六个面共享一张图」的限制在这里不发作；只有展开的
+ * 那一张会读到被拉伸的挡板，那是它自己的形状，不是别人的。
+ *
+ * 选择器沿用 header 那条的属性子串匹配（css.6 / css.7 只拦以点开头的类选择器与字符串），
+ * 带 body 前缀是为了让特异性 (0,3,0) 压过官方的 (0,1,0)。
+ * ------------------------------------------------------------------------ */
+body[data-uni-motion] [class*='HOHHba_card'] {
+  position: relative;
+  background: transparent;
+}
+
+body[data-uni-motion] [class*='HOHHba_card']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
+  backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
+  -webkit-backdrop-filter: url(#uni-lg-card) blur(var(--cp-glass-card)) saturate(135%);
+  backdrop-filter: url(#uni-lg-card) blur(var(--cp-glass-card)) saturate(135%);
+}
+
+body[data-uni-motion] [class*='HOHHba_card']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-bg-base) 40%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent),
+    transparent 38%
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* 2026-11-02 用户消息气泡：官方给它的底色是 `--dsw-specific-bubble`（亮档
+ * #edf3fe、暗档 #2c2c2e），现在整块撤掉，换成与编辑卡片同一种毛玻璃。
+ *
+ * 只做材质、不做折射：气泡是每条消息一个实例，数量随会话增长，每个都挂位移图会
+ * 持续吃 GPU；卡片与右栏入口卡是低频的，气泡是高频的。所以这里没有折射滤镜那一
+ * 行，也不需要 src/runtime/glass.js 新增 target。
+ *
+ * 区分靠 `::before` 上的淡色调，不靠文字颜色：纯玻璃会把「谁说的」这一层信息抹掉，
+ * 而气泡的 color 与正文、行内代码、链接共用同一套对比关系，单独改它会连带错位。
+ * 色调取官方气泡令牌的 40% —— 亮档 #edf3fe 很浅，再高就回到实底；暗档 #2c2c2e
+ * 比背景亮一档，40% 足够分块。亮暗同值。
+ *
+ * 选择器沿用属性子串匹配（css.6 / css.7 只拦以点开头的类选择器与字符串），
+ * 带 body 前缀让特异性 (0,3,0) 压过官方的 (0,1,0)。
+ * ------------------------------------------------------------------------ */
+body[data-uni-motion] [class*='LOmM4q_bubble'] {
+  position: relative;
+  background: transparent;
+}
+
+body[data-uni-motion] [class*='LOmM4q_bubble']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--dsw-specific-bubble) 40%, transparent);
+  -webkit-backdrop-filter: blur(var(--cp-glass-bubble)) saturate(135%);
+  backdrop-filter: blur(var(--cp-glass-bubble)) saturate(135%);
+}
+
+body[data-uni-motion] [class*='LOmM4q_bubble']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-bg-base) 40%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent),
+    transparent 38%
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* 2026-11-02 排队消息面板：从「贴在输入卡上的一块菜单灰板」改成独立悬浮玻璃块。
+ *
+ * 灰不在面板本体上：面板自己不写 background，灰来自官方伪元素
+ *   F07MqG_panel::before { background: var(--dsw-specific-menu);
+ *                          backdrop-filter: var(--dsw-menu-backdrop-filter); inset: 0; z-index: -1 }
+ *
+ * 重叠是同一处的另一半。面板外面还有一层 F07MqG_dock：
+ *   F07MqG_dock { margin: 0 auto calc(0px - var(--dsh-composer-stack-gap) - 3px);
+ *                 padding: 0 var(--dsh-composer-dock-inset) }
+ * 两个变量在宿主里的实测值是 `--dsh-composer-stack-gap: 6px` 与
+ * `--dsh-composer-dock-inset: 8px`，即下边距 -9px —— 面板下沿被塞进输入卡里 9px。
+ * 配套的 F07MqG_panel::after 只描三边、上圆下平，整套写法是为「与不透明输入卡拼成
+ * 一整块」准备的。输入卡换成玻璃以后这个前提没了：那 9px 灰板从卡的顶边透出来，
+ * 读起来就是「面板压住了会话框」。
+ *
+ * 用户 2026-11-02 定案「甲」：不再塞进去，留 8px 缝（与官方 dock-inset 同一节奏），
+ * 四角全圆、补回官方刻意删掉的下边描边，面板自成一块浮层。
+ *
+ * 折射可以给：面板是单元素目标，高度随排队条数变（一条 40px、多到 180px 滚动），
+ * src/runtime/glass.js 的 ResizeObserver 会在尺寸变化时重画位移图；它不像右栏六张
+ * 入口卡那样多个元素共享一张图。bevel 取 10 而不是卡片的 14：面板最矮 40px 时
+ * 14 会被夹到 13，整条板全是边缘。
+ *
+ * 选择器沿用属性子串匹配（css.6 / css.7 只拦以点开头的类选择器与字符串），带 body
+ * 前缀是为了让特异性 (0,3,0) 压过官方 (0,1,0)，::before / ::after 那两条则是
+ * (0,3,1) 压过官方的 (0,1,1)。灰底必须显式清掉，否则背板还在，只是叠了层玻璃。
+ * ------------------------------------------------------------------------ */
+body[data-uni-motion] [class*='F07MqG_dock'] {
+  margin-bottom: 8px;
+}
+
+body[data-uni-motion] [class*='F07MqG_panel'] {
+  border-radius: var(--dsw-radius-lg);
+  background: transparent;
+}
+
+body[data-uni-motion] [class*='F07MqG_panel']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: transparent;
+  -webkit-backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
+  backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
+  -webkit-backdrop-filter: url(#uni-lg-panel) blur(var(--cp-glass-card)) saturate(135%);
+  backdrop-filter: url(#uni-lg-panel) blur(var(--cp-glass-card)) saturate(135%);
+}
+
+body[data-uni-motion] [class*='F07MqG_panel']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  border-bottom: .5px solid var(--dsw-alias-border-l1);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-bg-base) 40%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent),
+    transparent 38%
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* 2026-11-02 附件卡片（deliverable）的液态玻璃
+ *
+ * 用户贴的是卡片里那个 100% 覆盖的预览按钮（`K5rwea_cardPreview`，官方给它的底是
+ * `background: 0 0` —— 它本来就是透明的点击层），看到的底色其实来自它的父级
+ * `K5rwea_file`：
+ *   K5rwea_file { background: var(--deliverable-fill); … overflow: hidden }
+ *   K5rwea_file:hover { background: var(--deliverable-hover) }
+ * `--deliverable-fill` 亮档落 `--dsw-static-neutral-50`、暗档落 `--dsw-static-neutral-850`，
+ * 是一条不透明底。所以清底要清在 `K5rwea_file` 上：按钮自身没有可去的颜色，而父级的
+ * 不透明底会把任何挂在按钮背后的玻璃采样挡死。
+ *
+ * 材质与编辑卡片同一套三段式：面 `background: transparent`、`::before` 模糊背板（兜底行
+ * + url() 折射行）、`::after` 玻璃厚壁。材质仍落在伪元素上，理由同输入卡那节 —— 卡片里
+ * 有 portal 出去的预览提示，自身挂 filter 会把它们吸进坐标。
+ *
+ * 官方那 0.5px 的 `border-l1` 边框保留在卡片本体上，直接压在玻璃上沿。
+ *
+ * 已知代价：`--deliverable-hover` 那层悬停底被这条透明规则一起压住了（常态这条特异性
+ * (0,2,1) 高于官方的 hover (0,2,0)），卡片悬停不再变色。编辑卡片与入口卡也是无悬停反馈
+ * 的玻璃面，保持一致；要反馈再加。
+ *
+ * 选择器走属性子串匹配（css.6 / css.7 只拦以点开头的类选择器与字符串）。
+ * ------------------------------------------------------------------------ */
+body[data-uni-motion] [class*='K5rwea_file'] {
+  background: transparent;
+}
+
+body[data-uni-motion] [class*='K5rwea_file']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
+  backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
+  -webkit-backdrop-filter: url(#uni-lg-deliverable) blur(var(--cp-glass-card)) saturate(135%);
+  backdrop-filter: url(#uni-lg-deliverable) blur(var(--cp-glass-card)) saturate(135%);
+}
+
+body[data-uni-motion] [class*='K5rwea_file']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-bg-base) 40%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent),
+    transparent 38%
+  );
 }

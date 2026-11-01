@@ -453,6 +453,9 @@
         /* 会话行吸积流（第五十三轮）：尾流必须由绿点自己走过的轨迹生成，CSS 关键帧做不到，
            只能每帧采样写 path。同样挂在这里，不新增 effect（cli.11d 钉了恰好九个）。 */
         var stopAccretion = mountAccretion()
+        /* 会话行 Pending 轨道（第七十二轮）：椭圆静止、光点每帧按弧长独立取点，同样
+           挂在这里，不新增 effect（cli.11d 钉了十个）。 */
+        var stopKepler = mountKepler()
         /* 输入卡换页转场（2026-11-01 第七十一轮）：新会话页的居中位与对话页的贴底位之间
            补一段位移 + 淡入。同样挂在这里，不新增 effect。 */
         var stopComposerSwap = mountComposerTransition()
@@ -471,6 +474,7 @@
           if (document.body) document.body.removeAttribute('data-uni-motion')
           if (typeof stopGravity === 'function') stopGravity()
           if (typeof stopAccretion === 'function') stopAccretion()
+          if (typeof stopKepler === 'function') stopKepler()
           if (typeof stopComposerSwap === 'function') stopComposerSwap()
         }
       }, 'universe: paint layer')

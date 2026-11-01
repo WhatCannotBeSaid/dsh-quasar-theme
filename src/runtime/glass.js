@@ -17,15 +17,33 @@
            refraction. The composer and, since the borderless round, the right
            column's six guide entries keep one.
 
+           2026-11-01: the edited-files card joined them. It is a collapsed row of a
+           fixed height, so the shared-map caveat below costs nothing here — every
+           card on screen is the same geometry unless one is expanded, and an
+           expanded card is the only reader of a stretched rim.
+
            One target may own SEVERAL elements: the guide is six identical rows, and
            the sheet can name the filter only once, so they share one map. That is
            correct only while the elements are one geometry — measured, all six are
            380x56 — so the map is drawn from the target's FIRST element and the rest
            are measured too, which keeps a resize (and a column drag) repainting. If a
            future build gives the six different sizes, split them into two targets. */
+        /* 2026-11-02: the queued-message panel joined them. It is ONE element whose
+           height follows how many messages are queued (40px for one row, up to 180px
+           for the scrolling list), so it never shares a map with anything and the
+           ResizeObserver below redraws it on every height change. Its bevel is 10,
+           not the card's 14: the shortest panel is 40px tall, where the clamp would
+           pull 14 down to 13 and the rim would eat the whole strip. */
+        /* 2026-11-02: the deliverable card (an attached file / image preview row) joined
+           them. Its resting box is a fixed 60px tall, so the card's 14px bevel survives
+           the one-third clamp and it can borrow that geometry rather than declare a new
+           one. */
         var targets = [
           { id: 'uni-lg-input', selector: '[data-composer-card]', bezel: 14, scale: 14 },
           { id: 'uni-lg-guide', selector: '[data-sidebar-right-guide-entry]', bezel: 14, scale: 14 },
+          { id: 'uni-lg-card', selector: '[class*="HOHHba_card"]', bezel: 14, scale: 14 },
+          { id: 'uni-lg-panel', selector: '[class*="F07MqG_panel"]', bezel: 10, scale: 10 },
+          { id: 'uni-lg-deliverable', selector: '[class*="K5rwea_file"]', bezel: 14, scale: 14 },
         ]
 
         /* One map, drawn at the size of the region (the box plus one bevel all round) and

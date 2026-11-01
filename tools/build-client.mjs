@@ -411,6 +411,7 @@ const declarations = [
 const brandLogoCss = read(BRAND_LOGO_CSS_FILE).replace(/\/\*[\s\S]*?\*\//g, '')
 const BRAND_LOGO_CSS = minifyCss(brandLogoCss)
 
+
 /* ---------------------------------------------------------------- manifest */
 
 const MANIFEST = {
@@ -550,6 +551,7 @@ window.__ModuleLoader__.load({
     var PICKER_CSS = ${JSON.stringify(minifyCss(stripBlockComments(pickerCss)))}
 
     var BRAND_LOGO_CSS = ${JSON.stringify(BRAND_LOGO_CSS)}
+
 ${compressJs(bootJs)}
 ${compressJs(pickerJs)}
 ${compressJs(clientJs)}

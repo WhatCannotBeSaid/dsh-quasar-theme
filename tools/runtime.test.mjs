@@ -55,12 +55,14 @@ test('S4: glass cancels queued scan and rejects late observer delivery after dis
     ResizeObserver:class{observe(){throw Error('observe after disposal')}disconnect(){disconnected++}}}
   const dispose=vm.runInNewContext(read('src/runtime/glass.js')+'\nmountLiquidGlass()',context)
   const records=[{addedNodes:[{matches:()=>true}],removedNodes:[]}]
-  assert.equal(queries,2)
+  /* One query per target on the first scan: composer, guide, edited-files card,
+     queued-message panel, deliverable card. */
+  assert.equal(queries,5)
   callback(records)
   const late=frame
   dispose();assert.equal(cancelled,1);assert.equal(removed,1);assert.equal(disconnected,2)
   late();callback(records)
-  assert.equal(queries,2)
+  assert.equal(queries,5)
 })
 
 const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve() }
@@ -388,339 +390,188 @@ test('G2: an ancestor cannot steal the state, touch never arms it, disposal clea
 })
 
 
-test('A1: the accretion geometry is the spec, not a lookalike', () => {
-  /* Runs the production file's own geometry, extracted by its boundaries: the constants and
-     the three pure functions come out as one closure-free scope. A reimplementation here
-     would test nothing, so the extraction is asserted by between(). */
-  const source = read('src/runtime/accretion.js')
+test('A1: the corona arc is the geometry the user signed off', () => {
+  /* 用户 m00704 定稿：圆 R = 5.6、圆心 (7,7)、周期 1300ms、逆时针、弧长 0.28~0.44 呼吸、
+     头段 40%、尾段衰减 [0.85, 0.6, 0.38]、角速度调制 0.1。几何直接 eval 生产文件。 */
   const api = vm.runInNewContext(
-    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, slice: uniAccretionSlice, cap: UNI_ACC_SAMPLES, bands: UNI_ACC_BANDS, box: UNI_ACC_BOX })',
-    { Math })
-  const TAU = Math.PI * 2
-
-  /* Radius: 6.2px at spawn, 1.0 at the end, always shrinking. 第五十四轮把盒画满（外径
-     12.4px，官方环 11.08px）；第五十五轮撤掉中心暗核后落点收到 1.0 —— 没有实体挡在
-     中心，点要一直落到虚空里再熄灭。 */
-  assert.equal(api.at(0).r, 6.2)
-  assert.equal(api.at(1).r, 1)
-  let previous = Infinity
-  for (let i = 0; i <= 64; i += 1) {
-    const r = api.at(i / 64).r
-    assert.ok(r < previous, `radius must shrink monotonically (u=${i / 64})`)
-    previous = r
-  }
-
-  /* Angle: one and a half turns in total, never reversing. 第五十五轮：落程从 3.8 涨到
-     5.2 之后圈数必须跟着加，否则相邻两趟的径向间隔松到读不成螺旋。 */
-  assert.equal(api.at(0).phi, -Math.PI / 2)
-  assert.ok(Math.abs((api.at(1).phi - api.at(0).phi) - TAU * 1.5) < 1e-9)
-  let last = -Infinity
-  for (let i = 0; i <= 64; i += 1) {
-    const phi = api.at(i / 64).phi
-    assert.ok(phi > last, `angle must advance monotonically (u=${i / 64})`)
-    last = phi
-  }
-
-  /* Spawns at twelve o'clock, i.e. the top of the orbit: y = 7 − 6.2. */
-  assert.ok(Math.abs(api.at(0).x - 7) < 1e-9)
-  assert.ok(Math.abs(api.at(0).y - 0.8) < 1e-9)
-
-  /* Angular speed grows inwards: this is what separates a fall from a spin. */
-  const dphi = u => (api.at(u + 1e-6).phi - api.at(u).phi) / 1e-6
-  assert.ok(dphi(0.9) > dphi(0.1) * 2, 'the inner orbit must turn faster than the outer one')
-
-  /* Everything stays inside the box the icon is — and the widest band (1.15 design units) still
-     fits between the outer orbit (6.2) and the edge (7). 第五十七轮盒子从 14px 提到 16px，
-     但设计稿坐标仍是 14 宽，所以「不越界」要在设计稿里比：别超过 7。 */
-  for (let i = 0; i <= 128; i += 1) {
-    const point = api.at(i / 128)
-    assert.ok(point.x > 0.5 && point.x < 13.5 && point.y > 0.5 && point.y < 13.5, `escaped the icon at u=${i / 128}`)
-  }
-  assert.ok(api.at(0).r + 1.15 / 2 < 7, 'the widest band would be clipped by the icon box')
-  /* 盒子里 1 设计单位渲染成 box / 14 个 CSS px：16px 盒子下外径 15.5px，确实比官方那环
-     （12.25px）大 —— 用户 m01092「还是比官方默认的大」就是在要这一点。 */
-  assert.equal(api.box, 16, 'the box the user approved is 16px')
-  assert.ok((api.at(0).r + 1.15 / 2) * (api.box / 14) < api.box / 2, 'the scaled mark must still fit the box')
-})
-
-test('A2: the trail is every pixel the dot has travelled, sliced without gaps', () => {
-  /* 用户 m00391：「我要的是绿点从出现到消失的所有轨迹」。所以这里钉的不是某个固定长度，
-     而是「量到出生点为止」和「随相位单调变长」这两件事 —— 前者是这次的规格，后者是
-     吸积该有的样子（越往里，身后的轨迹越长）。 */
-  const source = read('src/runtime/accretion.js')
-  const api = vm.runInNewContext(
-    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, slice: uniAccretionSlice, cap: UNI_ACC_SAMPLES, bands: UNI_ACC_BANDS })',
-    { Math })
-
-  /* 刚出生的那一刻没有历史：一个点，切出来是空字符串，而不是一圈绕回去的假尾巴。 */
-  const born = api.trail(0)
-  assert.equal(born.length, 1, 'the trail starts as a single point')
-  assert.equal(api.len(born), 0)
-  assert.equal(api.slice(born, 0, 1), '')
-
-  /* 越往里走，轨迹越长 —— 45°、90°、135° 三档单调递增，且远超旧的 4px 上限。 */
-  const quarter = api.len(api.trail(0.25))
-  const half = api.len(api.trail(0.5))
-  const all = api.len(api.trail(1))
-  assert.ok(quarter > 0 && quarter < half && half < all, `trail must grow: ${quarter} ${half} ${all}`)
-  assert.ok(all > 20, `the whole turn is more than a stub: ${all}`)
-
-  /* 每一步都走回出生点：头是当前点，尾是 u = 0。 */
-  for (const u of [0.2, 0.55, 1]) {
-    const points = api.trail(u)
-    assert.deepEqual(points[0], api.at(u), 'the trail starts at the dot')
-    const last = points[points.length - 1]
-    assert.ok(Math.hypot(last.x - api.at(0).x, last.y - api.at(0).y) < 1e-9, `the trail stops short of u=0 (u=${u})`)
-    assert.ok(points.length <= api.cap, 'sample count stays inside the cap')
-  }
-
-  /* 六段首尾相接、合起来等于整条轨迹：接缝处不许有断口，也不许有重叠。 */
-  const points = api.trail(0.8)
-  const total = api.len(points)
-  const bands = []
-  for (let i = 0; i < api.bands; i += 1) {
-    bands.push(api.slice(points, total * (i / api.bands), total * ((i + 1) / api.bands)))
-  }
-  for (const band of bands) {
-    assert.ok(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)+$/.test(band), `band is not a polyline: ${band}`)
-  }
-  const numbers = band => band.slice(1).split('L').map((part) => {
-    const [x, y] = part.split(' ').map(Number)
-    return { x, y }
-  })
-  let joined = 0
-  for (const band of bands) {
-    const pts = numbers(band)
-    for (let i = 1; i < pts.length; i += 1) {
-      joined += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
-    }
-  }
-  assert.ok(Math.abs(joined - total) < 0.05, `bands do not cover the trail: ${joined} vs ${total}`)
-})
-
-test('A3: the tail dies head first, so the centre reads as something that swallows', () => {
-  /* 用户 m00999 选 B：级联熄灭 —— 头先熄、越老越晚熄，最后整条归零。整条一起淡会被读成
-     「整个图标闪了一下」，所以这条钉的是顺序，不是好看。 */
-  const source = read('src/runtime/accretion.js')
-  const api = vm.runInNewContext(
-    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ weight: uniAccretionWeight, fadeFrom: UNI_ACC_FADE_FROM, stagger: UNI_ACC_FADE_STAGGER, bands: UNI_ACC_BANDS })',
-    { Math })
-
-  /* 熄灭从 u = 0.8 开始，之前一切照旧。 */
-  assert.equal(api.fadeFrom, 0.8)
-  assert.equal(api.weight(0, 0), 1)
-  assert.equal(api.weight(0, 1), 1)
-
-  /* 同一时刻：头部已经掉下去一大半，最老那段还一点没动。 */
-  assert.ok(api.weight(0.3, 0) < 0.5, 'the head should be going out first')
-  assert.equal(api.weight(0.3, 1), 1, 'the oldest band should not have moved yet')
-
-  /* 任何时刻，越老的段剩得越多 —— 这就是「被吞」而不是「一起灭」。 */
-  for (const death of [0.1, 0.5, 0.9]) {
-    let keep = -1
-    for (let i = 0; i < api.bands; i += 1) {
-      const w = api.weight(death, i / (api.bands - 1))
-      assert.ok(w >= keep, `band ${i} outlives a younger one at death=${death}`)
-      keep = w
-    }
-  }
-
-  /* 收尾：death = 1 时整条归零，且权重从不越出 [0, 1]。 */
-  for (let i = 0; i < api.bands; i += 1) {
-    assert.equal(api.weight(1, i / (api.bands - 1)), 0, `band ${i} survives the end of the turn`)
-  }
-  for (let d = 0; d <= 20; d += 1) {
-    for (const rank of [0, 0.5, 1]) {
-      const w = api.weight(d / 20, rank)
-      assert.ok(w >= 0 && w <= 1, `weight escaped [0,1]: ${w}`)
-    }
-  }
-})
-
-test('A4: the cycle ends dimmed, never black, and the ink only ever falls', () => {
-  /* 用户 m01091「光点消失到再出现会有一瞬间全黑」。第一版是把最老段抬到 floor 收尾，结果
-     造出了 m01544 那个「突然亮一下」（见 A6）。现在的收尾是纯压暗：death = 1 时每段只剩
-     自己亮度的 UNI_ACC_END，六段都还在画面上（没有一段退到 0），所以交接那一帧有形状可接；
-     而整幅的总墨量只减不增，读起来就是持续向内、逐渐安静下来。 */
-  const source = read('src/runtime/accretion.js')
-  const api = vm.runInNewContext(
-    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ alpha: uniAccretionBandAlpha, age: UNI_ACC_AGE, bands: UNI_ACC_BANDS, fallback: UNI_ACC_FLOOR_FALLBACK, end: UNI_ACC_END })',
-    { Math })
-  const last = api.bands - 1
-
-  /* 点的留底兜底值仍按暗档记；尾流的收尾系数是独立的一档。 */
-  assert.equal(api.fallback, 0.34)
-  assert.deepEqual(Array.from(api.age), [0.55, 0.34, 0.2, 0.12, 0.07, 0.04])
-  assert.ok(api.end > 0.2 && api.end < 0.5, 'the end-of-cycle factor must leave a visible trace')
-
-  /* death = 0：整条就是年龄亮度本身，没有第二层压暗。 */
-  for (let i = 0; i <= last; i += 1) {
-    assert.ok(Math.abs(api.alpha(i, 0) - api.age[i]) < 1e-12, `band ${i} is dimmed before the exit`)
-  }
-  /* death = 1：六段都还亮着（只是压到自身亮度的 end 倍）—— 没有任何一段归零，所以画面
-     不会在接缝处变成一片黑，交接层接下的是一个有形状的终态。 */
-  for (let i = 0; i <= last; i += 1) {
-    assert.ok(api.alpha(i, 1) > 0, `band ${i} went black, so the seam has no shape to carry`)
-  }
-
-  /* 总墨量随 death 单调不增：一轮下来只能是「越来越安静」，不许中途整体变亮。 */
-  let previousInk = Infinity
-  for (let d = 0; d <= 40; d += 1) {
-    let ink = 0
-    for (let i = 0; i <= last; i += 1) ink += api.alpha(i, d / 40)
-    assert.ok(ink <= previousInk + 1e-12, `the whole trail brightened at death ${d / 40}`)
-    previousInk = ink
-  }
-
-  /* 年龄顺序全程不许被打乱：越靠出生点的段越暗。 */
-  for (let d = 0; d <= 40; d += 1) {
-    for (let i = 1; i <= last; i += 1) {
-      assert.ok(api.alpha(i, d / 40) < api.alpha(i - 1, d / 40) + 1e-12, `the age order broke at death ${d / 40}`)
-    }
-  }
-
-  /* 任何时刻都不越界 —— stroke-opacity 超出 [0,1] 会被浏览器截断，读起来就是一次跳变。 */
-  for (let d = 0; d <= 40; d += 1) {
-    for (let i = 0; i <= last; i += 1) {
-      const value = api.alpha(i, d / 40)
-      assert.ok(value >= 0 && value <= 1, `alpha escaped [0,1]: ${value}`)
-    }
-  }
-})
-
-test('A5: the moving dot fades smoothly to zero at both spatially separate endpoints', () => {
-  // Equal nonzero alpha at different coordinates was still a teleport. The trail,
-  // tested by A7 and A8, carries visibility while the single dot crosses the seam.
-  const source = read('src/runtime/accretion.js')
-  const api = vm.runInNewContext(
-    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ dot: uniAccretionDotAlpha, age: UNI_ACC_AGE, born: UNI_ACC_BORN })',
+    between(read('src/runtime/accretion.js'), '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ at: uniAccretionAt, head: uniAccretionHeadAngle, turn: uniAccretionTurn, span: uniAccretionSpan, glow: uniAccretionGlow, arc: uniAccretionArc, path: uniAccretionPath, segments: uniAccretionSegments, K: UNI_ACC_K, BOX: UNI_ACC_BOX, CYCLE: UNI_ACC_CYCLE, RING: UNI_ACC_RING, CX: UNI_ACC_CX, CY: UNI_ACC_CY, MIN: UNI_ACC_ARC_MIN, MAX: UNI_ACC_ARC_MAX, HEAD: UNI_ACC_HEAD, DECAY: UNI_ACC_TAIL_DECAY, WOBBLE: UNI_ACC_WOBBLE, STILL: UNI_ACC_STILL_T })',
     { Math }
   )
+  assert.equal(api.RING, 5.6, 'the ring radius is not the agreed 5.6')
+  assert.equal(api.CX, 7)
+  assert.equal(api.CY, 7)
+  assert.equal(api.CYCLE, 1300, 'the cycle is not the agreed 1300ms')
+  assert.equal(api.K, 24 / 14)
+  assert.equal(api.BOX, 16)
+  /* 圆：环上每个点到圆心的距离恒等于 R —— 闭合曲线没有端点，这是「位置连续」的几何前提。 */
+  for (let i = 0; i < 24; i += 1) {
+    const p = api.at((i / 24) * Math.PI * 2)
+    assert.ok(Math.abs(Math.hypot(p.x - 7, p.y - 7) - api.RING) < 1e-12, 'the path is not a circle')
+    assert.ok(p.x > 1.3 && p.x < 12.7 && p.y > 1.3 && p.y < 12.7, 'the ring escapes the 16px cell')
+  }
+  /* 顺时针（用户 m00844）：t = 0 在正上方，t = 0.25 走到正右方（角度递增）。 */
+  assert.ok(Math.abs(api.head(0) - (-Math.PI / 2)) < 1e-12)
+  assert.ok(Math.abs(api.head(0.25)) < 1e-9, 'the arc does not run clockwise')
+  /* 相位重映射恒正单调：一圈之内不倒转、不回头。 */
+  let previous = api.turn(0)
+  assert.equal(previous, 0)
+  for (let i = 1; i < 144; i += 1) {
+    const t = i / 144
+    const here = api.turn(t)
+    assert.ok(here > previous, `the turn went backwards at t = ${t}`)
+    previous = here
+  }
+  assert.equal(api.turn(1), 0, 'the turn does not wrap back to the start of the lap')
+  /* 弧长呼吸：最长 0.44 在 t = 0，最短 0.28 在 t = 0.5。 */
+  assert.ok(Math.abs(api.span(0) - api.MAX) < 1e-12)
+  assert.ok(Math.abs(api.span(0.5) - api.MIN) < 1e-12)
+  for (let i = 0; i < 100; i += 1) {
+    const span = api.span(i / 100)
+    assert.ok(span >= api.MIN - 1e-12 && span <= api.MAX + 1e-12, 'the span left its breathing range')
+  }
+  assert.equal(api.glow(api.MAX), 1)
+  assert.equal(api.glow(api.MIN), 0.75)
+  /* 跨 realm 的数组原型不同，deepStrictEqual 会比原型；摊平成宿主数组再比。 */
+  assert.deepEqual([...api.DECAY], [0.85, 0.6, 0.38])
+  assert.equal(api.WOBBLE, 0.1)
+})
 
-  for (const floor of [0.34, 0.42]) {
-    assert.equal(api.dot(0, 0, floor), 0, 'the outer endpoint must not pop into view')
-    /* 一轮中段是满亮的头部亮度。 */
-    assert.ok(Math.abs(api.dot(0.5, 0, floor) - api.age[0]) < 1e-12, 'the dot never reaches full brightness')
-    assert.equal(api.dot(1, 1, floor), 0, 'the inner endpoint must disappear before wrapping')
-    const epsilon = 1e-5
-    assert.ok(api.dot(epsilon, 0, floor) / epsilon < 0.01, 'birth slope must approach zero')
-    assert.ok(api.dot(1 - epsilon, 1 - epsilon, floor) / epsilon < 0.01, 'death slope must approach zero')
-    /* 交接的连续性：这一轮的最后一帧与下一轮的第一帧必须是同一个数。 */
-    assert.ok(Math.abs(api.dot(1, 1, floor) - api.dot(0, 0, floor)) < 1e-12, 'the seam jumps between cycles')
-    /* 光点可归零，但不越过头部亮度；跨圈可见性由整个图元验证。 */
-    for (let d = 0; d <= 20; d += 1) {
-      for (let u = 0; u <= 1; u += 0.05) {
-        const value = api.dot(u, d / 20, floor)
-        assert.ok(value >= 0, `the dot alpha became negative at u ${u}`)
-        assert.ok(value <= api.age[0] + 1e-12, `the dot outran full brightness at u ${u}`)
+test('A2: the shape never breaks — one closed ring, one continuous outline', () => {
+  /* 用户的判据（m00676）第二条：轮廓任何时刻都不断口、不重新起笔。这里逐相位检查四段弧首尾
+     相接、全部落在同一个圆上，并且 t = 0 与 t = 1 是同一点 —— 没有「起笔」，也就没有接缝。 */
+  const api = vm.runInNewContext(
+    between(read('src/runtime/accretion.js'), '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ at: uniAccretionAt, head: uniAccretionHeadAngle, span: uniAccretionSpan, arc: uniAccretionArc, path: uniAccretionPath, segments: uniAccretionSegments })',
+    { Math }
+  )
+  for (let i = 0; i < 200; i += 1) {
+    const t = i / 200
+    const phase = t < 1 ? t : 0
+    const segments = api.segments(phase)
+    assert.equal(segments.length, 4, 'the band is not one head plus three tail segments')
+    const head = api.head(phase)
+    assert.ok(Math.abs(segments[0].from - head) < 1e-12, 'the head segment does not start at the head')
+    for (let s = 1; s < segments.length; s += 1) {
+      assert.ok(Math.abs(segments[s].from - segments[s - 1].to) < 1e-9, `gap between segments at t = ${t}`)
+    }
+    /* 四段拼起来正好是 2π·span（顺时针，尾巴在头的角度较小一侧）：总长度只随呼吸变。 */
+    const sweep = Math.PI * 2 * api.span(phase)
+    assert.ok(Math.abs(segments[3].to - (head - sweep)) < 1e-9, 'the band length disagrees with the span')
+    for (const segment of segments) {
+      const points = api.arc(segment.from, segment.to, 4)
+      for (const p of points) {
+        assert.ok(Math.abs(Math.hypot(p.x - 7, p.y - 7) - 5.6) < 1e-12, 'a sampled point left the ring')
       }
+      const d = api.path(points)
+      assert.ok(d.startsWith('M') && d.includes('L'), 'a segment degenerated to a dot')
     }
   }
+  /* 一圈闭合：t = 1 与 t = 0 是同一个位置，误差只来自浮点。 */
+  const start = api.at(api.head(0))
+  const wrap = api.at(api.head(1))
+  assert.ok(Math.hypot(start.x - wrap.x, start.y - wrap.y) < 1e-9, 'the arc does not close after one lap')
 })
 
-test('A6: the trail only ever dims as the dot lands, never brightens', () => {
-  /* 用户 m01544「绿点走完全程后它所走过的轨迹会突然亮一下再变暗」。第一版的留底是把每段
-     插值到 floor（0.34），于是走过去的内圈段被抬亮：0.04 → 0.34 是 8.5 倍、0.07 → 0.34 是
-     4.9 倍 —— 点落底那一刻整条轨迹被拉成一条均匀的暗绿螺旋，这才是那个「亮一下」。收尾只能
-     乘，不能加：每段始终落在「自身亮度 × UNI_ACC_END」与自身亮度之间。 */
-  const source = read('src/runtime/accretion.js')
+test('A3: the head leads, the tail decays, and nothing is invisible inside the band', () => {
   const api = vm.runInNewContext(
-    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ alpha: uniAccretionBandAlpha, bands: UNI_ACC_BANDS, age: UNI_ACC_AGE, end: UNI_ACC_END })',
+    between(read('src/runtime/accretion.js'), '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ segments: uniAccretionSegments, span: uniAccretionSpan, glow: uniAccretionGlow, DECAY: UNI_ACC_TAIL_DECAY })',
     { Math }
   )
-  const last = api.bands - 1
-  assert.ok(api.end > 0 && api.end < 1, 'the end-of-cycle factor must be a dimming factor')
-  assert.equal(api.age.length, api.bands, 'the age ramp is not one per band')
-
-  for (let i = 0; i <= last; i += 1) {
-    let previous = 2
-    for (let death = 0; death <= 1.0001; death += 0.02) {
-      const value = api.alpha(i, death)
-      assert.ok(value <= api.age[i] + 1e-12, `band ${i} outran its own brightness at death ${death}`)
-      assert.ok(value >= api.age[i] * api.end - 1e-12, `band ${i} dimmed past the end factor at death ${death}`)
-      assert.ok(value <= previous + 1e-12, `band ${i} rose on its way down`)
-      previous = value
-    }
-    /* 落底那一刻：每段都只是自己亮度的 UNI_ACC_END，内圈段不会被拉到外圈段的亮度。 */
-    assert.ok(Math.abs(api.alpha(i, 1) - api.age[i] * api.end) < 1e-12, `band ${i} does not end at its own scale`)
-  }
-  /* 越老的段始终越暗 —— 抬升会让这个顺序在收尾时被打乱。 */
-  for (let death = 0; death <= 1.0001; death += 0.05) {
-    for (let i = 1; i <= last; i += 1) {
-      assert.ok(api.alpha(i, death) < api.alpha(i - 1, death) + 1e-12, `the age order broke at death ${death}`)
+  for (let i = 0; i < 120; i += 1) {
+    const t = i / 120
+    const segments = api.segments(t)
+    const glow = api.glow(api.span(t))
+    assert.ok(Math.abs(segments[0].alpha - glow) < 1e-12, 'the head is not driven by the breathing glow')
+    assert.ok(segments[0].alpha > 0.74 && segments[0].alpha <= 1, 'the head brightness left 0.75..1')
+    for (let s = 1; s < 4; s += 1) {
+      assert.ok(Math.abs(segments[s].alpha - glow * api.DECAY[s - 1]) < 1e-12, 'a tail band ignores the decay ramp')
+      assert.ok(segments[s].alpha < segments[s - 1].alpha, 'the tail does not fade towards its end')
+      assert.ok(segments[s].alpha > 0, 'a tail band is invisible, so the band has a hole')
     }
   }
 })
 
-test('A7: the hand-off layer carries the seam with its bands and hands over no second dot', () => {
-  /* 两件事由同一层承担：①用户 m01308「没有连贯感、还是有中断」—— 一轮走完，折线的 d 变成
-     空串，螺旋瞬间消失再长出来，交接层用写死几何的整条曲线把那一帧接下；②用户 m01412
-     「看起来突然从内圈跳到外圈」—— 上一轮的终态在窗口里陪新点走一小段，单粒子交接才不是
-     瞬移。第六十一轮（用户 m01594 选 A）让这一层的每一段从「它自己收尾时的亮度」起淡，
-     接缝处逐段相等，所以交接那一帧画面完全不变。 */
-  const source = read('src/runtime/accretion.js')
+test('A4: the band lengthens and shortens, and the glow rides that breathing', () => {
   const api = vm.runInNewContext(
-    between(source, '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
-    '\n({ hand: uniAccretionHandoffAlpha, alpha: uniAccretionBandAlpha, ds: uniAccretionGhostD, at: uniAccretionAt, trail: uniAccretionTrail, len: uniAccretionLength, fade: UNI_ACC_RESIDUE_FADE, bands: UNI_ACC_BANDS })',
+    between(read('src/runtime/accretion.js'), '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ span: uniAccretionSpan, glow: uniAccretionGlow, MIN: UNI_ACC_ARC_MIN, MAX: UNI_ACC_ARC_MAX })',
     { Math }
   )
-  const last = api.bands - 1
-
-  assert.ok(api.fade > 0.3 && api.fade < 0.8, 'the hand-off must sit in the first half of a cycle')
-
-  /* 接缝：u = 0 的第一帧，每段正好等于它收尾时的亮度 —— 画面不该有任何变化。 */
-  for (let i = 0; i <= last; i += 1) {
-    assert.ok(
-      Math.abs(api.hand(i, 0) - api.alpha(i, 1)) < 1e-12,
-      `hand-off band ${i} does not start on the brightness it ended on`
-    )
-    let previous = 2
-    for (let u = 0; u <= 1; u += 0.02) {
-      const value = api.hand(i, u)
-      assert.ok(value <= previous + 1e-12, `hand-off band ${i} brightened again while leaving`)
-      assert.ok(value >= 0 && value <= 1, `hand-off band ${i} escaped [0,1]: ${value}`)
-      previous = value
-    }
-    /* 窗口用完就彻底让位 —— 余下大半轮仍然只有一条新长出来的亮线。 */
-    assert.ok(api.fade > 0.3 && api.fade < 0.8, 'the band fade window must sit in the first half of a cycle')
-    assert.equal(api.hand(i, api.fade), 0, `hand-off band ${i} outstays its window`)
-    assert.equal(api.hand(i, 0.9), 0, `hand-off band ${i} is still visible late in the cycle`)
+  /* 半圈内单调缩短、半圈内单调伸长：一整圈只呼吸一次，读起来才是「呼吸」不是「抖动」。 */
+  for (let i = 1; i < 50; i += 1) {
+    assert.ok(api.span(i / 100) < api.span((i - 1) / 100), 'the first half of the breath is not monotonic')
   }
-
-  /* 用户 m01745：「去掉绿点到达终点后在中心位置闪一下的绿点」。交接层只准留形状：一旦
-     再往这一层塞一颗停在 (7,8) 的点，画面上就有第二颗粒子钉在正中闪，读作红心。 */
-  assert.ok(!/uniAccretionHandoffDot/.test(source), 'the hand-off dot helper came back')
-  assert.ok(!/ghostDot/.test(source), 'the hand-off layer appends a circle again')
-  assert.ok(!/uniAccretionAt\(1\)/.test(source.split('var paintHandoff')[0].split('var attach')[1] || ''), 'the hand-off layer still anchors a point on the landing spot')
-
-  /* 几何：终态那六段折线就是整条曲线，首尾相接，合起来等于整条轨迹。 */
-  const ds = api.ds()
-  assert.equal(ds.length, api.bands)
-  const numbers = band => band.slice(1).split('L').map((part) => {
-    const [x, y] = part.split(' ').map(Number)
-    return { x, y }
-  })
-  const full = api.trail(1)
-  let total = 0
-  let first = null
-  for (let i = 0; i < ds.length; i += 1) {
-    assert.ok(/^M[-\d.]+ [-\d.]+(L[-\d.]+ [-\d.]+)+$/.test(ds[i]), `hand-off band ${i} is not a polyline`)
-    const pts = numbers(ds[i])
-    if (first === null) first = pts[0]
-    for (let k = 1; k < pts.length; k += 1) {
-      total += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y)
-    }
+  for (let i = 1; i <= 100; i += 1) {
+    const a = 0.5 + (i - 1) / 200
+    const b = 0.5 + i / 200
+    assert.ok(api.span(b) > api.span(a), 'the second half of the breath is not monotonic')
   }
-  assert.ok(Math.abs(total - api.len(full)) < 0.06, `the hand-off layer does not cover the curve: ${total} vs ${api.len(full)}`)
-  assert.ok(Math.hypot(first.x - api.at(1).x, first.y - api.at(1).y) < 0.02, 'the hand-off layer must start where the dot lands')
+  /* 亮度与弧长严格同向：弧最短时最暗，最长时最亮。 */
+  /* 从最短那一刻起步：亮度在 t = 0.5 最低，之后随弧长单调抬回 1。 */
+  let previous = api.glow(api.span(0.5))
+  for (let i = 1; i <= 100; i += 1) {
+    const here = api.glow(api.span(0.5 + i / 200))
+    assert.ok(here > previous, 'the glow does not rise with the span')
+    previous = here
+  }
 })
 
+test('A5: no pre-drawn art and no CSS-driven motion — the frame writes the geometry', () => {
+  const source = read('src/runtime/accretion.js')
+  const raw = read('src/theme.css')
+  const sheet = raw.replace(/\/\*[\s\S]*?\*\//g, '')
+  /* 图元只有 g 与 path：没有 circle（弧带本身就是主体）、没有 dasharray 假弧、没有渐变滤镜。 */
+  assert.ok(!/createElementNS\(SVG_NS, 'circle'\)/.test(source), 'a separate dot is back')
+  assert.ok(!/stroke-dasharray/.test(source), 'the arc is faked with dashes')
+  assert.ok(!/(linearGradient|radialGradient|feGaussianBlur)/.test(source), 'a gradient or glow filter came back')
+  /* 运动不能交给 CSS：旋转会把整条弧带整体转走，头尾关系就没了。 */
+  assert.ok(!/setAttribute\('transform'/.test(source), 'the band is spun by a transform')
+  const section = raw.split('日冕弧带')[1].split('会话行 Pending')[0]
+  assert.ok(section.length > 0, 'the corona arc section is not in the stylesheet')
+  assert.ok(!/animation:|@keyframes/.test(section.replace(/\/\*[\s\S]*?\*\//g, '')), 'the stylesheet animates the band')
+})
+
+test('A6: the outline reads as a band — head 40%, three decaying tail segments', () => {
+  const api = vm.runInNewContext(
+    between(read('src/runtime/accretion.js'), '    var UNI_ACC_K = 24 / 14', '    function mountAccretion(') +
+    '\n({ arc: uniAccretionArc, path: uniAccretionPath, segments: uniAccretionSegments, span: uniAccretionSpan, HEAD: UNI_ACC_HEAD, RING: UNI_ACC_RING })',
+    { Math }
+  )
+  const lengthOf = d => {
+    const pts = d.slice(1).split('L').map(part => part.split(' ').map(Number))
+    let total = 0
+    for (let i = 1; i < pts.length; i += 1) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+    return total
+  }
+  for (const t of [0, 0.17, 0.33, 0.62, 0.88]) {
+    const segments = api.segments(t)
+    const sweep = Math.PI * 2 * api.span(t)
+    const bandLength = api.RING * sweep
+    const head = lengthOf(api.path(api.arc(segments[0].from, segments[0].to, 8)))
+    assert.ok(Math.abs(head - bandLength * api.HEAD) / head < 0.01, `the head is not 40% of the band at t = ${t}`)
+    let total = 0
+    for (const segment of segments) {
+      total += lengthOf(api.path(api.arc(segment.from, segment.to, segment.steps)))
+    }
+    assert.ok(Math.abs(total - bandLength) / total < 0.01, `the band length is off at t = ${t}`)
+  }
+})
+
+test('A7: one subject only — four paths, no second dot anywhere', () => {
+  const source = read('src/runtime/accretion.js')
+  assert.ok(!/'circle'/.test(source), 'a circle element is still created')
+  assert.ok(source.includes("'uni-acc-arc uni-acc-arc-head'"), 'the head path has no class')
+  assert.ok(source.includes("'uni-acc-arc uni-acc-arc-tail'"), 'the tail paths have no class')
+  /* 旧的整条吸积流必须连名字都不剩：留下任何一个常量都说明有人把开口曲线修回来了。 */
+  for (const dead of ['uni-acc-ghost', 'UNI_ACC_TAIL_SPAN', 'UNI_ACC_STAGGER', 'uniAccretionTrail', 'uniAccretionDotAlpha']) {
+    assert.ok(!source.includes(dead), dead + ' survived the move to a closed ring')
+  }
+})
+
+/* 会话行 Running —— 弧带的宿主替身。一棵够用的假 DOM：rAF 由测试手动推进，观察器手工触发，
+   没有 getComputedStyle —— 弧带的亮度全部由 geometry 算，样式表只给颜色与笔宽。 */
 function accretionFixture() {
   class Element {
     constructor(name, attrs = {}) { this.name = name; this.attrs = attrs; this.children = []; this.parentNode = null; this.style = {}; this.dataset = {} }
@@ -746,9 +597,9 @@ function accretionFixture() {
     },
   }
   const mount = vm.runInNewContext(read('src/runtime/accretion.js') + '\nmountAccretion', {
-    document, performance: { now: () => now },
+    document,
+    performance: { now: () => now },
     window: { requestAnimationFrame: fn => { frames.set(++id, fn); return id }, cancelAnimationFrame: n => frames.delete(n) },
-    getComputedStyle: () => ({ getPropertyValue: () => '0.34' }),
     MutationObserver: class {
       constructor(fn) { this.fn = fn; observers.push(this) }
       observe(target, options) { this.target = target; this.options = options }
@@ -770,32 +621,47 @@ function accretionFixture() {
       observer.fn([{ type, target, attributeName }])
     }
   }
+  const groupOf = row => row.svg.children.find(el => el.getAttribute('class') === 'uni-acc')
   return {
     mount, add, frames, observers, descendants, mutate,
     move: (row, other) => { row.host.removeChild(row.svg); other.host.appendChild(row.svg); row.host = other.host },
     replace: row => { row.host.removeChild(row.svg); row.svg = row.host.appendChild(new Element('svg', { 'data-state': 'ongoing' })) },
     reduced: value => { body.dataset.uniMotion = value ? 'reduced' : 'full'; mutate(body, 'data-uni-motion') },
     step: time => { now = time; const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(time)) },
-    group: row => row.svg.children.find(el => el.getAttribute('class') === 'uni-acc'),
-    dot: row => descendants(row.svg).find(el => el.name === 'circle'),
-    visible: row => descendants(row.svg).some(el => {
-      if (el.name === 'circle') return Number(el.style.opacity) > 0
-      if (el.name !== 'path' || !el.getAttribute('d')) return false
-      return el.parentNode.style.display !== 'none' && Number(el.getAttribute('stroke-opacity')) > 0
-    }),
+    /* 弧带：一个 g.uni-acc，四条 path（第一条是头段）。没有 circle，所以也没有 dot 辅助函数。 */
+    group: row => groupOf(row),
+    arcs: row => {
+      const g = groupOf(row)
+      return g === undefined ? [] : g.children
+    },
+    head: row => {
+      const g = groupOf(row)
+      return g === undefined ? undefined : g.children[0]
+    },
+    visible: row => {
+      const g = groupOf(row)
+      if (g === undefined || g.style.display === 'none') return false
+      return g.children.some(el => {
+        if (el.getAttribute('d') === null || el.getAttribute('d') === '') return false
+        return Number(el.getAttribute('stroke-opacity')) > 0
+      })
+    },
   }
 }
 
-test('A8: mounted animation has no blank frame through repeated cycle seams and paints before first RAF', () => {
+
+test('A8: mounted arc paints before the first RAF and never blanks across seams', () => {
   const f = accretionFixture()
   const row = f.add('session:parent')
   const dispose = f.mount()
   assert.ok(f.visible(row), 'mount must not hide the official icon with empty graphics')
-  assert.equal(f.group(row).children[0].style.display, 'none', 'first cycle must not invent a previous trail')
+  assert.equal(f.arcs(row).length, 4, 'the band is not one head plus three tail segments')
+  assert.ok(f.head(row).getAttribute('class').includes('uni-acc-arc-head'))
   for (let ms = 0; ms <= 6500; ms += 1000 / 144) {
     f.step(ms)
     assert.ok(f.visible(row), `blank animation at ${ms}ms`)
-    assert.equal(f.descendants(row.svg).filter(el => el.name === 'circle').length, 1)
+    assert.equal(f.arcs(row).length, 4, 'the frame changed the number of segments')
+    assert.ok(f.head(row).getAttribute('d').length > 4, 'the head segment lost its geometry')
   }
   dispose()
   assert.equal(f.frames.size, 0)
@@ -803,23 +669,23 @@ test('A8: mounted animation has no blank frame through repeated cycle seams and 
   assert.ok(f.observers.every(observer => observer.disconnected))
 })
 
-test('A9: SVG or group replacement preserves phase; a reused row key starts a new visible cycle', () => {
+test('A9: SVG or group replacement preserves phase; a reused row key starts a new cycle', () => {
   const f = accretionFixture()
   const row = f.add('session:parent')
   const dispose = f.mount()
   f.step(500)
-  const before = { ...f.dot(row).attrs }
+  const before = f.head(row).getAttribute('d')
   const old = f.group(row)
   f.replace(row)
   f.mutate()
-  assert.deepEqual(f.dot(row).attrs, before, 'SVG replacement reset the trajectory')
+  assert.equal(f.head(row).getAttribute('d'), before, 'SVG replacement reset the arc phase')
   assert.equal(old.parentNode, null, 'replaced SVG retained stale theme graphics')
   row.svg.removeChild(f.group(row))
   f.mutate()
-  assert.deepEqual(f.dot(row).attrs, before, 'child replacement reset the trajectory')
+  assert.equal(f.head(row).getAttribute('d'), before, 'child replacement reset the arc phase')
   row.host.setAttribute('data-row-key', 'session:other')
   f.mutate(row.host, 'data-row-key')
-  assert.notEqual(f.dot(row).getAttribute('cx'), before.cx, 'virtual row reuse inherited another session phase')
+  assert.notEqual(f.head(row).getAttribute('d'), before, 'virtual row reuse inherited another session phase')
   assert.ok(f.visible(row))
   assert.equal(row.svg.children.length, 1, 'repeated sync duplicated graphics')
   dispose()
@@ -848,20 +714,21 @@ test('A10: parent completion removes its graphics while independently ongoing ch
   dispose()
 })
 
-test('A11: reduced motion is static, resumes without duplicate graphics and disposes cleanly', () => {
+test('A11: reduced motion is a single static arc that resumes without duplicate graphics', () => {
   const f = accretionFixture()
   const row = f.add('session:parent')
   const dispose = f.mount()
   f.reduced(true)
   f.step(500)
-  const still = { ...f.dot(row).attrs }
-  assert.equal(f.frames.size, 0)
-  assert.equal(f.dot(row).style.opacity, '1')
+  const still = f.head(row).getAttribute('d')
+  assert.equal(f.frames.size, 0, 'the still frame keeps a RAF loop alive')
   f.step(1000)
-  assert.deepEqual(f.dot(row).attrs, still)
+  assert.equal(f.head(row).getAttribute('d'), still, 'reduced motion kept animating')
+  assert.ok(f.visible(row), 'the still frame is invisible, which blanks the icon')
+  assert.equal(f.arcs(row).length, 4)
   f.reduced(false)
   f.step(1100)
-  assert.notEqual(f.dot(row).getAttribute('cx'), still.cx)
+  assert.notEqual(f.head(row).getAttribute('d'), still, 'the arc never resumed')
   assert.equal(row.svg.children.length, 1)
   dispose()
   assert.equal(f.frames.size, 0)
@@ -874,11 +741,11 @@ test('A12: moving a reused SVG across row hosts cannot inherit its previous host
   other.svg.setAttribute('data-state', 'complete')
   const dispose = f.mount()
   f.step(500)
-  const before = f.dot(row).getAttribute('cx')
+  const before = f.head(row).getAttribute('d')
   row.svg.removeChild(f.group(row))
   f.move(row, other)
   f.mutate(row.host)
-  assert.notEqual(f.dot(row).getAttribute('cx'), before)
+  assert.notEqual(f.head(row).getAttribute('d'), before)
   assert.ok(f.visible(row))
   dispose()
 })
@@ -887,7 +754,7 @@ test('A13: key-only row reuse is observed even with RAF stopped by reduced motio
   const f = accretionFixture()
   const row = f.add('session:parent')
   const dispose = f.mount()
-  const initialX = f.dot(row).getAttribute('cx')
+  const initial = f.head(row).getAttribute('d')
   f.reduced(true)
   f.step(500)
   assert.equal(f.frames.size, 0)
@@ -899,6 +766,217 @@ test('A13: key-only row reuse is observed even with RAF stopped by reduced motio
   assert.ok(f.visible(row))
   f.reduced(false)
   f.step(500)
-  assert.equal(f.dot(row).getAttribute('cx'), initialX, 'reused row did not restart at its visible birth phase')
+  assert.equal(f.head(row).getAttribute('d'), initial, 'reused row did not restart at its visible birth phase')
+  dispose()
+})
+
+test('A14: the head walks the ring without a jump at the seam', () => {
+  /* 用户 m00676 的第一条判据：单一主体、逐帧不瞬移。这里逐帧取头端第一个坐标点，一跳超过半
+     个设计单位就红。一圈 1300ms 在 144Hz 下每帧约 0.19 单位，限 0.6 留出 ±10% 变速余量。 */
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  const pointOf = d => d.slice(1).split('L')[0].split(' ').map(Number)
+  let previous = null
+  let biggest = 0
+  for (let ms = 0; ms <= 5200; ms += 1000 / 144) {
+    f.step(ms)
+    const here = pointOf(f.head(row).getAttribute('d'))
+    if (previous !== null) biggest = Math.max(biggest, Math.hypot(here[0] - previous[0], here[1] - previous[1]))
+    previous = here
+  }
+  assert.ok(biggest < 0.6, `the head jumped ${biggest} design units in one frame`)
+  dispose()
+})
+
+test('A15: the still frame is one frozen band and disposal leaves nothing behind', () => {
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  f.reduced(true)
+  f.step(300)
+  const frozen = f.arcs(row).map(arc => arc.getAttribute('d'))
+  assert.equal(frozen.filter(d => d !== '').length, 4, 'the still frame does not show the whole band')
+  f.step(2600)
+  assert.deepEqual(f.arcs(row).map(arc => arc.getAttribute('d')), frozen, 'the still frame drifted')
+  dispose()
+  assert.equal(f.frames.size, 0)
+  assert.equal(row.svg.children.length, 0)
+  assert.ok(f.observers.every(observer => observer.disconnected))
+})
+
+/* 会话行 Pending —— 开普勒轨道。几何直接 eval 生产文件，不重写一份算术。 */
+function keplerApi() {
+  return vm.runInNewContext(
+    read('src/runtime/kepler.js') + '\n({ at: uniKeplerAt, point: uniKeplerPoint, lut: uniKeplerLut, A: UNI_KEP_A, B: UNI_KEP_B, tilt: UNI_KEP_TILT, period: UNI_KEP_PERIOD, still: UNI_KEP_STILL, cx: UNI_KEP_CX, cy: UNI_KEP_CY, dot: UNI_KEP_DOT })',
+    {},
+  )
+}
+
+test('K1: the orbit is a tilted ellipse that stays inside the 16px leading cell', () => {
+  const k = keplerApi()
+  assert.ok(k.A > k.B, 'the orbit flattened into a circle')
+  assert.equal(k.tilt, -Math.PI / 6, 'the long axis no longer leans -30deg')
+  assert.equal(k.cx, 8)
+  assert.equal(k.cy, 8)
+  let maxX = 0
+  let maxY = 0
+  for (let i = 0; i < 720; i += 1) {
+    const at = k.at(i / 720)
+    maxX = Math.max(maxX, Math.abs(at.x - k.cx))
+    maxY = Math.max(maxY, Math.abs(at.y - k.cy))
+  }
+  /* 旋转盒半宽/半高：sqrt((a·cos30)² + (b·sin30)²) ≈ 5.99，另一半 ≈ 4.54。 */
+  assert.ok(Math.abs(maxX - 5.99) < 0.02, `half-width drifted to ${maxX}`)
+  assert.ok(Math.abs(maxY - 4.54) < 0.02, `half-height drifted to ${maxY}`)
+  /* 16px 格子里还要留得下 0.8 的描边和半像素抗锯齿。 */
+  assert.ok(maxX + 0.4 <= 8 && maxY + 0.4 <= 8, 'the orbit pokes out of its cell')
+})
+
+test('K2: the arc-length table is a closed, strictly increasing parametrisation', () => {
+  const k = keplerApi()
+  const lut = k.lut()
+  assert.equal(lut.cum.length, 129)
+  for (let i = 1; i < lut.cum.length; i += 1) assert.ok(lut.cum[i] > lut.cum[i - 1], `flat step at ${i}`)
+  assert.ok(Math.abs(lut.cum[128] - lut.total) < 1e-12)
+  let dense = 0
+  let prev = k.point(0)
+  for (let i = 1; i <= 200000; i += 1) {
+    const here = k.point((i / 200000) * Math.PI * 2)
+    dense += Math.hypot(here.x - prev.x, here.y - prev.y)
+    prev = here
+  }
+  assert.ok(Math.abs(lut.total - dense) / dense < 0.001, `table length ${lut.total} vs ${dense}`)
+  const start = k.at(0)
+  const end = k.at(1)
+  assert.ok(Math.hypot(start.x - end.x, start.y - end.y) < 1e-9, 'one turn does not close')
+  assert.ok(Math.hypot(k.at(0.25).x - k.at(1.25).x, k.at(0.25).y - k.at(1.25).y) < 1e-9, 'phase does not wrap')
+})
+
+test('K3: the dot walks equal arc per equal time, which is the uniform speed the mock asks for', () => {
+  const k = keplerApi()
+  const steps = 64
+  const chords = []
+  for (let i = 0; i < steps; i += 1) {
+    const a = k.at(i / steps)
+    const b = k.at((i + 1) / steps)
+    chords.push(Math.hypot(b.x - a.x, b.y - a.y))
+  }
+  const ratio = Math.max(...chords) / Math.min(...chords)
+  assert.ok(ratio < 1.02, `arc-length sampling is uneven: ${ratio}`)
+  /* 反面钉桩：同一批步长如果按参数角走（椭圆的自然角速度），快慢差会到 1.8 倍。 */
+  const naive = []
+  for (let i = 0; i < steps; i += 1) {
+    const a = k.point((i / steps) * Math.PI * 2)
+    const b = k.point(((i + 1) / steps) * Math.PI * 2)
+    naive.push(Math.hypot(b.x - a.x, b.y - a.y))
+  }
+  assert.ok(Math.max(...naive) / Math.min(...naive) > 1.5, 'the fixture cannot tell uniform arc from uniform angle')
+})
+
+function keplerFixture() {
+  class Element {
+    constructor(name, attrs = {}) { this.name = name; this.attrs = attrs; this.children = []; this.parentNode = null; this.style = {}; this.dataset = {} }
+    setAttribute(key, value) { this.attrs[key] = String(value) }
+    getAttribute(key) { return this.attrs[key] ?? null }
+    appendChild(child) { child.parentNode = this; this.children.push(child); return child }
+    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null }
+    closest() { let el = this; while (el && !el.attrs['data-row-key']) el = el.parentNode; return el }
+    get isConnected() { return this === root || this.parentNode?.isConnected === true }
+  }
+  const root = new Element('html')
+  const body = root.appendChild(new Element('body'))
+  let now = 0
+  let id = 0
+  const frames = new Map()
+  const observers = []
+  const descendants = el => el.children.flatMap(child => [child, ...descendants(child)])
+  const document = {
+    body, documentElement: root, createElementNS: (_, name) => new Element(name),
+    querySelectorAll: selector => {
+      assert.equal(selector, "[data-row-key^='session:'] span[data-state='warning']")
+      return descendants(root).filter(el => el.name === 'span' && el.getAttribute('data-state') === 'warning' &&
+        el.parentNode !== null && String(el.parentNode.getAttribute('data-row-key') || '').startsWith('session:'))
+    },
+  }
+  const mount = vm.runInNewContext(read('src/runtime/kepler.js') + '\nmountKepler', {
+    document, performance: { now: () => now },
+    window: { requestAnimationFrame: fn => { frames.set(++id, fn); return id }, cancelAnimationFrame: n => frames.delete(n) },
+    MutationObserver: class {
+      constructor(fn) { this.fn = fn; observers.push(this) }
+      observe(target, options) { this.target = target; this.options = options }
+      disconnect() { this.disconnected = true }
+    },
+  })
+  const add = key => {
+    const host = body.appendChild(new Element('div', { 'data-row-key': key }))
+    const marker = host.appendChild(new Element('span', { 'data-state': 'warning' }))
+    return { host, marker }
+  }
+  const mutate = (target = root, attributeName = null) => {
+    const type = attributeName === null ? 'childList' : 'attributes'
+    for (const observer of observers) {
+      const options = observer.options
+      if (observer.disconnected || !options[type]) continue
+      if (observer.target !== target && !(options.subtree && descendants(observer.target).includes(target))) continue
+      if (type === 'attributes' && options.attributeFilter && !options.attributeFilter.includes(attributeName)) continue
+      observer.fn([{ type, target, attributeName }])
+    }
+  }
+  return {
+    mount, add, frames, observers, descendants, mutate,
+    svg: row => row.marker.children.find(el => el.getAttribute('class') === 'uni-kep'),
+    dot: row => descendants(row.marker).find(el => el.name === 'circle'),
+    orbit: row => descendants(row.marker).find(el => el.name === 'ellipse'),
+    reduced: value => { body.dataset.uniMotion = value ? 'reduced' : 'full'; mutate(body, 'data-uni-motion') },
+    step: time => { now = time; const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(time)) },
+  }
+}
+
+test('K4: the marker keeps its own slot, paints before the first frame, and every row shares one phase', () => {
+  const f = keplerFixture()
+  const one = f.add('session:one')
+  const two = f.add('session:two')
+  const dispose = f.mount()
+  for (const row of [one, two]) {
+    const svg = f.svg(row)
+    assert.ok(svg, 'no orbit was mounted')
+    assert.equal(svg.parentNode, row.marker, 'the graphics must live inside the leading cell, not next to it')
+    assert.equal(svg.getAttribute('viewBox'), '0 0 16 16')
+    assert.equal(svg.getAttribute('aria-hidden'), 'true')
+    assert.equal(f.orbit(row).getAttribute('rx'), '6.6')
+    assert.equal(f.orbit(row).getAttribute('ry'), '3.6')
+    assert.equal(f.orbit(row).getAttribute('transform'), 'rotate(-30.00 8 8)')
+    assert.ok(f.dot(row).getAttribute('cx') !== null, 'the dot must be on the orbit before the first frame')
+  }
+  assert.equal(f.dot(one).getAttribute('cx'), f.dot(two).getAttribute('cx'), 'rows drifted out of phase')
+  const first = f.dot(one).getAttribute('cx')
+  f.step(650)
+  assert.notEqual(f.dot(one).getAttribute('cx'), first, 'the dot did not move')
+  assert.equal(f.dot(one).getAttribute('cx'), f.dot(two).getAttribute('cx'), 'rows drifted out of phase while running')
+  dispose()
+  assert.equal(f.frames.size, 0)
+  assert.equal(one.marker.children.length, 0)
+  assert.equal(two.marker.children.length, 0)
+  assert.ok(f.observers.every(observer => observer.disconnected))
+})
+
+test('K5: reduced motion freezes the dot on a painted frame and keeps the whole orbit', () => {
+  const f = keplerFixture()
+  const k = keplerApi()
+  const row = f.add('session:one')
+  const dispose = f.mount()
+  f.step(400)
+  f.reduced(true)
+  f.step(900)
+  assert.equal(f.frames.size, 0, 'reduced motion still schedules frames')
+  const still = k.at(k.still)
+  assert.equal(f.dot(row).getAttribute('cx'), still.x.toFixed(2))
+  assert.equal(f.dot(row).getAttribute('cy'), still.y.toFixed(2))
+  assert.ok(f.orbit(row), 'reduced motion dropped the orbit itself')
+  f.reduced(false)
+  f.step(1400)
+  assert.notEqual(f.dot(row).getAttribute('cx'), still.x.toFixed(2), 'motion did not resume')
+  assert.equal(f.descendants(row.marker).filter(el => el.getAttribute('class') === 'uni-kep').length, 1)
   dispose()
 })

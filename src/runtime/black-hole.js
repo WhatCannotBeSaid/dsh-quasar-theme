@@ -63,6 +63,22 @@ var UniverseBlackHole = (function () {
     { n: 2, radial: 2.7, angular: -.62, weight: .11 }
   ]
   var PULSE = .03
+  /* 显示映射的 gamma（第三十阶段）。shade 返回的物理亮度一个字节都不改：契约测试要求
+     盘发射项对 g⁴ 严格线性、对 S 严格线性，色调映射写进那里会同时破坏两条。这一档只决定
+     「同一批亮度怎么落进 11 档字符」，不参与任何物理解算。
+     取 .45 的理由：g⁴ 在整盘上跨 59 倍（逆行侧 0.06、顺行侧 3.55），旧的 .62 把暗侧
+     压在 index 3 附近，左上角只剩稀疏的点和短横。.45 把左右两半的平均档位从 3.0 / 6.1
+     抬到 4.1 / 6.9，落字率 99.3% → 100%，满档 @ 只从 2.7% 升到 4.1%。 */
+  var TONE_GAMMA = .45
+  /* 光子环让位：环层已经把环画成一条连续细线，ASCII 字符压在上面就成了一圈零散杂点。
+     环外沿随方位在 140..215px 之间移动（下方被前景盘拉出一段外扩），整圈用一个半径
+     会把没有环的上方连同前景盘一起挖空，所以烘焙时按方位扇区记下「环可见区的最外半径」，
+     绘制时逐格查表，只跳过环真的有像素的那一段。
+     RING_BINS 是扇区数：环半径约 140px 处 1° 弧长 2.4px，比字符格宽（6px）还细，360 格够用。 */
+  var RING_BINS = 360
+  /* 环可见像素的权重门槛：alpha = 255 * weight^1.7，0.12 对应 alpha 约 15，
+     再淡的像素肉眼读不出是环，不该为它清掉盘面。 */
+  var RING_VISIBLE = .12
   /* 取景位移：每帧把画布整体平移这么多像素再画，洞心就离开视图中心。
      默认 0 = 居中（新会话页）。对话页背景要的是「洞向右走出画面、只留盘左半边的镜环弧」，
      x 由 viewXFor() 从视口宽度和半径反算。y 在两个页面都是 0，只有转场途中抬起来走弧线
@@ -342,6 +358,9 @@ var UniverseBlackHole = (function () {
     if (!image || !image.data) return null
     var data = image.data
     var cx = size / 2, cy = size / 2
+    /* 环可见区的方位包络：edge[bin] 记该扇区里最外一枚「肉眼可见」像素的半径。
+       绘制时逐格按方位查这张表，决定要不要为环让位。 */
+    var edge = new Float32Array(RING_BINS), edgeMax = 0
     var start = performance.now()
     var peak = 0, attempted = 0, drawn = 0, exhausted = 0, retried = 0, unresolved = 0
     var pending = []
@@ -358,6 +377,14 @@ var UniverseBlackHole = (function () {
       var i4 = (row * size + col) * 4
       data[i4] = 255; data[i4 + 1] = 255; data[i4 + 2] = 255
       data[i4 + 3] = 255 * Math.pow(weight, 1.7)
+      /* 只把肉眼能读出的像素记进方位包络：alpha 才 2、3 的边缘像素如果也参与，
+         包络会被拉到理论上限 1.75 倍半径，等于整圈都清空。 */
+      if (weight >= RING_VISIBLE) {
+        /* row 向下增长，屏幕 y 是 row + .5 - cy；与 draw() 里 atan2(gy, gx) 同一套方向。 */
+        var bin = (((Math.atan2(row + .5 - cy, col + .5 - cx) + Math.PI) / (Math.PI * 2) * RING_BINS) | 0) % RING_BINS
+        if (rad > edge[bin]) edge[bin] = rad
+        if (rad > edgeMax) edgeMax = rad
+      }
       drawn++
       return true
     }
@@ -401,11 +428,13 @@ var UniverseBlackHole = (function () {
     /* 有射线没算完，遮罩就整体不发布：state 与计数一起返回，调用方据此知道环层为什么缺，
        而不是拿到一张看着正常、实际上缺了像素的图。 */
     if (unresolved) return { canvas: null, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak,
+      edge: edge, edgeMax: edgeMax,
       ms: ms, state: 'incomplete', attempted: attempted, drawn: drawn, exhausted: exhausted,
       retried: retried, unresolved: unresolved }
     octx.putImageData(image, 0, 0)
-    return { canvas: off, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak, ms: ms,
-      state: 'ready', attempted: attempted, drawn: drawn, exhausted: exhausted,
+    return { canvas: off, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak,
+      edge: edge, edgeMax: edgeMax,
+      ms: ms, state: 'ready', attempted: attempted, drawn: drawn, exhausted: exhausted,
       retried: retried, unresolved: 0 }
   }
   /* 阴影描边曾在这里给被捕获格写 stroke 字符。第十五阶段已整体移除：
@@ -441,7 +470,8 @@ var UniverseBlackHole = (function () {
         bakedRing = baked
         ringDiag = { state: 'ready', size: baked.size, attempted: baked.attempted,
           drawn: baked.drawn, exhausted: baked.exhausted, retried: baked.retried,
-          unresolved: baked.unresolved, peak: baked.peak, ms: baked.ms }
+          unresolved: baked.unresolved, peak: baked.peak, ms: baked.ms,
+          edge: baked.edge, edgeMax: baked.edgeMax }
       } else {
         bakedRing = null
         /* drawn 记的是「真正发布出去」的像素数，所以失败分支永远是 0；
@@ -535,6 +565,12 @@ var UniverseBlackHole = (function () {
           baseY - ringSize / 2 * scale, ringSize * scale, ringSize * scale)
         ctx.restore()
       }
+      /* 环带让位的三个量在帧内不变，提到循环外。ringScale 通常正好是 1：烘焙与绘制用的是
+         同一个 short 与同一个 horizon 公式；只有取景尺寸在 resize 与重烘之间错开时才会偏离。 */
+      var ringEdge = bakedRing && bakedRing.edge ? bakedRing.edge : null
+      var ringScale = bakedRing ? horizon / bakedRing.horizon : 1
+      var ringClear = Math.sqrt(cw * cw + ch * ch) / 2 + 1
+      var ringOuter = ringEdge ? bakedRing.edgeMax * ringScale + ringClear : 0
       ctx.font = '600 ' + Math.round(ch * .95) + 'px ui-monospace, Consolas, monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -544,26 +580,39 @@ var UniverseBlackHole = (function () {
       for (var i = 0; i < grid.length; i++) {
         var cell = grid[i], glyph = '', value = 0, bucket = 0
         if (cell.radius) {
-          /* 盘格一律照常显影：这里以前有一条 "if (gd >= horizon - 1 && gd <= 150) continue"，
-             拿「环层肉眼可见的最外半径」150px 当遮罩，把阴影外整条环带里的盘格一起跳过，
-             好让 Canvas 环层不被字符打断。但那条带子里本来就有一半是有效前景盘（近侧盘面
-             压在洞前），而 150 是个跟窗口无关的固定像素 —— 1256×821 只挡掉 2.6%，
-             800×400 挡掉 65%，全是同一批几何没道理地被吃掉。
-             现在环带里照常落字：环层仍在上一步整张画好，字符压在其上，洞外没有盘交点的地方
-             照旧只有环、没有字。注意字符是稀疏的 ASCII 格，环仍会从字缝里透出来 ——
-             视觉上得到的是「环上叠字」，不是严格意义上的「盘把环挡住」。要让环在盘后真正
-             消失，就得按逐像素的盘命中再生成一条遮罩去削环层；但那条遮罩并不只覆盖「有效
-             前景盘」—— 环带里凡是射线命中盘面的像素都会被削，其中既有近侧前景盘，也有盘在
-             洞后方那一段（它同样在环的位置上），还有本来靠环自身贡献信号的像素，所以它不是
-             一次纯粹的「前景盘遮住环」。本阶段明确不做，也没有做。
-             遮挡没有放松：被捕获的格子没有 radius，依旧一个字都不落。 */
+          /* 环上不落字：第十五阶段把环交给 Canvas 精细层之后，盘格在环的位置上照常显影，
+             环层就从字缝里透出来，读成「一圈零散杂点压在细环上」。
+             这里在 shade 之前把环带里的盘格跳掉。
+             边界不用固定像素：环峰随方位在 140..215px 之间移动，下方被前景盘拉出一段外扩，
+             上方则贴得紧。整圈取同一个半径，要么清不干净，要么把没有环的前景盘一起挖空。
+             所以查 bakeRing 记下的方位包络 edge[方位]，只清环真有像素的方向。
+             没有环层时一律不清：测试桩、精简 DOM 与烘焙失败都走这条路，纯 ASCII 模式不需要
+             为不存在的环让位。遮挡本身没有放松：被捕获的格子没有 radius，依旧一个字都不落。 */
+          if (ringEdge) {
+            var gx0 = (i % cols + .5) * cw - baseX
+            var gy0 = (((i / cols) | 0) + .5) * ch - baseY
+            var gd2 = gx0 * gx0 + gy0 * gy0
+            /* 先用平方半径粗筛：绝大多数格子在环带之外，省掉每帧一万多次开方与反正切。 */
+            if (gd2 < ringOuter * ringOuter) {
+              var gd = Math.sqrt(gd2)
+              /* 阴影圆内那几格是近侧盘面压在洞前，不属于环，照常落字。 */
+              if (gd > horizon) {
+                var rb = (((Math.atan2(gy0, gx0) + Math.PI) / (Math.PI * 2) * RING_BINS) | 0) % RING_BINS
+                if (gd <= ringEdge[rb] * ringScale + ringClear) continue
+              }
+            }
+          }
           value = shade(cell, t, ink, SPIN)
           if (value > .004) {
-            /* (value * 12) | 0 与 Math.floor(value * 12) 在 value ∈ [0,1) 上逐位相同，
-               value 不可能到 1（shade 返回 1 - exp(-flux)，flux > 0），所以上限那次比较是空转。 */
-            var index = Math.min(lastGlyph, Math.floor(Math.pow(value, .62) * lastGlyph + .5))
+            /* 字与墨都走同一个显示映射：物理亮度 value 先过 TONE_GAMMA，再落进 11 档字符。
+               两处必须用同一个 shown —— 只压字形不压墨色，暗侧会拿到亮的字形配最暗的墨，
+               读起来反而更糊。落字门槛 .004 仍是物理阈值，不随 gamma 变。 */
+            var shown = Math.pow(value, TONE_GAMMA)
+            /* (shown * 12) | 0 与 Math.floor(shown * 12) 在 shown ∈ [0,1) 上逐位相同，
+               shown 不可能到 1（value < 1，gamma > 0），所以上限那次比较是空转。 */
+            var index = Math.min(lastGlyph, Math.floor(shown * lastGlyph + .5))
             glyph = GLYPHS.charAt(index)
-            bucket = (value * 12) | 0
+            bucket = (shown * 12) | 0
             if (bucket > 11) bucket = 11
             var luminous = !light
             if (light) {
