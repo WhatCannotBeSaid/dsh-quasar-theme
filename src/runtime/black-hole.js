@@ -564,9 +564,12 @@ var UniverseBlackHole = (function () {
          viewX 时 viewY 是 undefined，乘出来 NaN —— setTransform 收到 NaN 在浏览器里是
          静默忽略整条变换，新会话页会一直在错的原点下画。 */
       if (shifted) ctx.setTransform(dpr, 0, 0, dpr, dpr * (Number(config.viewX) || 0), dpr * (Number(config.viewY) || 0))
-      /* 亮档对话页的盘是淡影（见 ARC_ALPHA_LIGHT）：一整帧的墨量在这里统一收，墨盘、盘字、
-         星点一起变薄，不需要每种颜色各自调淡。 */
-      if (arcAlpha < 1) ctx.globalAlpha = arcAlpha
+      /* 对话页的盘是淡影（见 ARC_FADE_DARK / ARC_FADE_LIGHT），但这一帧不在这里压墨：
+         浓淡交由画布自身的 opacity 承担（arcTo 把它写进合成器关键帧）。理由是逐帧
+         globalAlpha 只有 fps 门限放行的 30 格能画出来，位移却在合成器上按 60fps 走，
+         末段又被 easeInOutCubic 压平，落地补画一次就读成「快到位时突然定档」。
+         整块画布一层 opacity 则与位移共用同一份关键帧、同一条缓动，盘字、阴影圆、
+         光子环按同一比例一起变薄，也不再看主线程这一帧有没有出。 */
       /* 阴影底色两档都要先铺（此前只有亮档铺，暗档靠透明把整块地露给页面底纹，洞心因此
          是一张静止的纹理而不是洞）：
            - 被捕获的格子没有 glyph，draw() 下面的循环直接跳过它，这一块就没有任何不透明像素；
@@ -595,6 +598,8 @@ var UniverseBlackHole = (function () {
         /* 环色与 alpha 一起决定「亮到什么程度」：暗档要清晰明亮（环芯接近高光但不到纯白），
            亮档要压在浅纸上有足够反差（环芯接近深金铜）。两者都只覆盖 r128–160 那一圈，
            吸积盘的 ASCII 层完全不动。 */
+        /* 这里只给环自己的相对亮度，不再乘转场系数：整张画布的 opacity 已经把环和盘
+           一起带上，再乘一次会让环比盘多淡一层（暗档对话页读起来像环单独发光）。 */
         ctx.globalAlpha = light ? .74 : .86
         if (img) ctx.drawImage(img, baseX - ringSize / 2 * scale,
           baseY - ringSize / 2 * scale, ringSize * scale, ringSize * scale)
@@ -663,7 +668,6 @@ var UniverseBlackHole = (function () {
         }
         if (glyph && glyph !== ' ') ctx.fillText(glyph, (i % cols + .5) * cw, (((i / cols) | 0) + .5) * ch, cw)
       }
-      if (arcAlpha < 1) ctx.globalAlpha = 1
       /* 位移只活在这一个函数里：帧末复位成居中，下一次进 draw() 再按当时的 config 决定。
          不复位的话，从对话页反向切回新会话页时，第一帧仍带着旧位移。 */
       if (shifted) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -815,15 +819,16 @@ var UniverseBlackHole = (function () {
         if (modeHook) modeHook(mode)
       },
       /* 盘的整体墨量：0..1，由 mount() 按「亮暗档 + 洞在不在出画位」决定。
-         不自己 sync()：调用方紧跟着的 update() 就是那一帧，多画一次会多出 16000 格的绘制，
-         而且会在旧取景上先画一帧（转场里肉眼可见的一跳）。 */
+         它现在只是诊断镜像（stats().alpha）—— 绘制不读它，浓淡真正生效的地方是
+         canvas.style.opacity 和转场关键帧里的 opacity。不自己 sync() 的理由不变：
+         多画一次会多出 16000 格的绘制，而且会在旧取景上先画一帧。 */
       setAlpha: function (next) {
         var value = Number(next)
         arcAlpha = value >= 0 && value <= 1 ? value : 1
       },
       isLight: function () { return mode === 'light' },
       onMode: function (fn) { modeHook = typeof fn === 'function' ? fn : null },
-      stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, rAFGapMs: rAFGap, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config),
+      stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, rAFGapMs: rAFGap, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config), alpha: arcAlpha,
         build: buildDiag ? Object.assign({}, buildDiag) : null,
         ring: ringDiag ? Object.assign({}, ringDiag) : null } },
       resize: function () { resize() },
@@ -932,15 +937,15 @@ var UniverseBlackHole = (function () {
     observer.observe(canvas)
 
     /* 出画 / 回位（2026-10-29 甲方案，用户原话 m02133「甲，弧就停在现在的位置就行」）：
-       洞不参与透明度交叉淡化，全程可见，只把取景连续地推过去。
+       洞不跟页面做 CSS 交叉淡化，全程可见，只把取景连续地推过去 —— 它的浓淡由本文件自己
+       按位移进度插值（见下面的 ARC_FADE_*），不归页面管。
        为此取景框固定成整个 frame（见 place()），换页不改画布尺寸 —— 改尺寸要重建近两万个
        格子，重建期间画布是空的、CSS 还会把 canvas 藏起来，洞会闪一下，正好闪在转场最显眼
-       的那一帧。所以两页共用同一块画布、同一份网格，只有 viewX / 亮度 / 速度在变，
+       的那一帧。所以两页共用同一块画布、同一份网格，只有 viewX / 墨量 / 速度在变，
        而这三样在 update() 里都只走 sync()，不重建，逐帧几乎免费。
        洞心落点：新会话页 = 对话列中心（画布变宽后要正补偿），
        对话页 = 视口右缘那条线（见 viewXFor），右半出画，只留左半边黑漆漆的圆。
        位移必须从画布宽度反算：半径和宽度不是同一个量。 */
-    var ARC_BRIGHTNESS = 0.4
     var ARC_SPEED = 0.35
     /* 甲：洞向右「旋转」到右缘，回程向左「旋转」放回（用户 m02685：「转场应该是新会话页的
        黑洞向右旋转到达目前对话页黑洞的位置，而从对话页返回新会话页则是那半个黑洞向左旋转
@@ -954,12 +959,18 @@ var UniverseBlackHole = (function () {
        脉冲峰值取 1.05 是为了别撞上 options() 里 speed 的上限 2（撞上就被夹平，转感丢失）。 */
     var ARC_BOW = 64
     var ARC_SPIN = 1.05
-    /* 亮档的吸积盘压成一层淡影。LIGHT 调色板的高端是近黑的（#30110b），盘最亮的圈整片压在
-       浅色纸面上；对话页把洞挪到右缘后，正文恰好贴在这片墨后面 —— 用户 m02530
-       「对话页亮色模式下的吸积盘有点遮挡文字，调整下吸积盘使其不遮挡文字，不改变位置」。
-       压 alpha 是唯一不动几何的解法：洞心、半径、取景、格子全不变，只是这一帧的墨薄一点。
-       暗档维持 1：深蓝底上不存在压字问题，那边不动。 */
-    var ARC_ALPHA_LIGHT = 0.35
+    /* 对话页那半个洞的墨量。它既是「压暗吸积盘以免遮字」的手段（用户 m02530
+       「对话页亮色模式下的吸积盘有点遮挡文字，调整下吸积盘使其不遮挡文字，不改变位置」），
+       也是转场淡入淡出的终点：飞去对话页时 alpha 1 → 这个值，回新会话页 1 ← 这个值，
+       与位移共用同一条 easeInOutCubic（见 arcTo 里的 step），所以是「随着移动慢慢淡」。
+       两档取不同值是为了观感一致。LIGHT 调色板高端近黑（#30110b）、DARK 是深蓝底，
+       同一个 alpha 在亮档看起来比暗档浓约 35%，于是按 WCAG 相对亮度的 Weber 对比度
+       (Lbg - Lcomp) / Lbg 反算，让两档落到同一个目标 0.25：
+         暗：#0c111a 底 + #030509 墨 → 0.2501
+         亮：#edf0f4 底 + #101725 墨 → 0.2495
+       全程不动几何：洞心、半径、取景、格子一概不变，只是这一帧的墨薄一点。 */
+    var ARC_FADE_DARK = 0.341
+    var ARC_FADE_LIGHT = 0.252
     var arcRaf = 0
     var arcAnim = null
     var arcSide = false
@@ -969,8 +980,8 @@ var UniverseBlackHole = (function () {
        defaults.fps 的方式出帧 —— 盘的自转本来就是 30fps 的观感，位置则跟屏幕同步。
        以前那条 ARC_FPS / 按刷新率挑整除数的逻辑因此整段删掉了。 */
 
-    /* 该档位下盘该有多浓。暗档恒为 1，所以下面的插值在暗档是空转（1 → 1）。 */
-    function arcAlphaFor() { return renderer.isLight() ? ARC_ALPHA_LIGHT : 1 }
+    /* 该档位下盘该有多浓。 */
+    function arcAlphaFor() { return renderer.isLight() ? ARC_FADE_LIGHT : ARC_FADE_DARK }
 
     /* 换档时补上浓淡：不补的话，在对话页直接切亮档会一直是暗档的满墨。
        setAlpha 自己不重画，所以这里补一次空 update() 把那一帧画出来。 */
@@ -979,6 +990,7 @@ var UniverseBlackHole = (function () {
       var next = arcAlphaFor()
       live.alpha = next
       renderer.setAlpha(next)
+      canvas.style.opacity = String(next)
       renderer.update({})
     })
 
@@ -1043,7 +1055,9 @@ var UniverseBlackHole = (function () {
       else document.body.removeAttribute('data-uni-sky-mode')
       setEdge()
       var toX = viewXFor(arcSide)
-      var toBright = arcSide ? ARC_BRIGHTNESS : defaults.brightness
+      /* 亮度不再参与转场：盘在对话页的浓淡统一由 alpha 承担（见 ARC_FADE_*），
+         否则暗档会被压两层（0.4 × 0.341），比阴影圆还淡。 */
+      var toBright = defaults.brightness
       var toSpeed = arcSide ? ARC_SPEED : defaults.speed
       var toAlpha = arcSide ? arcAlphaFor() : 1
       var homeX = viewXFor(false)
@@ -1052,6 +1066,7 @@ var UniverseBlackHole = (function () {
          本来就在同一处。 */
       if (!(ms > 0) || !(travel > 0) || typeof canvas.animate !== 'function') {
         canvas.style.transform = ''
+        canvas.style.opacity = String(toAlpha)
         apply({ viewX: toX, viewY: 0, brightness: toBright, speed: toSpeed, alpha: toAlpha })
         return
       }
@@ -1062,6 +1077,10 @@ var UniverseBlackHole = (function () {
       var from = arcSide ? 0 : travel
       var end = arcSide ? travel : 0
       canvas.style.transform = 'translate3d(' + from + 'px, 0px, 0)'
+      /* 起点浓度写进内联样式：动画被取消就回到这个值，不会弹回上一档的残留。
+         真正会取消它的只有下一次 arcTo 开头的 arcStop() 和 teardown —— onResize
+         在运镜期间直接 return，并不打断动画（那时的兜底是 finish 的落点）。 */
+      canvas.style.opacity = String(fromAlpha)
       pose({ viewX: homeX, viewY: 0 })
       renderer.update({})
       /* 弧线与缓动拆成 12 段关键帧交给合成器：easeInOutCubic + sin(π·e) 的抬升，
@@ -1075,13 +1094,16 @@ var UniverseBlackHole = (function () {
         var ee = kk < 0.5 ? 4 * kk * kk * kk : 1 - Math.pow(-2 * kk + 2, 3) / 2
         keys.push({
           transform: 'translate3d(' + px(from + (end - from) * ee) + ', ' + px(-ARC_BOW * Math.sin(Math.PI * ee)) + ', 0)',
+          /* 浓淡和位移同一份关键帧、同一条 ee：屏幕上的浓度因此跟位置逐点同步，
+             也不再看主线程那一帧有没有被 fps 门限放行。 */
+          opacity: fromAlpha + (toAlpha - fromAlpha) * ee,
           offset: kk,
           easing: 'linear',
         })
       }
       arcAnim = canvas.animate(keys, { duration: ms, easing: 'linear', fill: 'forwards' })
-      /* 亮度、转速、浓淡还在主线程上插值 —— 它们不参与位移，卡一下也看不出来；
-         真正的运动已经交给合成器，主线程再堵也不影响位置。 */
+      /* 亮度、转速还在主线程上插值 —— 它们不参与位移、也不进合成器关键帧，卡一下看不出来；
+         浓淡已经挪进上面的 opacity，与位置同源。主线程再堵也影响不到这两样。 */
       var start = 0
       function step(now) {
         arcRaf = 0
@@ -1094,6 +1116,7 @@ var UniverseBlackHole = (function () {
           brightness: fromBright + (toBright - fromBright) * e,
           /* 转速 = 端点插值 + 飞行脉冲：盘在途中是真的在自转，落地才收回 0.35。 */
           speed: fromSpeed + (toSpeed - fromSpeed) * e + ARC_SPIN * bow,
+          /* 只做诊断镜像供 stats().alpha 采样：屏幕上的浓淡由关键帧决定。 */
           alpha: fromAlpha + (toAlpha - fromAlpha) * e,
         })
         if (k < 1) { arcRaf = requestAnimationFrame(step); return }
@@ -1102,10 +1125,15 @@ var UniverseBlackHole = (function () {
       function finish() {
         if (arcAnim) { arcAnim.cancel(); arcAnim = null }
         canvas.style.transform = ''
+        /* 落点按「此刻的档」重算：转场途中切亮/暗档时 toAlpha 是起飞时捕获的旧值，
+           照它写会把 onMode 刚算对的值覆盖回去，对话页此后一直停错档。 */
+        var landed = arcSide ? arcAlphaFor() : 1
+        /* 取消动画会撤掉 fill:forwards，落点得写回内联样式，否则画布弹回起点浓度。 */
+        canvas.style.opacity = String(landed)
         /* 出画落地：内容得从「新会话页取景 + 平移」换成「对话页取景 + 无平移」，两者在屏幕上
            完全重合 —— 洞的位置连续，只有取景写对了；星点按格子落位，不随 viewX 动。
            回程落地不用换：内容本来就已经是新会话页的取景。 */
-        pose({ viewX: toX, viewY: 0, brightness: toBright, speed: toSpeed, alpha: toAlpha })
+        pose({ viewX: toX, viewY: 0, brightness: toBright, speed: toSpeed, alpha: landed })
         renderer.update({})
       }
       arcRaf = requestAnimationFrame(step)
@@ -1113,6 +1141,7 @@ var UniverseBlackHole = (function () {
     canvas.__uniArc = function (side, ms) { arcTo(!!side, Number(ms) || 0) }
     canvas.__uniSkyMode = function () { arcTo(true, 0) }
     canvas.__uniSkyModeOff = function () { arcTo(false, 0) }
+    canvas.style.opacity = '1'
     apply({ viewX: viewXFor(false), viewY: 0 })
 
     /* 冷启动时主题可能比对话列早一步挂上：那一次取景只能拿到视口中心的兜底值，

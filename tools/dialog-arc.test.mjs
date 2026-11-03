@@ -1,14 +1,14 @@
 /**
  * 对话页背景（2026-10-29 甲方案定稿）的断言。
  *
- * 定稿：两页共用同一块画布、同一份网格，换页只做一次连续运镜（viewX / brightness /
+ * 定稿：两页共用同一块画布、同一份网格，换页只做一次连续运镜（viewX / alpha /
  * speed），并且取景框固定成整个 frame。用户选甲的理由（m02133 原话「甲，弧就停在现在的
  * 位置就行」）是转场要读作「一次镜头运动」，所以这里最重的两条断言不是「弧在不在」，
  * 而是：
  *   1. 换页期间画布尺寸与格数一个都不许变 —— 变就要重建近两万格子，重建期画布是空的、
  *      CSS 还把 canvas 藏起来，洞会闪一帧，正好闪在转场最显眼的那一帧；
- *   2. viewX 必须单调推到端点、端点精确，亮度与速度一起收 —— 否则位置和透明度各硬切
- *      一次，屏幕上是两次切换。
+ *   2. viewX 必须单调推到端点、端点精确，浓淡与速度沿同一条缓动一起走 —— 否则位置和
+ *      透明度各硬切一次，屏幕上是两次切换。
  *
  * 这里的 fixture 刻意模仿浏览器里影响结果的几处约定：canvas 的 width / height 是缓冲区、
  * getBoundingClientRect 按 CSS 盒模型解算、ctx 的 setTransform 累积成矩阵、fillText 记录
@@ -72,8 +72,13 @@ function holeFixture({ reduced = false } = {}) {
   const place = (x, y) => ({ x: x * matrix.a + matrix.e, y: y * matrix.d + matrix.f })
   const ctx = {
     fillStyle: '', font: '', textAlign: '', textBaseline: '', globalAlpha: 1, lineWidth: 1,
-    save() { stack.push({ ...matrix }) },
-    restore() { if (stack.length) matrix = stack.pop() },
+    save() { stack.push({ ...matrix, alpha: ctx.globalAlpha }) },
+    restore() {
+      if (!stack.length) return
+      const saved = stack.pop()
+      matrix = { a: saved.a, d: saved.d, e: saved.e, f: saved.f }
+      ctx.globalAlpha = saved.alpha
+    },
     setTransform(a, b, c, d, e, f) {
       if (!Number.isFinite(e) || !Number.isFinite(f)) throw new TypeError('setTransform 收到了非数值')
       matrix = { a, d, e, f }
@@ -199,7 +204,7 @@ test('取景框固定成整个 frame：洞心仍落在对话列中心，左栏�
   dispose()
 })
 
-test('出画取景：圆心出画只剩左半弧，亮度与速度一起收到对话页的值', () => {
+test('出画取景：圆心出画只剩左半弧，速度收到对话页的值', () => {
   const f = holeFixture()
   const dispose = f.api.mount()
   f.drain()
@@ -213,7 +218,7 @@ test('出画取景：圆心出画只剩左半弧，亮度与速度一起收到�
 
   const config = hole.stats().config
   assert.ok(Math.abs(config.viewX - ARC_X) < 0.01, `viewX 应为 ${ARC_X}，实际 ${config.viewX}`)
-  assert.ok(Math.abs(config.brightness - 0.4) < 1e-9, `亮度要收到 0.4，实际 ${config.brightness}`)
+  assert.ok(Math.abs(config.brightness - 1) < 1e-9, `亮度保持 1（淡化只走 alpha），实际 ${config.brightness}`)
   assert.ok(Math.abs(config.speed - 0.35) < 1e-9, `速度要收到 0.35，实际 ${config.speed}`)
 
   const view = hole.view()
@@ -251,20 +256,21 @@ test('出画取景：圆心出画只剩左半弧，亮度与速度一起收到�
   dispose()
 })
 
-test('亮档的盘压成淡影：alpha 收到 0.35，位置与几何一个字都不动', () => {
+test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几何一个字都不动', () => {
   const f = holeFixture()
   const dispose = f.api.mount()
   f.drain()
   const hole = f.canvas.__uniBlackHole
 
-  /* 暗档先量一遍：深蓝底上没有压字问题，盘的墨必须原样（alpha 1）。 */
+  /* 暗档先量一遍：两档观感要一样，暗档的墨按 Weber 等值收到 0.341，不是满墨。 */
   hole.setMode('dark')
   f.canvas.__uniArc(true, 0)
   f.frameAt(200)
   f.painted.length = 0
   f.frameAt(300)
   assert.ok(f.painted.length > 200, `暗档的弧要有字形，实际 ${f.painted.length}`)
-  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '暗档的盘不许被压薄')
+  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '盘字本身满墨：浓淡在画布透明度上')
+  assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.341) < 1e-9, `暗档对话页的画布透明度 0.341，实际 ${f.canvas.style.opacity}`)
 
   const darkView = hole.view()
 
@@ -274,7 +280,8 @@ test('亮档的盘压成淡影：alpha 收到 0.35，位置与几何一个字都
   f.painted.length = 0
   f.frameAt(500)
   assert.ok(f.painted.length > 200, `亮档的弧也要有字形，实际 ${f.painted.length}`)
-  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [0.35], '亮档对话页的墨统一收到 0.35')
+  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '盘字本身满墨：浓淡在画布透明度上')
+  assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.252) < 1e-9, `亮档对话页的画布透明度 0.252，实际 ${f.canvas.style.opacity}`)
 
   /* 「不改变位置」是这条需求的硬约束：换档只许改浓淡。 */
   const lightView = hole.view()
@@ -288,7 +295,8 @@ test('亮档的盘压成淡影：alpha 收到 0.35，位置与几何一个字都
   f.frameAt(600)
   f.painted.length = 0
   f.frameAt(700)
-  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '回新会话页要恢复满墨')
+  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '盘字全程满墨：浓淡只走画布透明度')
+  assert.ok(Math.abs(Number(f.canvas.style.opacity) - 1) < 1e-9, `回新会话页要把画布透明度补回 1，实际 ${f.canvas.style.opacity}`)
 
   dispose()
 })
@@ -352,15 +360,33 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
   f.frameAt(1000)
   const spins = [hole.stats().config.speed]
   const brights = [hole.stats().config.brightness]
+  /* 每帧墨量从 stats().alpha 读（renderer.setAlpha 的当前值）：它不受 fps 门限影响，
+     不会因为这一帧恰好没出帧就漏采。 */
+  const alphas = [1]
   for (const t of [1250, 1500, 1750]) {
     f.frameAt(t)
     spins.push(hole.stats().config.speed)
     brights.push(hole.stats().config.brightness)
+    alphas.push(hole.stats().alpha)
   }
+  /* 飞行期不许出现「中间插值」写进内联：浓淡只在合成器关键帧上走。
+     内联只允许是两个端点的档值（起点 1，换档时 onMode 写的 .341/.252）——
+     哪天有人把逐帧 globalAlpha 塞回 pose/step，这里会读到 0.5xx 这种中间值。 */
+  const inline = Number(f.canvas.style.opacity)
+  assert.ok([1, 0.341, 0.252].some(v => Math.abs(inline - v) < 1e-9), `飞行期内联浓度只能是端点档值，实际 ${inline}`)
   /* 自转：speed 乘进 elapsed（见 tick），脉冲峰值必须明显高过端点插值，否则盘看着是停的。 */
   assert.ok(Math.max(...spins) >= 1.2, `飞行期盘要真的转起来，峰值只有 ${Math.max(...spins)}`)
   assert.ok(Math.max(...spins) <= 2, `转速别撞上 options() 的上限 2，撞上就被夹平：${Math.max(...spins)}`)
-  assert.ok(brights.at(-1) < brights[0] - 0.05, `亮度要在路上收向 0.4，实际 ${brights[0]} → ${brights.at(-1)}`)
+  /* 亮度不参与转场：对话页的淡只由 alpha 承担，盘别被压两层。 */
+  assert.ok(brights.every(v => Math.abs(v - 1) < 1e-9), `亮度全程保持 1，实际 ${brights.join(' → ')}`)
+  /* 浓淡跟着位移走：去程沿同一条 e 从满墨降到暗档终值 0.341，中间不许回头、也不许一口气到底。 */
+  assert.ok(alphas.every((a, i) => i === 0 || a <= alphas[i - 1] + 1e-9), `去程 alpha 不许回头，实际 ${alphas.join(' → ')}`)
+  assert.ok(alphas.at(-1) < 0.999, `去程没落地就得先淡下去，实际 ${alphas.at(-1)}`)
+  assert.ok(alphas.at(-1) > 0.34, `去程不该一口气淡到终点，实际 ${alphas.at(-1)}`)
+  /* 浓淡必须真的写进合成器关键帧 —— 这是「浓度与位置同源」的唯一证据。 */
+  assert.equal(out.frames[0].opacity, 1, '去程关键帧从满墨起手')
+  assert.ok(Math.abs(out.frames.at(-1).opacity - 0.341) < 1e-9, `去程关键帧落到 0.341，实际 ${out.frames.at(-1).opacity}`)
+  assert.ok(out.frames.every((key, i) => i === 0 || key.opacity <= out.frames[i - 1].opacity + 1e-9), '关键帧浓淡单调不回头')
 
   f.frameAt(2100)
   assert.equal(hole.stats().config.viewX, ARC_X, '落地把取景写成交互页的那一格')
@@ -368,8 +394,10 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
   assert.ok(out.cancelled, '落地要撤掉动画，别留着一直占层')
 
   const config = hole.stats().config
-  assert.ok(Math.abs(config.brightness - 0.4) < 1e-9, '亮度收到 0.4')
+  assert.ok(Math.abs(config.brightness - 1) < 1e-9, '亮度保持 1，淡化只走 alpha')
   assert.ok(Math.abs(config.speed - 0.35) < 1e-9, '速度收到 0.35')
+  const landed = hole.stats().alpha
+  assert.ok(Math.abs(landed - 0.341) < 1e-9, `落地墨量是暗档终值 0.341，实际 ${landed}`)
 
   /* 回程：内容直接摆成新会话页的取景（终点就是它），位移从 +TRAVEL 收回 0，
      所以回程落地不需要换取景 —— 那一刻画面已经对上了。 */
@@ -377,9 +405,14 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
   const back = f.anims.at(-1)
   assert.equal(back.frames[0].transform, 'translate3d(' + TRAVEL + 'px, 0px, 0)', '回程从右缘起手')
   assert.equal(back.frames.at(-1).transform, 'translate3d(0px, 0px, 0)', '回程收回原位')
+  assert.ok(Math.abs(back.frames[0].opacity - 0.341) < 1e-9, `回程关键帧从 0.341 起手，实际 ${back.frames[0].opacity}`)
+  assert.equal(back.frames.at(-1).opacity, 1, '回程关键帧落回满墨')
   assert.equal(hole.stats().config.viewX, home, '回程起手就把内容摆回新会话页的取景')
   f.frameAt(2200)
   f.frameAt(2500)
+  /* 回程反着淡回来：中途必须已经在 0.341 与 1 之间，不能等落地才跳。 */
+  const backAlpha = hole.stats().alpha
+  assert.ok(backAlpha > 0.341 && backAlpha < 0.999, `回程要往回淡入，实际 ${backAlpha}`)
   /* 弧顶在时长正中间（k=0.5），所以转速峰值要在这里取。 */
   f.frameAt(2600)
   const backSpin = hole.stats().config.speed
@@ -390,6 +423,25 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
   assert.ok(Math.abs(hole.stats().config.brightness - 1) < 1e-9, '亮度复位成 1')
   assert.equal(hole.stats().config.viewY, 0, '落地 y 回到 0')
   assert.equal(f.canvas.style.transform, '', '回程落地同样清掉 transform')
+  dispose()
+})
+
+test('转场途中切亮档：落地按当前档收墨，不被起飞时捕获的旧值压回去', () => {
+  /* 起飞那一帧 toAlpha 是暗档 0.341。飞到一半换成亮档，onMode 把内联和 live.alpha
+     都改成了 0.252（动画在跑，视觉上被 WAAPI 压住，看不出跳）。落地若照旧的 toAlpha
+     写回，对话页此后就一直停在 0.341 —— 亮档却没有亮档该有的淡度，直到下次切页。 */
+  const f = holeFixture()
+  const dispose = f.api.mount()
+  f.drain()
+  const hole = f.canvas.__uniBlackHole
+  f.canvas.__uniArc(true, MOVE_MS)
+  f.frameAt(1500)
+  hole.setMode('light')
+  f.frameAt(1600)
+  f.frameAt(2100)
+  f.frameAt(2600)
+  assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.252) < 1e-9, `落地要按亮档收墨 0.252，实际 ${f.canvas.style.opacity}`)
+  assert.ok(Math.abs(hole.stats().alpha - 0.252) < 1e-9, `诊断镜像也要是亮档值，实际 ${hole.stats().alpha}`)
   dispose()
 })
 
