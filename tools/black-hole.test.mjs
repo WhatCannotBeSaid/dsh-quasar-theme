@@ -1287,8 +1287,18 @@ test('静态几何缓存：失败与零尺寸都不保留旧缓存',()=>{
   ok.box.width=160
   r2.resize();ok.drain()
   assert.equal(r2.stats().ready,true)
+  /* 恢复路径必须整帧全画：清屏就是脏格渲染的失效出口，这里不落字等于恢复后是一张白纸。 */
+  assert.ok(ok.painted.length>0,'零尺寸恢复后必须整帧落字')
+  const full=new Map()
+  for(const e of ok.placed) full.set(e.x+'@'+e.y,e.glyph)
   const before=ok.painted.length
+  /* 稳定帧只补脏格（实测约 5% 跨档），补出来的字必须与上一帧同位置同字 —— 跳过没变的格子
+     不允许改变最终可见内容。 */
   ok.frame(40)
-  assert.ok(ok.painted.length>before,'零尺寸恢复后必须继续出字')
+  assert.ok(ok.painted.length-before<full.size*.5,'稳定帧必须靠脏格跳过，不再整帧重画')
+  for(let i=before;i<ok.placed.length;i++){
+    const e=ok.placed[i]
+    assert.equal(full.get(e.x+'@'+e.y),e.glyph,'脏格补画不得改变可见内容')
+  }
   r2.dispose()
 })
