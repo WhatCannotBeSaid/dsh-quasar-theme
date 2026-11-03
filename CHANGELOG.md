@@ -20,7 +20,11 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
   `visibility:hidden`。`DIM` 取 0.86 而非 0.4：黑洞终态是停泊在淡态，卡片落地必须回到可读的实态，
   这里只借节奏不借浓度。已知未做：两页卡片宽高不同时起播第一帧会暴露尺寸跳变（FLIP 只补位移不补
   scale，需真机确认是否可见）；宿主若分两次提交相位与卡片节点，刷新落点那一帧会空转且不重试。
-  重建后 `client.js` **245,964 chars / 246,338 B**、`npm run verify` **113 assertions / 0 failed**、
+  同一轮追修（用户报「落到位置时整个输入框由亮变暗」）：动画目标从 `[data-composer-card]` 换成它的
+  父节点。卡片自己带 transform 就形成层叠上下文，`z-index: -1` 的模糊背板（`::before`，refraction +
+  blur）会从卡片背景**之下**翻到**之上**，运镜中整卡偏亮、transform 一撤就恢复原亮度读作「变暗」；
+  父节点没有背景也没有伪元素，带 transform 只移动盒子。位移量仍按卡片 rect 算，两者同坐标系。
+  重建后 `client.js` **246,126 chars / 246,500 B**、`npm run verify` **113 assertions / 0 failed**、
   `node --test tools/runtime.test.mjs` **55 pass**。
 
 - **「插件」行收回导航区，Logo 改指插件面板（2026-11-02 第八十轮）。** 用户逐字：「导航区的插件去掉呀，

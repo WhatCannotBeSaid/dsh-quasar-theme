@@ -1859,13 +1859,27 @@ function composerSwapFixture() {
     plays: [],
     getBoundingClientRect() { return this.rect },
     animate(keys, options) {
-      this.plays.push({ keys, options })
+      this.plays.push({ keys, options, target: this })
       const animation = {
         onfinish: null,
         oncancel: null,
         cancel() { if (typeof this.oncancel === 'function') this.oncancel() },
       }
-      this.animation = animation
+      card.animation = animation
+      return animation
+    },
+  }
+  /* 生产代码把动画施加在卡片的父节点上：卡片自己带 transform 会形成层叠上下文，
+     z-index: -1 的模糊背板会翻到卡面之上（见 composer-transition.js 的 stageOf）。 */
+  card.parentElement = {
+    animate(keys, options) {
+      card.plays.push({ keys, options, target: this })
+      const animation = {
+        onfinish: null,
+        oncancel: null,
+        cancel() { if (typeof this.oncancel === 'function') this.oncancel() },
+      }
+      card.animation = animation
       return animation
     },
   }
@@ -1912,7 +1926,7 @@ function composerSwapFixture() {
     if (typeof card.animation.onfinish === 'function') card.animation.onfinish()
     frames.fire()
   }
-  return { card, move, finish, dispose }
+  return { card, parent: card.parentElement, move, finish, dispose }
 }
 
 test('SW1: hero→active 全量位移、全程可见，只在运镜中点浅呼吸', () => {
@@ -1926,6 +1940,7 @@ test('SW1: hero→active 全量位移、全程可见，只在运镜中点浅呼�
   assert.equal(play.keys[6].opacity, 0.86, '中点浅呼吸')
   assert.equal(play.keys[12].opacity, 1, '落地必须回到可读的实态')
   assert.equal(play.keys[0].transform, 'translate3d(0px, -400px, 0)', '位移取全量差值')
+  assert.equal(play.target, f.parent, '动画施加在父节点：卡片自己带 transform 会把模糊背板翻到卡面之上')
   f.dispose()
 })
 

@@ -37,8 +37,9 @@
      * 对话页的卡片钉在底、位置不随滚动改变，所以流式消息产生的 childList 变更一律不排帧：
      * 这个观察器只在 hero 页量矩形，别处一次 getBoundingClientRect 都不读。
      *
-     * 动画对象是 [data-composer-card]，不是 [data-composer-seat]：座席在对话页带一层渐变底，
-     * 动它会把背景一起拖走。
+     * 动画对象是 [data-composer-card] 的父节点，不是座席、更不是卡片本身：座席在对话页带一层
+     * 渐变底，动它会把背景一起拖走；卡片自己带 transform 会形成层叠上下文，把 z-index: -1 的
+     * 模糊背板从背景之下翻到之上（2026-11-03 的「落位时整卡变暗」）。父节点两者都没有。
      *
      * 2026-11-03 追记：settling 经核实只出现在「打开历史会话、摘要仍在 loading」时（宿主
      * ConversationMainPanel 的 settling 判定），发第一条消息的 hero→active 并不经过它。
@@ -85,6 +86,17 @@
         }
 
         function cardOf() { return document.querySelector(CARD) }
+
+        /* 动画施加在卡片的父节点上。卡片自己带 transform 时会成为层叠上下文，::before
+           （z-index: -1 的模糊背板）就从卡片背景之下翻到之上 —— 运镜中整卡偏亮、落位时
+           突然变暗，正是用户 2026-11-03 报的那一下。父节点没有背景也没有伪元素，带 transform
+           只移动盒子，背板仍画在卡片背景之下。位移量按卡片 rect 算、施加在父节点上：
+           两者同处一个坐标系，平移量相同。 */
+        function stageOf(node) {
+            var parent = node.parentElement
+            if (parent === null || typeof parent.animate !== 'function') return node
+            return parent
+        }
 
         function boxOf(node) {
             var box = node.getBoundingClientRect()
@@ -153,7 +165,7 @@
                     easing: 'linear'
                 })
             }
-            var animation = node.animate(keys, { duration: DURATION, easing: 'linear', fill: 'none' })
+            var animation = stageOf(node).animate(keys, { duration: DURATION, easing: 'linear', fill: 'none' })
             running = animation
             /* 结束/取消都只清自己：cancel 事件是异步派发的，旧动画不能在下一段开始之后
                把 running 抹掉，否则 remember() 会把被 transform 挪过的矩形记成布局真值。 */
