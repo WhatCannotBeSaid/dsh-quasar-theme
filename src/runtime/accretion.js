@@ -280,7 +280,11 @@
         sync()
         /* 观察器是全局构造器（fixture 也按全局提供），不是 window 上的属性。 */
         if (typeof MutationObserver === 'function') {
-            observer = new MutationObserver(function () { kick() })
+            /* 同 kepler：只有可能改变 SEL 命中的批次才同步，规则与边界见
+               uniStatusMutationTouches。属性批次（data-state / data-row-key）一律算相关。 */
+            observer = new MutationObserver(function (records) {
+                if (!disposed && uniStatusMutationTouches(records, SEL)) kick()
+            })
             observer.observe(document.documentElement, {
                 subtree: true,
                 childList: true,
@@ -302,7 +306,11 @@
             if (typeof prefQuery.addEventListener === 'function') prefQuery.addEventListener('change', onPref)
             else if (typeof prefQuery.addListener === 'function') prefQuery.addListener(onPref)
         }
-        kick()
+        /* 挂载末尾不再 kick：上面那次 sync() 已经把图形写好，kick 会再扫一遍，并把 dirty 留给
+           首个 frame 扫第三遍。这里只清掉已消费的 dirty，按原来的条件请求首帧 ——
+           首帧仍照常决定停不停（reduced 或没有 ongoing 行时它画完静止帧就退出）。 */
+        dirty = false
+        if (raf === 0) raf = window.requestAnimationFrame(frame)
 
         return function () {
             if (disposed) return

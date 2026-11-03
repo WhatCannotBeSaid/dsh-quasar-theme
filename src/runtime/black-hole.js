@@ -84,6 +84,23 @@ var UniverseBlackHole = (function () {
      x 由 viewXFor() 从视口宽度和半径反算。y 在两个页面都是 0，只有转场途中抬起来走弧线
      （见 arcTo 的 bow）：去程是同一个洞被摆到右缘，不是换上第二颗。 */
   var VIEW_LIMIT = 4000
+  /* 格子静态几何的惰性缓存（第三十二阶段）。逐帧重复算的只有「画布偏移、到洞心的距离、
+     环扇区」这几样，它们只随网格与取景变；shade / 相位 / 字符 / 颜色仍是每帧现算。
+     记录按原网格索引落位，只给被看过且真是盘面的格子建（环区粗筛一次都不命中的格子不建），
+     首次访问就算 gx/gy/d2，d（半径）与 b（扇区桶）只在原来的环区分支真的要它们时才算，
+     没有全网格预热。5 号格是「d 精确算过」的标记：格子与 baseX/baseY 没变，d2 就没变，
+     精确算过一次就一直算过，下帧不再开方。 */
+  var GX = 0, GY = 1, D2 = 2, D = 3, BIN = 4, EXACT = 5
+  function geomFor(cache, cols, i, cw, ch, baseX, baseY) {
+    var g = cache[i]
+    if (!g) { g = cache[i] = new Float64Array(6); g[BIN] = -1; g[EXACT] = 0 }
+    var gx = g[GX], gy = g[GY], gx2 = (i % cols + .5) * cw - baseX, gy2 = (((i / cols) | 0) + .5) * ch - baseY
+    /* 坐标没变（没位移、没换格宽）就整条记录原样复用：d2 与「精确算过」都不必重来。 */
+    if (!(gx === gx2 && gy === gy2)) {
+      g[GX] = gx = gx2; g[GY] = gy = gy2; g[D2] = gx * gx + gy * gy; g[EXACT] = 0
+    }
+    return g
+  }
   function options(input) {
     input = input || {}
     function number(key, min, max) {
@@ -310,14 +327,16 @@ var UniverseBlackHole = (function () {
     if (ray.radius) {
       var r = ray.radius
       var phase = ray.phi - turn - time * (DISK + SWIRL / Math.pow(r, 1.5))
-      var arms = .72 + .28 * Math.sin(2 * phase - 4 * Math.log(r / INNER))
+      /* log r 只算一次，旋臂与亮度团共用；乘加顺序原样保留。 */
+      var logR = Math.log(r / INNER)
+      var arms = .72 + .28 * Math.sin(2 * phase - 4 * logR)
       var band = .82 + .18 * Math.sin(r * 1.1 + 1.6 * Math.sin(2 * phase))
       /* 亮度团：径向按 log r 起波（等对数宽度），角向跟着同一套 Kepler 相位走，
          所以团块和盘一起转，但换相的节奏与双旋臂不同 —— 眼睛读到的是「盘里有东西在动」。 */
       var knots = 0
       for (var i = 0; i < KNOTS.length; i++) {
         var knot = KNOTS[i]
-        knots += knot.weight * Math.sin(knot.n * phase + knot.radial * Math.log(r / INNER) - time * knot.angular)
+        knots += knot.weight * Math.sin(knot.n * phase + knot.radial * logR - time * knot.angular)
       }
       var breathe = 1 + PULSE * Math.sin(time * .33)
       /* 外缘收口只在盘面最后 1.5M 内做。以前从 r=10 就开始衰减，与 Math.pow(INNER/r, 2)
@@ -460,6 +479,20 @@ var UniverseBlackHole = (function () {
     /* 环遮罩缓存：只在视口尺寸或仰角变化时重烘一次，逐帧零成本。
        ringDiag 是环层的诊断：bakeRing 返回 incomplete / 不可用时不发布遮罩，原因留在这里。 */
     var bakedRing = null, bakedFor = '', ringDiag = null
+    /* 静态几何缓存：只留当前这一份。键是「这份缓存按哪一次取景算的」，任一输入直接比不等
+       就整份作废重算 —— 不快照 grid 内容、不哈希环包络。grid / w / h / cols 用全等，
+       cw / ch / baseX / baseY / horizon 用 Object.is：同尺寸 resize 短路、只改时间/亮度/速度/
+       明暗档的那几帧都不动这些输入，缓存照旧命中。baseX/baseY 照 draw 的原式取（那里恒等于
+       w/2、h/2），不写死、不靠舍入抹平；horizon 进键是因为环带分支拿它比。 */
+    var geo = [], geoGrid = null, geoW = 0, geoH = 0, geoCols = 0
+    var geoCw = NaN, geoCh = NaN, geoX = NaN, geoY = NaN, geoHZ = NaN
+    function ensureGeo(baseX, baseY, horizon) {
+      if (geoGrid === grid && geoW === w && geoH === h && geoCols === cols &&
+        Object.is(geoCw, cw) && Object.is(geoCh, ch) &&
+        Object.is(geoX, baseX) && Object.is(geoY, baseY) && Object.is(geoHZ, horizon)) return
+      geo = []; geoGrid = grid; geoW = w; geoH = h; geoCols = cols
+      geoCw = cw; geoCh = ch; geoX = baseX; geoY = baseY; geoHZ = horizon
+    }
     function ensureRing() {
       var key = w + 'x' + h + '@' + config.angle
       if (bakedRing && bakedFor === key) return
@@ -513,6 +546,8 @@ var UniverseBlackHole = (function () {
          viewX = 0 时成立 —— 对话页一让洞出画，整个盘的格子就会被再推一次位移，整片跑到右边去。 */
       var view = viewOf(w, h, config), cx = view.x, cy = view.y
       var baseX = cx - (config.viewX || 0), baseY = cy - (config.viewY || 0)
+      /* 缓存键到这时才组得齐。baseX/baseY 恒等于 w/2、h/2，也照样从这两行取，不另外写死。 */
+      ensureGeo(baseX, baseY, horizon)
       /* view() 的包装里有半径，这里只取圆心；半径按同一公式就地算。 */
       var shifted = !!(config.viewX || config.viewY)
       /* 画布透明（2026-10-29 终版）：左栏透明、透出 body 那层底，主区也必须透出同一层，
@@ -589,15 +624,19 @@ var UniverseBlackHole = (function () {
              没有环层时一律不清：测试桩、精简 DOM 与烘焙失败都走这条路，纯 ASCII 模式不需要
              为不存在的环让位。遮挡本身没有放松：被捕获的格子没有 radius，依旧一个字都不落。 */
           if (ringEdge) {
-            var gx0 = (i % cols + .5) * cw - baseX
-            var gy0 = (((i / cols) | 0) + .5) * ch - baseY
-            var gd2 = gx0 * gx0 + gy0 * gy0
+            var g0 = geomFor(geo, cols, i, cw, ch, baseX, baseY)
             /* 先用平方半径粗筛：绝大多数格子在环带之外，省掉每帧一万多次开方与反正切。 */
-            if (gd2 < ringOuter * ringOuter) {
-              var gd = Math.sqrt(gd2)
+            if (g0[D2] < ringOuter * ringOuter) {
+              /* 环包络是可变数据：edge 由 bakeRing 边烘边写，换一次烘焙内容就变，而对象身份
+                 不变。所以「让位」的最终布尔值不缓存 —— 每次都用当前的 ringEdge / ringScale /
+                 ringClear / horizon 现比，缓存的只是距离和扇区桶，不是「这一格永远跳过」。
+                 距离也比在这一支里，比较符号与开方顺序原样保留。 */
+              var gd = g0[D]
+              if (!g0[EXACT]) { gd = Math.sqrt(g0[D2]); g0[D] = gd; g0[EXACT] = 1 }
               /* 阴影圆内那几格是近侧盘面压在洞前，不属于环，照常落字。 */
               if (gd > horizon) {
-                var rb = (((Math.atan2(gy0, gx0) + Math.PI) / (Math.PI * 2) * RING_BINS) | 0) % RING_BINS
+                var rb = g0[BIN]
+                if (rb < 0) rb = g0[BIN] = (((Math.atan2(g0[GY], g0[GX]) + Math.PI) / (Math.PI * 2) * RING_BINS) | 0) % RING_BINS
                 if (gd <= ringEdge[rb] * ringScale + ringClear) continue
               }
             }
@@ -656,11 +695,15 @@ var UniverseBlackHole = (function () {
          画，'Math.floor(w / cw)' 会算出 0 列，'new Array(0)' 之后的行循环写 'next[-1]' 直接抛
          「Invalid array length」，create() 整个挂不上。方框为 0 时先停在这里，等容器的
          ResizeObserver 再来一次。 */
-      if (!(nw > 0) || !(nh > 0)) { w = 0; h = 0; ready = false; stop(); return }
+      if (!(nw > 0) || !(nh > 0)) { w = 0; h = 0; ready = false; geo = []; geoGrid = null; stop(); return }
       if (nw === w && nh === h && ready) return
       w = nw; h = nh; ready = false; stop(); generation++
       var mine = generation
       ensureRing()
+      /* 环烘完才动手铺格子：draw 会在构建期同步跑一遍，缓存若在环就绪之前先冷启动，
+         那批格子的扇区桶会按「环未就绪」的路子留下未算状态，等环层就绪后白白多算一轮。
+         挪到烘完再失效，缓存键仍按当前 grid 与取景判定，构建期命中照常。 */
+      geo = []; geoGrid = null
       if (buildTimer) clearTimeout(buildTimer)
       dpr = Math.min(window.devicePixelRatio || 1, 1.5)
       canvas.width = Math.max(1, Math.round(w * dpr))
@@ -708,7 +751,7 @@ var UniverseBlackHole = (function () {
         if (left) {
           /* 没算完的射线不能伪装成逃逸、捕获或命中：整张网格作废，画布明确置为失败态并清空。
              ready 保持 false，所以 draw() / tick() 都不会再把这张网格当成可用结果。 */
-          grid = []; ready = false
+          grid = []; ready = false; geo = []; geoGrid = null
           canvas.dataset.blackHoleState = 'failed'
           stop()
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -792,6 +835,7 @@ var UniverseBlackHole = (function () {
         document.removeEventListener('visibilitychange', sync)
         motion.removeEventListener('change', sync)
         grid = []
+        geo = []; geoGrid = null
         canvas.dataset.blackHoleState = 'disposed'
         var root = document.documentElement
         if (root && root.style && typeof root.style.removeProperty === 'function') root.style.removeProperty('--cp-void')
@@ -1071,6 +1115,16 @@ var UniverseBlackHole = (function () {
     canvas.__uniSkyModeOff = function () { arcTo(false, 0) }
     apply({ viewX: viewXFor(false), viewY: 0 })
 
+    /* 冷启动时主题可能比对话列早一步挂上：那一次取景只能拿到视口中心的兜底值，
+       洞心就比「从对话页返回」偏左半个左栏。列一出现就按同一套落点再落一次（瞬时），
+       两端于是重合。最多等 2 秒，等不到列就维持原样。 */
+    var settleLeft = 120
+    var settleRaf = requestAnimationFrame(function settle() {
+      settleRaf = 0
+      if (column || --settleLeft <= 0) return arcTo(arcSide, 0)
+      settleRaf = requestAnimationFrame(settle)
+    })
+
     function onResize() {
       /* 转场跑一半时窗口变了：让这一帧落定，下一帧量到的新尺寸再接管。 */
       if (arcRaf) return
@@ -1080,7 +1134,7 @@ var UniverseBlackHole = (function () {
     window.addEventListener('resize', onResize)
 
     return function () {
-      arcStop()
+      arcStop(); if (settleRaf) cancelAnimationFrame(settleRaf)
       renderer.dispose(); shell.disconnect()
       if (column) observer.unobserve(column)
       if (frame) observer.unobserve(frame)

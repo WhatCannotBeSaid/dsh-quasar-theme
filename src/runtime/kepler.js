@@ -178,10 +178,19 @@
             return row
         }
 
-        var paint = function (row, s) {
+        /* 一帧的坐标只要两位小数的字符串，几何对象本身不动：同一相位算一次、
+           格式化一次，整帧各行共用。 */
+        var formattedAt = function (s) {
             var at = uniKeplerAt(s)
-            row.dot.setAttribute('cx', at.x.toFixed(2))
-            row.dot.setAttribute('cy', at.y.toFixed(2))
+            return { x: at.x.toFixed(2), y: at.y.toFixed(2) }
+        }
+
+        /* at 是可选的、已格式化的坐标：tick 每帧算一次传给它管理的每一行；
+           不传就自己算，首绘与静止帧走的就是这条路。 */
+        var paint = function (row, s, at) {
+            if (at === undefined) at = formattedAt(s)
+            row.dot.setAttribute('cx', at.x)
+            row.dot.setAttribute('cy', at.y)
         }
 
         /* 兜底形态：不动，光点停在 UNI_KEP_STILL 那一格。轨道始终整圈都在 —— 静止帧
@@ -225,11 +234,12 @@
             if (dirty || ticks % 30 === 0) { dirty = false; sync() }
             var still = isReduced()
             var s = Math.max(0, now - origin) / UNI_KEP_PERIOD
+            var at = still ? null : formattedAt(s)
             for (var i = 0; i < rows.length; i += 1) {
                 var row = rows[i]
                 if (row.svg.isConnected === false) continue
                 if (still) paintStill(row)
-                else paint(row, s)
+                else paint(row, s, at)
             }
             /* 静态形态只需要一帧；动态形态一直排下去。 */
             if (!still && rows.length > 0) raf = window.requestAnimationFrame(tick)
@@ -237,13 +247,19 @@
 
         var kick = function () {
             if (disposed) return
-            dirty = true
             sync()
+            /* 同步刚做完，别让下一帧因为上一次的脏标再同步一遍。 */
+            dirty = false
             if (raf === 0) raf = window.requestAnimationFrame(tick)
         }
 
         if (typeof MutationObserver === 'function') {
-            observer = new MutationObserver(function () { kick() })
+            /* 只同步「可能改变 SEL 命中」的批次：纯新增且新增子树都不命中时跳过，省掉一次
+               querySelectorAll 与一次 RAF 唤醒。判定规则与边界见 uniStatusMutationTouches；
+               保守方向的错判只会多同步一次，不会漏同步。 */
+            observer = new MutationObserver(function (records) {
+                if (!disposed && uniStatusMutationTouches(records, SEL)) kick()
+            })
             /* data-state 是属性不是子节点：只盯 childList 的话，warning → ongoing 这一次
                翻动要等兜底那 30 帧才被看见，而这期间样式表已经把官方点关了 —— 那一格会
                空半秒。所以同一个 observer 连这个属性一起盯。 */
@@ -263,7 +279,7 @@
             }
         }
 
-        sync()
+        /* kick 自己会同步，这里不再先同步一遍。 */
         kick()
 
         return function () {

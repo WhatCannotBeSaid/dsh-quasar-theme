@@ -70,27 +70,34 @@ rewritten — but here is where things went.
 
 ### The brand row is three click zones
 
-The sidebar brand row reads **[illustration] WHALE-01 [SYSTEM]**; the official
-wordmark and its whale glyph are hidden. It is one official button carrying three
-zones, decided from the click's x coordinate at click time:
+The sidebar brand row reads **[illustration] QUASAR CORE**; the official wordmark and
+its whale glyph are hidden. It is one official button carrying three zones, decided from
+the click's x coordinate at click time:
 
 | Click | Opens | Because |
 |---|---|---|
-| the illustration, left of `WHALE-01` | **Plugins** | the 「插件」/ “Plugins” nav row is hidden |
-| the `WHALE-01` text | a **new session** | official behaviour, unchanged |
-| the `SYSTEM` chip, right of `WHALE-01` | **Settings** | the 「设置」 row and its launcher button are hidden |
+| the illustration, left of `QUASAR` | the **plugin panel** | the nav's 「插件」 row is hidden, so this is its only door |
+| the `QUASAR` text | a **new session** | official behaviour, unchanged |
+| the `CORE` chip, right of the text | **Settings** | the 「设置」 launcher button is hidden, so this is the visible door to it |
 
-The zones drive the hidden buttons programmatically, so both still open. A Plugins row
-that your composition does not have is not intercepted at all — the click falls
-through to the official new-session handler instead of becoming a hole. Keyboard
-activation (Enter or Space on the focused button) and any click held with a modifier
-key are left alone. Collapse the sidebar to a rail and there is no brand button, so
-there are no zones either.
+`QUASAR` is set in an embedded face: **Cinzel 700** (Roman inscriptional capitals,
+0.10em tracking), and the `CORE` chip in **EB Garamond 500 / 12px** (hard edge, 84%
+mixed fill). Both are SIL OFL 1.1, latin subset, travelling inside `client.js` as data
+URLs, so the row looks the same on a machine that does not have them. `build/fonts.json`
+is the provenance record, and the build fails when a file's byte count disagrees with it.
+
+The illustration and the chip both drive hidden official controls programmatically: the
+illustration clicks the hidden 「插件」 row, the chip clicks the hidden Settings launcher.
+When that launcher is absent the chip asks the host's shortcut registry instead. Only the
+name's stretch is left alone, so the official new-session handler runs there. Keyboard
+activation (Enter or Space on the focused button) and any click held with a modifier key
+are left alone. Collapse the sidebar to a rail and there is no brand button, so there are
+no zones either.
 
 While the DeepSeek account plugin is enabled it puts an account card into the
 Settings slot, in place of the official Settings button. The theme takes that card
-out of the layout entirely — no placeholder, no leftover gap — and `SYSTEM` stays
-the one Settings entry on the row. Because the card is gone, the click no longer
+out of the layout entirely — no placeholder, no leftover gap — and the `CORE` chip stays
+the row's visible settings entry. Because the card is gone, the click no longer
 goes through a synthesised keystroke (a dead click on the desktop build); it asks the
 host's shortcut registry to open settings, which is the door that build answers.
 
@@ -99,12 +106,12 @@ host's shortcut registry to open settings, which is the door that build answers.
 | Entry | Where | Way back |
 |---|---|---|
 | 「应用」/「编辑」 title-bar menu | desktop shell only; absent in a browser | none from inside the app: 关于 / 检查更新 / dsh 命令 / 退出应用 go with it. Quit is still on the tray menu. |
-| the second 「新会话」 button | sidebar, below the brand row | `WHALE-01`, or `Ctrl+N` — it is a duplicate |
-| 「插件」/ “Plugins” nav row | sidebar | click the illustration; **no shortcut is left** |
-| 「设置」 row and its launcher button | sidebar | click `SYSTEM`, or `Ctrl+,` |
+| the second 「新会话」 button | sidebar, below the brand row | `QUASAR`, or `Ctrl+N` — it is a duplicate |
+| the 「插件」 nav row | sidebar | click the illustration |
+| 「设置」 row and its launcher button | sidebar | click the `CORE` chip, or `Ctrl+,` |
 | 「收起侧栏」 button | left sidebar only; the right sidebar's stays visible | the collapse command itself is untouched |
 | the session list's bottom fade | sidebar | it only dimmed the last row |
-| the account card (only while the DeepSeek account plugin is enabled) | sidebar, in the Settings slot | removed outright, with no gap left where it stood; `SYSTEM` still opens Settings |
+| the account card (only while the DeepSeek account plugin is enabled) | sidebar, in the Settings slot | removed outright, with no gap left where it stood; the chip still opens Settings |
 
 Where a way back names a keyboard shortcut, that is the desktop default — `Ctrl+N` for
 a new session, `Ctrl+,` for settings, both of them the official ones, unchanged by this

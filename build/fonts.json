@@ -1,0 +1,30 @@
+[
+  {
+    "id": "cinzel-latin-700",
+    "family": "Cinzel",
+    "weight": 700,
+    "style": "normal",
+    "subset": "latin",
+    "file": "build/cinzel-latin-700.woff2",
+    "bytes": 15184,
+    "license": "SIL OFL 1.1",
+    "licenseFile": "build/cinzel-OFL.txt",
+    "copyright": "Copyright 2020 The Cinzel Project Authors (https://github.com/NDISCOVER/Cinzel)",
+    "source": "https://cdn.jsdelivr.net/npm/@fontsource/cinzel@5/files/cinzel-latin-700-normal.woff2",
+    "role": "sidebar.brand.name (QUASAR)"
+  },
+  {
+    "id": "eb-garamond-latin-500",
+    "family": "EB Garamond",
+    "weight": 500,
+    "style": "normal",
+    "subset": "latin",
+    "file": "build/eb-garamond-latin-500.woff2",
+    "bytes": 25264,
+    "license": "SIL OFL 1.1",
+    "licenseFile": "build/eb-garamond-OFL.txt",
+    "copyright": "Copyright 2017 The EB Garamond Project Authors (https://github.com/octaviopardo/EBGaramond12)",
+    "source": "https://cdn.jsdelivr.net/npm/@fontsource/eb-garamond@5/files/eb-garamond-latin-500-normal.woff2",
+    "role": "sidebar.brand.name::after (CORE chip)"
+  }
+]

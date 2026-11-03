@@ -134,9 +134,15 @@
         }
 
         var watcher = typeof ResizeObserver === 'function' ? new ResizeObserver(function (entries) {
+          /* 同 glass.js：一个 state 一张图，本批首次命中时画，后续命中跳过；
+             Set 只活在这个回调里。 */
+          var done = new Set()
           for (var e = 0; e < entries.length; e += 1) {
             for (var s = 0; s < states.length; s += 1) {
-              if (states[s].els.indexOf(entries[e].target) !== -1) paint(states[s])
+              if (states[s].els.indexOf(entries[e].target) === -1) continue
+              if (done.has(states[s])) continue
+              done.add(states[s])
+              paint(states[s])
             }
           }
         }) : null
@@ -171,26 +177,11 @@
           }
         }
 
-        var could = function (records, selector) {
-          for (var r = 0; r < records.length; r += 1) {
-            var bags = [records[r].addedNodes, records[r].removedNodes]
-            for (var b = 0; b < bags.length; b += 1) {
-              var bag = bags[b]
-              if (bag === undefined || bag === null) continue
-              for (var n = 0; n < bag.length; n += 1) {
-                var node = bag[n]
-                if (node === null || node === undefined) continue
-                if (typeof node.matches === 'function' && node.matches(selector)) return true
-                if (typeof node.querySelector === 'function' && node.querySelector(selector) !== null) return true
-              }
-            }
-          }
-          return false
-        }
-
+        /* 2026-11-02：判定本体与 glass.js 共用 src/runtime/mutation-records.js 的
+           uniMutationTouches，两份逐字节相同的实现只留一处。 */
         var mounted = function (records) {
           for (var s = 0; s < states.length; s += 1) {
-            if (could(records, states[s].target.selector)) return true
+            if (uniMutationTouches(records, states[s].target.selector)) return true
           }
           return false
         }

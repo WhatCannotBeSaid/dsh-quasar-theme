@@ -7,6 +7,41 @@ import { CLIENT_FILES, parseMode, resolveBuild, validateArtifact } from './build
 import { EVIDENCE_INPUTS, evidenceProblems } from './audit-evidence.mjs'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
+test('S10: concatenation order puts each shared helper ahead of its readers', () => {
+  /* clientSource() joins CLIENT_FILES as one factory body, so a module can only call a
+     `var` a LATER file defines if it does so from a callback that runs after the whole
+     body -- which is true today only by luck. Pin the order instead: the shared
+     mutation test is read at mount time by glass and lens, and both extracted mounts
+     are called by src/client.js. */
+  const at = file => CLIENT_FILES.indexOf(file)
+  for (const file of ['src/runtime/mutation-records.js', 'src/runtime/glass.js', 'src/runtime/lens.js',
+    'src/runtime/composer-typed.js', 'src/runtime/brand-routing.js', 'src/client.js']) {
+    assert.ok(at(file) >= 0, file + ' is not in CLIENT_FILES')
+  }
+  assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/glass.js'))
+  assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/lens.js'))
+  /* The status filter is looked up by accretion and kepler at their mount time, so the
+     helper file must be read before both extract their observers. */
+  assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/accretion.js'))
+  assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/kepler.js'))
+  assert.ok(at('src/runtime/composer-typed.js') < at('src/client.js'))
+  assert.ok(at('src/runtime/brand-routing.js') < at('src/client.js'))
+  /* One implementation position: the shipped bundle carries each of them exactly once,
+     and the composer mount the client actually calls is the extracted one -- the inert
+     pre-refactor copy in src/client.js is inside a block comment and never ships. */
+  assert.ok(existsSync(join(root, 'client.js')), 'client.js is missing; run npm run build before this check')
+  const shipped = readFileSync(join(root, 'client.js'), 'utf8')
+  for (const name of ['var uniMutationTouches = function', 'var uniStatusMutationTouches = function', 'function mountComposerTyped', 'function mountBrandRowZones']) {
+    assert.equal(shipped.split(name).length - 1, 1, name + ' must appear once in client.js')
+  }
+  const glue = readFileSync(join(root, 'src/client.js'), 'utf8')
+  assert.equal(glue.includes('deferEffect(() => mountBrandRowZones(ctx)), \'universe: brand row zones\')'), true)
+  assert.equal(glue.includes("deferEffect(() => mountComposerTyped()), 'universe: composer typed state'"), true)
+  for (const file of ['src/runtime/glass.js', 'src/runtime/lens.js']) {
+    assert.equal(readFileSync(join(root, file), 'utf8').includes('var could = function'), false, file + ' kept a second copy of the test')
+  }
+})
+
 test('S10: source distribution includes build tools and all declared runtime modules', () => {
   const pkg=JSON.parse(readFileSync(join(root,'package.json'),'utf8'))
   assert.ok(pkg.files.includes('tools/*.mjs'))
@@ -59,4 +94,15 @@ test('D1: done keeps the stock StateDot — no done rule, no star colour, no bui
   assert.equal(client.includes('DONE_STAR_CSS'), false, 'the build wiring came back')
   assert.equal(existsSync(join(root, 'src/done-star.css')), false, 'the star sheet came back')
   assert.equal(client.includes('mountDoneMark'), false, 'the done JS came back')
+})
+
+// Startup decoration was retired at the user's request; debug URLs cannot restore it.
+test('startup animation is absent from source wiring and the shipped artifact', () => {
+  const glue = readFileSync(join(root, 'src/client.js'), 'utf8')
+  const build = readFileSync(join(root, 'tools/build-client.mjs'), 'utf8')
+  const shipped = readFileSync(join(root, 'client.js'), 'utf8')
+  for (const text of [glue, build, shipped]) {
+    assert.doesNotMatch(text, /mountBootScreen|destroyBoot|BOOT_CSS|BOOT_MARK|data-uni-boot|boot-screen[.](?:js|css)|boot=1/)
+  }
+  assert.match(glue, /UniverseBlackHole[.]mount[(][)]/)
 })

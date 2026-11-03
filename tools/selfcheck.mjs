@@ -49,18 +49,14 @@ const budget = JSON.parse(read('build/veil-budget.json'))
 const TOKENS = tokensDoc.tokens
 const tokenNames = Object.keys(TOKENS)
 const css = read('src/theme.css')
-/* The boot mask rides in the SAME paint-layer tag, so the selector/colour checks
-   below run over both sheets: what ships as one stylesheet is what gets checked. */
-const bootCss = read('src/boot-screen.css')
-const bootJs = read('src/boot-screen.js')
 /* 会话行吸积流（第五十三轮）：运动搬进 runtime，样式表只剩暗核与颜色。这个文件被
  * acc.1 / acc.2 / acc.3 读来钉「参数照抄、不预绘、挂进 paint layer」三件事。 */
 const accretionJs = read('src/runtime/accretion.js')
 /* The half that actually mounts the theme is a file too since 2026-10-07, interpolated
-   verbatim next to the mask's behaviour: the bundle must carry its bytes, not a
+   verbatim: the bundle must carry its bytes, not a
    retyped copy of them (cli.21/cli.22). */
 const clientJs = CLIENT_FILES.map(file => read(file).replace(/[\r\n]+$/, '')).join('\n')
-const paintCss = css + '\n' + bootCss
+const paintCss = css
 const client = read('client.js')
 
 /* Which wallpaper manifest these checks describe (D79, revised D81, 2026-10-09). A
@@ -653,7 +649,9 @@ checks.check('css.9', 'the shell rescue empties rather than recolours', () => {
 })
 
 checks.check('css.10', 'the plugins row is hidden by name, not by position', () => {
-  /* The sidebar nav holds every panel row the composition registers -- the shipped
+  /* 2026-11-02 (evening): the hide is back -- the nav's plugin row is hidden again and
+   * the brand mark opens that panel, so this assertion returns to the round-25 shape.
+   * The sidebar nav holds every panel row the composition registers -- the shipped
    * pair is plugin-manager's ('插件' / 'Plugins') and ui-schedule's ('自动化任务' /
    * 'Automation tasks'), order 0 and 10. A rule that hides that nav's buttons by
    * structure takes all of them, so the row has to be named. Comments are stripped
@@ -684,6 +682,27 @@ checks.check('css.11', 'the workspace pin button is styled by contract, not by h
   }
   return /color:\s*var\(--dsw-alias-label-tertiary\)/.test(box) ||
     'the pin button does not start on the official tertiary label colour'
+})
+
+checks.check('font.1', 'the brand row only names faces the bundle carries', () => {
+  /* 2026-11-02. The two faces are embedded by the builder (build/fonts.json ->
+   * @font-face in the declarations block, tools/build-client.mjs). A family name
+   * that drifts between the sheet and the manifest degrades silently to the
+   * fallback stack: the row still renders, in Georgia, and nothing fails. This
+   * pins the two ends together. */
+  const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const carried = JSON.parse(read('build/fonts.json')).map((font) => font.family)
+  const named = []
+  for (const match of sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (!/sidebar\.brand\.name/.test(match[1])) continue
+    const family = match[2].match(/font-family:\s*([^;]+);/)
+    if (family === null) continue
+    named.push(family[1].split(',')[0].trim().replace(/^['"]|['"]$/g, ''))
+  }
+  if (named.length === 0) return 'the brand row names no family any more'
+  const missing = named.filter((family) => !carried.includes(family))
+  return missing.length === 0 ||
+    `the brand row names ${missing.join(', ')}; build/fonts.json carries ${carried.join(', ')}`
 })
 
 checks.check('css.13', 'the settings veil is cleared on the overlay that actually hosts it', () => {
@@ -898,110 +917,6 @@ checks.check('css.16', 'the account card is hidden by its menu trigger, and its 
   return true
 })
 
-/* 「闸门开启」 landed on 2026-10-06: two source files, three build changes, no host
-   half. The checks below pin the parts that are silent when they break — an escaping
-   slip that only shows up as an import failure, or a fallback clock that leaves a
-   full-screen mask over the app forever. */
-checks.check('boot.1', 'the behaviour layer can be interpolated without escaping', () => {
-  const bad = [['backtick', /`/], ['template hole', /\$\{/], ['backslash', /\\/]]
-    .filter(([, re]) => re.test(bootJs)).map(([name]) => name)
-  return bad.length === 0 || `boot-screen.js contains ${bad.join(', ')}`
-})
-checks.check('boot.2', 'the five hard constraints are all in the behaviour layer', () => {
-  const want = [
-    ['wall-clock progress', /performance\.now\(\)/],
-    ['dual clock', /requestAnimationFrame[\s\S]*setInterval|setInterval[\s\S]*requestAnimationFrame/],
-    ['fuse', /bootFuse/],
-    ['hard kill', /bootKill/],
-    ['no transition reliance', /slide/],
-  ]
-  const missing = want.filter(([, re]) => !re.test(bootJs)).map(([name]) => name)
-  return missing.length === 0 || `missing in boot-screen.js: ${missing.join(', ')}`
-})
-checks.check('boot.3', 'the paint rules ride in the theme tag, not a second sheet', () => {
-  const build = read('tools/build-client.mjs')
-  if (!/read\('src\/boot-screen\.css'\)/.test(build)) return 'the build does not read the boot css'
-  if (!/read\('src\/boot-screen\.js'\)/.test(build)) return 'the build does not read the boot js'
-  if (!/var BOOT_CSS = /.test(build)) return 'the boot css is not declared in the bundle'
-  /* The concatenation that joins the three sheets into ONE tag lives in src/client.js
-     since 2026-10-07, so it is checked where it is written now. cli.21 separately
-     proves that file reaches the bundle byte for byte, which is what keeps looking
-     here equivalent to looking at the generated text. */
-  return /\+\s*'\\n'\s*\+\s*CSS\s*\+\s*'\\n'\s*\+\s*BOOT_CSS/.test(clientJs) ||
-    'the boot css is not appended to the paint layer text'
-})
-checks.check('boot.4', 'client.js mounts the mask and destroys it on the same channel', () => {
-  if (!/function mountBootScreen\(\)/.test(client)) return 'mountBootScreen is missing'
-  if (!/return destroyBoot/.test(client)) return 'mountBootScreen returns no disposer'
-  if (!/ctx\.effect\(\(\) => mountBootScreen\(\), 'universe: boot screen'\)/.test(client)) {
-    return 'the boot effect is not registered'
-  }
-  return /--uni-boot-progress/.test(client) || 'the boot css never made it into the bundle'
-})
-checks.check('boot.5', 'every documented way to skip the mask exists', () => {
-  const want = [
-    ['?boot=0', /boot=0/],
-    ["localStorage '0'", /getItem\(BOOT_KEY\) === '0'/],
-    ['already played this run', /sessionStorage\.getItem\(BOOT_SEEN_KEY\) === BOOT_SEEN_VALUE/],
-    ['reduced motion', /prefers-reduced-motion/],
-    ['per-load mark', /__uniBootMark/],
-  ]
-  const missing = want.filter(([, re]) => !re.test(client)).map(([name]) => name)
-  return missing.length === 0 || `missing in client.js: ${missing.join(', ')}`
-})
-/* There is no startup chime any more (2026-10-07): the user asked for the mask to stay
-   and the sound to go (「去掉启动音效，只保留遮罩！」). This is the old handshake assertion
-   turned around — if either end of /eva-theme/api/boot-sound comes back, the pair is
-   inconsistent again, and the page would be asking a route that no longer exists. */
-checks.check('boot.6', 'the mask asks the host for no chime', () => {
-  if (/eva-theme\/api\/boot-sound/.test(bootJs)) return 'boot-screen.js still asks for the chime'
-  return !/eva-theme\/api\/boot-sound/.test(client) || 'the old request is still in client.js'
-})
-/* 2026-10-12: the mark was a frozen literal (`uni-boot/2026-10-06-a`) from 10-06 to
-   10-12, so "once per build" was really "once ever" — the mask stopped appearing
-   after its first play, and the README meanwhile promised it on every load. Two
-   halves of one line were wrong, and both were silent. boot.7 pins the fix at all
-   three ends: the source carries a placeholder, the build turns it into a hash of
-   the bundle, and ?boot=1 forces a replay on demand. */
-checks.check('boot.7', 'the build mark is per-build, and ?boot=1 forces a replay', () => {
-  const build = read('tools/build-client.mjs')
-  if (!/var BOOT_MARK = 'uni-boot\/@BUILD@'/.test(bootJs)) {
-    return 'src/boot-screen.js no longer carries the build-mark placeholder'
-  }
-  if (!/createHash\('sha256'\)/.test(build) || !/MARK_PLACEHOLDER/.test(build)) {
-    return 'the build does not hash the bundle for the mark'
-  }
-  if (/var BOOT_MARK = 'uni-boot\/2026-10-06-a'/.test(client)) {
-    return 'the frozen 2026-10-06 literal is still assigned to BOOT_MARK in the bundle'
-  }
-  if (!/var BOOT_MARK = 'uni-boot\/[0-9a-f]{8}'/.test(client)) {
-    return 'the bundle does not carry a per-build mark'
-  }
-  return /indexOf\('boot=1'\)\s*>=\s*0\)\s*return true/.test(client) ||
-    '?boot=1 does not force a replay'
-})
-/* 2026-10-21: the user's rule is "quitting DSH and reopening plays it once, nothing
-   else replays it". sessionStorage is the only browser store whose lifetime matches
-   that sentence — it survives a reload of the same window and dies with the window.
-   The previous rule wrote the same mark into localStorage, which never clears, so the
-   mask played once per machine and then looked broken. boot.8 pins the store AND the
-   absence of the old one: a regression that swaps it back is silent by nature, so a
-   passing suite is the only thing that would notice. */
-checks.check('boot.8', 'the once-per-run record lives in sessionStorage, never localStorage', () => {
-  const seenWrite = /sessionStorage\.setItem\(BOOT_SEEN_KEY, BOOT_SEEN_VALUE\)/
-  const seenRead = /sessionStorage\.getItem\(BOOT_SEEN_KEY\) === BOOT_SEEN_VALUE/
-  if (!seenWrite.test(bootJs)) return 'src/boot-screen.js does not record the run in sessionStorage'
-  if (!seenRead.test(bootJs)) return 'src/boot-screen.js does not read the run record from sessionStorage'
-  if (/localStorage\.setItem\(BOOT_SEEN_KEY/.test(bootJs) ||
-      /localStorage\.getItem\(BOOT_SEEN_KEY/.test(bootJs)) {
-    return 'boot-screen.js still keeps the once-per-run record in localStorage'
-  }
-  if (!/var BOOT_SEEN_VALUE = '1'/.test(bootJs)) {
-    return 'the run record is not a build-independent value, so a rebuild would replay it'
-  }
-  return true
-})
-
 /* ---------------------------------------------------------------- client.js */
 
 checks.group('client')
@@ -1070,13 +985,6 @@ checks.check('cli.11', 'the plugin injects the theme service', () => {
   const names = match[1].split(',').map((part) => part.trim().replace(/['"]/g, '')).filter(Boolean)
   return names.includes('theme') || `exports.inject = [${match[1]}]`
 })
-/* Round 6 (2026-10-06) removed the EVA 主题 settings panel at the user's request:
-   the look is fixed, not a preference. The session tint layer that arrived the same
-   day was removed again on 2026-10-07 (also at the user's request), and it took the
-   last WRITE to browser storage with it. What is left is the boot mask and its flags.
-   Round 26 (2026-10-08): 「启动屏只播首次」 — the mask records that it already played
-   this build, so exactly ONE storage write is allowed, and it is named below. Any
-   other write, a preference above all, still fails this check. */
 /* Narrowed on 2026-10-14 (round 50). The check was written when the theme registered
    no slot at all, so `slots.inject|slots.register` stood in for "the settings section
    is gone". Round 50 registers the composer's model seat -- a deliberate, user-requested
@@ -1099,63 +1007,16 @@ checks.check('cli.11c', 'the client half writes browser storage only for the nam
   const allowed = ['PIN_KEY', 'MEP_KEY']
   const stray = writes.filter((name) => !allowed.includes(name))
   if (stray.length > 0) return 'client.js writes browser storage outside the named keys: ' + stray.join(', ')
-  /* 2026-10-21: the boot mask's once-per-run record moved to sessionStorage, so it no
-     longer appears in this localStorage list. Its write is pinned by boot.8 instead;
-     what stays here is that localStorage holds only the two real preferences. */
   if (!writes.includes('PIN_KEY')) return 'the workspace pin set is never written'
-  if (!/sessionStorage\.setItem\(BOOT_SEEN_KEY,\s*BOOT_SEEN_VALUE\)/.test(client)) {
-    return 'the boot one-shot write does not record the current run'
-  }
-  if (!/sessionStorage\.getItem\(BOOT_SEEN_KEY\) === BOOT_SEEN_VALUE/.test(client)) {
-    return 'the boot mask never checks whether this run already played'
-  }
-  if (/localStorage\.setItem\(BOOT_SEEN_KEY/.test(client) || /localStorage\.getItem\(BOOT_SEEN_KEY/.test(client)) {
-    return 'the boot one-shot record is still written to localStorage'
-  }
-  if (!/localStorage\.getItem\(BOOT_KEY\) === '0'/.test(client)) {
-    return 'the boot mask lost its off-switch read'
-  }
   return true
 })
-checks.check('cli.11d', 'the client half owns exactly ten effects including the black-hole renderer', () => {
-  /* Nine of these were already counted when rounds 41-45 built the 工作区 row's entry: five of the
-     theme's own (token layer, liquid-glass maps, paint layer, boot mask, the brand row's three-zone
-     bridge since round 25), one from the vendored session-status rail, and the seventh (round 39) the
-     workspace-pin effect. The eighth is the 工作区 row's entry. It was born as a Telegram filter (round 41), grew a 微信 filter beside it
-     (round 42), became a single 微信 workspace switch (rounds 43-45), was put back on filtering the
-     channel dsh-im stamps when the user swapped the plugins (round 48, 「我不想用dsh-wechat，给我把
-     dsh-im换回来。包括工作区旁边的图标按钮及其功能。」), and went back to a pair of channel filters in
-     round 49 (m00694「Telegram呢！！！」). Round 51 (m01147「DSH-IM不好用！把DSH-Wechat给我换回来，并且把
-     工作区旁边的图标也改回来。」) withdrew that pair with the plugin and restored rounds 43-45's single
-     switch. Renamed and rewritten every time, never added or split, so the count is unchanged.
-     This round (2026-10-15) added nothing here either: the account gate is more lines inside
-     the tenth effect, not an eleventh one. Round 64 (2026-10-24) put the channel entries back
-     with the plugin -- twelve of them, one shared visibility rule -- again inside that same
-     tenth effect: also nothing added or split.
-     (The host motion budget, which this file used to register as an eleventh, was retired after the
-     round-51 snapshot this text came from.)
-
-     Round 63 (2026-10-20) added the ELEVENTH: the composer's four OFFICIAL panels (权限 / 会话统计 /
-     Token 用量 / 上下文已用) are centred on their trigger. It is a separate effect rather than more
-     lines inside the paint layer because what it writes is an inline `left` on portaled boxes the
-     theme's sheet cannot reach (the official placement is `useAnchoredPosition`, and an inline
-     `left` beats any selector), and it has to follow the official placement across scroll, resize
-     and ResizeObserver ticks -- a lifecycle the paint effect does not have.
-
-     Round 65 (2026-11-01) added the TENTH: the hero page's composer card goes ghost while the
-     pointer is elsewhere, and one of its wake conditions -- "there is text in the card" -- cannot
-     be a selector, because the composer is a Lexical editor rather than a textarea (no
-     ':placeholder-shown', and an empty editor still holds a '<p><br></p>'). The effect publishes
-     'data-uni-composer-typed' and the sheet reads only that, so the emptiness test lives in one
-     place. It is separate from the paint layer for the same reason the panel centring is: it needs
-     listeners and a per-frame batch, which a sheet cannot have. */
+checks.check('cli.11d', 'the client half owns exactly nine effects including the black-hole renderer', () => {
   const effects = client.match(/ctx\.effect\(/g) ?? []
-  if (effects.length !== 10) return `${effects.length} ctx.effect() calls, expected exactly 10`
+  if (effects.length !== 9) return `${effects.length} ctx.effect() calls, expected exactly 9`
   if (!/UniverseBlackHole\.mount\(\)/.test(client)) return 'missing ASCII black-hole lifecycle mount'
   if (!/tag\.dataset\.pluginCss = PLUGIN_ID \+ '\/theme\.css'/.test(client)) {
     return 'the paint layer is not namespaced'
   }
-  if (!/'universe: boot screen'/.test(client)) return 'the boot mask effect has no label'
   if (!/'universe: brand row zones'/.test(client)) return 'the brand row bridge has no label'
   if (!/'universe: workspace pins'/.test(client)) return 'the workspace pin effect has no label'
   if (!/'universe: centred panels'/.test(client)) return 'the panel-centring effect has no label'
@@ -1221,10 +1082,11 @@ checks.check('glass.1', 'the sheet names the liquid-glass filters the client hal
 })
 checks.check('glass.2', 'every url() filter keeps its blur-only fallback in front of it', () => {
   const rules = cssRules.split('}').filter((rule) => rule.includes('url(#uni-lg-'))
-  /* Six since 2026-11-02: the guide's rule, the composer card's resting rule, its
-     hover rule that pushes the same filter thicker, the edited-files card, the
-     queued-message panel, and the deliverable card. */
-  if (rules.length !== 6) return `${rules.length} rules name a url() glass filter, expected 6`
+  /* Five since 2026-11-02: the guide's rule, the composer card's resting rule, the
+     edited-files card, the queued-message panel, and the deliverable card. The
+     composer's hover rule left the sheet that day — it pushed the same filter
+     thicker on pointer entry, and that jump is the "sudden" the user named. */
+  if (rules.length !== 5) return `${rules.length} rules name a url() glass filter, expected 5`
   for (const rule of rules) {
     for (const prop of ['backdrop-filter', '-webkit-backdrop-filter']) {
       const blur = rule.indexOf(`${prop}: blur(`)
@@ -1460,7 +1322,7 @@ checks.check('cli.13', 'client.js embeds the paint layer, comments stripped', ()
   }
   return !/\/\*/.test(shipped) || 'the embedded paint layer carries comments again'
 })
-checks.check('cli.13b', 'the three shipped sheets carry no comments and no loose whitespace', () => {
+checks.check('cli.13b', 'the shipped sheets carry no comments and no loose whitespace', () => {
   /* P5c (2026-10-15, round 5). cli.13 above proves the paint layer still DERIVES from
      src/theme.css; this one pins the two transforms that shrink it, so a future build
      cannot quietly start shipping either one again. Both are pure reductions of the
@@ -1468,7 +1330,7 @@ checks.check('cli.13b', 'the three shipped sheets carry no comments and no loose
      property that has to hold — and it is checked on the BUNDLE, which is what the
      browser parses, not on the sources, which keep every comment a reviewer needs. */
   const bad = []
-  for (const name of ['CSS', 'BOOT_CSS', 'PICKER_CSS']) {
+  for (const name of ['CSS', 'PICKER_CSS']) {
     const found = client.match(new RegExp('var ' + name + ' = ("(?:[^"\\\\]|\\\\.)*")'))
     if (found === null) { bad.push(`${name}: block not found`); continue }
     const text = JSON.parse(found[1])
@@ -1502,13 +1364,13 @@ checks.check('cli.16', 'client.js is not stale: the manifest token count is curr
   client.includes(`"tokens":${tokenNames.length}`) ||
   `manifest token count is not ${tokenNames.length}`)
 checks.check('cli.17', 'client.js contains no CSS-Modules hash class name', () => {
-  /* Scanned over the sources the theme OWNS (its glue, its two sheets, the boot mask)
+  /* Scanned over the sources the theme OWNS (its glue and its paint sheet)
      rather than over the whole bundle. Since 2026-10-09 the bundle also carries the
      vendored session-status rail, whose `{ ...DEFAULT_COLORS, ... }` spread is a false
      positive for a regex hunting hashed class names (`_COLORS`); the vendored copy is
      byte-fixed upstream code and not the theme's to police. The theme's own sources are
      what the bundle embeds verbatim (cli.21), so nothing of ours escapes this scan. */
-  const hits = (clientJs + bootJs + css + bootCss).match(HASH_CLASS)
+  const hits = (clientJs + css).match(HASH_CLASS)
   return hits === null || `hash names: ${[...new Set(hits)].slice(0, 5).join(', ')}`
 })
 checks.check('cli.18', 'no absolute local path leaked into the bundle', () => {

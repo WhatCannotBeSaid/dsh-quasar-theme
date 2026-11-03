@@ -887,6 +887,12 @@ div[data-windows-menu] {
  *
  * 颜色一律走 `color-mix(... var(--token) ..., transparent)`：本表禁字面色（css.8）。
  * 亮档与暗档共用这几行 —— 令牌自己会翻面，不需要第二份数值。
+ *
+ * 2026-11-02 强度全部减半：12%→6%、40%→20%、渐变 6%→3%。用户 m00001 的原话是
+ * 「液态玻璃效果跟背景比起来太突兀了，我感觉是太厚了」。这一层当初是给「折射缺席」
+ * 垫的边（D107 之前的代价），D107 把折射挂回来之后，折射自己的亮边与本层画在同一条
+ * 线上，一条边被描了两遍，读出来就是「厚」。减半后边缘仍在，只是不再和折射抢同一条
+ * 线。两档共用同一组百分比，暗亮同时生效（D50）。
  * ------------------------------------------------------------------------ */
 [data-composer-card]::after {
   content: '';
@@ -898,30 +904,52 @@ div[data-windows-menu] {
   opacity: var(--uni-thick-opacity, 1);
   transition: opacity 200ms linear;
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-bg-base) 40%, transparent);
+    inset 0 1px 0 color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--dsw-alias-bg-base) 20%, transparent);
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent),
+    color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent),
     transparent 38%
   );
 }
 
 /* --------------------------------------------------------------------------
- * 交互态把玻璃推厚一点（2026-11-01，D107 ③）
+ * 输入卡面填充局部稀释到 80%（2026-11-02）
  *
- * 指针进入卡片时模糊 3px → 10px、饱和 135% → 160%，像厚度被按出来。**瞬切，不做过渡**：
- * `backdrop-filter` 每变一次都要重算整块背板，逐帧插值模糊半径在这台机器上白烧（同一个
- * 理由已经写在幽灵态那节的 `backdrop-filter` 瞬切注释里）。要试过渡，先量帧时再决定。
- * 选择器不需要 body 前缀：`[data-composer-card]:hover` 自身就带 data-* 契约属性（css.7）。
- * 幽灵态不受影响 —— 它的条件里带着 `:not(:hover)`，指针一进来那条规则就整条退出匹配。
+ * 卡面吃 `--dsw-specific-input-major`（α0.302，src/tokens.json 的 surfaceAlphaOverride）。
+ * 这枚令牌同时喂右栏六张引导卡（本表 1426 行）与模型/思考档面板
+ * （src/model-effort-picker.css:430），改令牌等于顺带改掉那几处，所以只在本卡上乘 0.8
+ * —— 0.302×0.8 ≈ 0.242。厚壁减半之后剩下的「厚」主要在面：卡面比身后的壁纸白一档，
+ * 玻璃读起来像贴了张纸。只收这一处，其余消费者的透明度一个像素不动。
+ *
+ * 特异度 (0,1,1)：低于亮档黑洞那条纸面规则（本表 297 行，0,4,1），所以亮档 + 黑洞
+ * 仍是纸面 —— 那条是 2026-10-28 为「输入框文字看不见」加的对比度修，不是厚度选择，
+ * 不动它。幽灵态那条链更长，也照旧压过本行。
  * ------------------------------------------------------------------------ */
-[data-composer-card]:hover::before {
-  -webkit-backdrop-filter: blur(10px) saturate(160%);
-  -webkit-backdrop-filter: url(#uni-lg-input) blur(10px) saturate(160%);
-  backdrop-filter: blur(10px) saturate(160%);
-  backdrop-filter: url(#uni-lg-input) blur(10px) saturate(160%);
+body [data-composer-card] {
+  background-color: color-mix(in srgb, var(--dsw-specific-input-major) 80%, transparent);
 }
+
+/* --------------------------------------------------------------------------
+ * 悬停推厚已取消（2026-11-02）
+ *
+ * 2026-11-01 的 D107 ③ 在这里让玻璃变厚：指针进入卡片时模糊 3px → 6px、饱和
+ * 135% → 150%，瞬切。用户 2026-11-02 问「鼠标悬停时会变厚？」，确认这是整张卡上
+ * 唯一会「跳」的地方 —— 比静态厚薄更像他最初说的「太突然」。
+ *
+ * 去掉的三条理由：它没有功能价值（输入卡一直可输入，不需要靠变厚提示可点）；随静息
+ * 态减半之后 3px→6px 仍是一眼可见的跳变；每次进入/离开都要重算一遍整块背板。
+ * 静息态（上面那条 `::before`）保持 3px / 135% 不动，折射与厚壁照旧，卡面全程一个
+ * 厚度。幽灵态不受影响 —— 它本来就带 `:not(:hover)`，与这条无关。
+ *
+ * 要恢复就把下面的注释放开。恢复前先想清楚：一块玻璃不该因为指针经过而改变厚度。
+ * [data-composer-card]:hover::before {
+ *   -webkit-backdrop-filter: blur(6px) saturate(150%);
+ *   -webkit-backdrop-filter: url(#uni-lg-input) blur(6px) saturate(150%);
+ *   backdrop-filter: blur(6px) saturate(150%);
+ *   backdrop-filter: url(#uni-lg-input) blur(6px) saturate(150%);
+ * }
+ * ------------------------------------------------------------------------ */
 
 /* --------------------------------------------------------------------------
  * 卡内弹层与卡片同厚（2026-11-01，D107 ①）
@@ -1655,10 +1683,11 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
      头像是 flex 行第一项、盒子不动（仍在 16–52），改这一处只把名字与芯片整体左移；
      芯片的 10px 未动（用户没点名那一侧）。回滚 = 把本值改回 16px。 */
   margin-right: -0.64px;
-  /* D80：官方在桌面外壳下给整条 `brandIdentity`（贴图 + 名字）加了 `translateY(1px)`，
-     芯片不在其中 —— 所以这两件天然比芯片低 1px。这里给贴图补 −1px，与官方那 1px 精确抵消，
-     真机复测贴图墨迹中心 20.75 → 20.50（与芯片、与三键中心线同一条）。纯纵向、不碰布局
-     （relative 不改行盒），横向间距与点击分区都不受影响。 */
+  /* D80：官方在桌面外壳下给整条 `brandIdentity`（贴图 + 名字）加了 `translateY(1px)`。
+     2026-11-02（第七十九轮）真机复测：贴图墨迹中心 20.50、Cinzel 大写墨迹中心 20.50，
+     两件已经同线（`QUASAR` 的 Q 尾巴垂到 22.5，那是字形，不是错位 —— 判读只取顶线到
+     基线的大写块）。故保持 −1px。纯纵向、不碰布局（relative 不改行盒），横向间距与点击
+     分区都不受影响。 */
   position: relative;
   top: -1px;
   /* 2026-10-27（第二版）：槽里换用户给的墨笔黑洞位图。`BlackHoleLogo`
@@ -1673,30 +1702,38 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
   display: flex !important;
   align-items: center;
   gap: 0;
-  font-family: Bahnschrift, 'DIN Alternate', 'DIN Next', 'Eurostile Extended',
-    'Montserrat', system-ui, sans-serif;
+  /* 2026-11-02（第七十七轮，用户点名）：字标换族。
+     旧栈 Bahnschrift / DIN Alternate / DIN Next / Eurostile Extended / Montserrat
+     里只有 Bahnschrift 在 Windows 上真存在 —— DIN Alternate 是 macOS 字体，DIN Next
+     与 Eurostile Extended 是商业字体，Montserrat 要装。所谓跨平台稳定只在构建机成立。
+     现在改为内嵌 Cinzel 700（build/fonts.json → 构建期 base64 → declarations 里的
+     @font-face，build-client.mjs 的新「embedded fonts」段）。
+     字距 0.10em 是罗马碑铭大写的读法：Cinzel 的字面本来就宽，需要这一点呼吸；
+     16px 不变，因为三件套的总宽已经由芯片那 10px 外边距定死。 */
+  font-family: 'Cinzel', Georgia, 'Times New Roman', serif;
   font-weight: 700;
   font-size: 16px;
   line-height: 1;
-  letter-spacing: 0;
+  letter-spacing: 0.10em;
   white-space: nowrap;
-  /* D80 复测后**不加**纵向补偿：`WHALE-01` 的字形墨迹中心虽然天生比行盒中心高 1.07px，
-     但行位移后真机读数已经是 20.75，行盒无需再动 —— 贴图那 −1px 与这里的 0 一起，
-     让三件套（贴图 —— 字标 —— 芯片）的墨迹中心都落在三键中心线 20.50 上。 */
+  /* 纵向补偿：下面这个 0 与贴图那 −1px 配的是旧字 Bahnschrift 的墨迹中心（D80 读得
+     WHALE-01 的墨迹中心天生比行盒中心高 1.07px，行位移后落到 20.75）。换族后字面
+     高度变了，这条读数不再是 Cinzel 的，先按 0 跑；若三件套的墨迹中心不再落在三键
+     中心线 20.50 上，改的是这里，不是贴图那行。 */
 }
 [data-slot='sidebar.brand.name'] > svg {
   display: none;
 }
 [data-slot='sidebar.brand.name']::before {
-  content: 'WHALE';
+  /* 2026-11-02：WHALE → QUASAR。类星体是黑洞加吸积盘加喷流的合体，与槽里那枚水墨
+     黑洞、与主题的发光弧带同源；`-01` 一并撤掉（用户：「宇宙主题不用加数字」）。 */
+  content: 'QUASAR';
   color: var(--dsw-alias-label-primary);
 }
-[data-slot='sidebar.brand.name']::after {
-  /* 规范 §7 方法 B：-01 保持字号、只降亮度到 ~78% */
-  content: '-01';
-  color: color-mix(in srgb, var(--dsw-alias-label-primary) 78%,
-    var(--dsw-specific-sidebar-fill));
-}
+/* 2026-11-02：`-01` 的后缀整条删除。它原来做两件事 —— EVA 机体编号的语义，以及
+   「实色主词 + 78% 混合后缀」的两档层次。数字被用户否决（「宇宙主题不用加数字」），
+   两档层次随之失去第二档；现在整行只有主名一种实色，层次交给字号（16 对芯片的 11）
+   与明暗（亮字压暗底 / 深字压浅块）承担，不再由字色分档。 */
 [data-window-drag='true'] button:has([data-slot='sidebar.brand.name']) {
   display: flex;
   align-items: center;
@@ -2055,20 +2092,24 @@ html[data-windows-titlebar] body:not([data-ds-dark-theme]) {
   --dsw-specific-sidebar-fill: transparent !important;
 }
 
+/* 芯片回来（2026-11-02，用户点名：「B，CORE调到14px/500」，随后又调到 12px）。
+ *
+ * 位置与几何沿用 SYSTEM 那枚硬边小片：名字右侧 10px、内边距 4px 8px、圆角 0、
+ * 84% 混合底（浅底深字）。字面是 EB Garamond 500 / 12px —— 主名 Cinzel 700/16px 仍是
+ * 第一层，芯片靠字号（16 对 12）与明暗退到第二层，不靠字重压人。
+ * 点它进设置：分区判定在 src/client.js 的品牌行 effect（`clientX >= name.right`）。
+ * 它顺带补回名字右侧那段留白（组宽 114 → 约 170），这是用户要的密度。 */
 [data-window-drag='true'] button:has([data-slot='sidebar.brand.name'])::after {
-  /* 规范 §9–§16：硬边矩形标签，内边距就是规范给的 4px / 8px。
-     字号 11px 而不是「主文字的 45%」（那会是 7.2px）—— 在这个行高里读不出来。 */
-  content: 'SYSTEM';
+  content: 'CORE';
   margin-left: 10px;
   padding: 4px 8px;
   border-radius: 0;
-  font-family: Bahnschrift, 'DIN Alternate', 'Helvetica Neue', Inter, Arial, sans-serif;
-  font-weight: 700;
-  font-size: 11px;
+  font-family: 'EB Garamond', Garamond, Georgia, serif;
+  font-weight: 500;
+  font-size: 12px;
   line-height: 1;
   letter-spacing: 0.8px;
-  background: color-mix(in srgb, var(--dsw-alias-label-primary) 84%,
-    var(--dsw-alias-bg-layer-2));
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 84%, var(--dsw-alias-bg-layer-2));
   color: var(--dsw-alias-bg-layer-1);
 }
 
@@ -2295,16 +2336,16 @@ html[data-windows-titlebar] [data-slot='sidebar'] > div > nav + div ~ div > :nth
 }
 
 /* --------------------------------------------------------------------------
- * 品牌行三区：Logo → 插件、WHALE-01 → 新会话、SYSTEM → 设置（2026-10-08，第二十五轮，D68）
+ * 品牌行三区：Logo → 设置、文字 → 新会话、CORE → 设置（2026-11-02 恢复）
  *
- * 用户逐字：「我的想法是头像Logo的功能改为「插件」，文字WHALE-01的功能仍然是「新会话」。
- * 文字「SYSTEM」的功能改为「设置」，隐藏「设置」和「插件」按钮。」
+ * 用户逐字：「B，CORE调到14px/500」——B 就是恢复第三区：芯片重新点得动，指回设置。
+ * 第七十八轮那段两区（撤芯片、Logo 独立承担设置）只活了几个小时，现在退回三区；
+ * 插件行仍留在导航区，不再藏，也不再有插件区。
  *
  * 三个标签在**同一个官方 button 里**：官方 SidebarRoot 把 `sidebar.brand.mark` 与
- * `sidebar.brand.name` 两个槽都渲染进那个 button，SYSTEM 是本主题给同一个 button 加的
- * `::after`。所以三区不可能是三个元素，只能是**同一个按钮上的三个坐标区间** —— 判定写在
- * `src/client.js` 的第七个 effect 里（`clientX` 与两个盒子的右缘比较）。本文件负责的只是
- * 把那两条官方入口藏起来，让点击没有第二条通路。
+ * `sidebar.brand.name` 两个槽都渲染进那个 button，CORE 是那个 button 自己的 `::after`，
+ * 所以分区只能是**同一个按钮上的坐标区间**——判定写在 `src/client.js` 的品牌行 effect
+ * 里（只放行 name 盒子的那一段，两侧都截）。本文件负责的只是藏掉设置按钮那条官方入口。
  *
  * 藏「设置」按钮：`settings.launcher` 槽的直系 button。槽本身是 `display:contents` 的定位
  * 锚（官方 scoped-slots 契约：每个渲染点外面都套一层 `display:contents` 的 `data-slot`
@@ -2312,22 +2353,18 @@ html[data-windows-titlebar] [data-slot='sidebar'] > div > nav + div ~ div > :nth
  * D62 给它的 `margin: 0 4px` 从此不再落到任何像素上 —— 规则保留：它记录的是上一轮的结论，
  * 删掉不会让布局更好，只会让历史断线。
  *
- * 藏「插件」行：**只藏这一行**，同一个 nav 里的其他行一律不动（官方组合里还有
- * `ui-schedule` 的「自动化任务」行，order 10；将来任何插件注册进这个 list 的行同理）。
- * 这一行在 DOM 里没有任何 per-id 钩子 —— 真机实测它的属性只有 `type` / `class`（哈希）/
- * `aria-label`，行内的槽锚 `[data-slot='sidebar.panellist']` 是 `display:contents` 的包装、
- * 不带注册 id，所以结构上分不开它与同 nav 的兄弟行。唯一可用的身份是它的可访问名：
- * `aria-label` 来自 plugin-manager 的 `t('panel')`，而那个包只带中英两本字典
- * （zh `插件` / en `Plugins`），其余语言一律回落到英文 —— 这两条文案就是它的全部可能取值，
- * 写全即等价于按身份选。失配时**放开**：多出一个未知语言只会让这一行重新露出来，不会误藏
- * 别的行。
- * 行藏掉后 nav 自己塌成 0 高（真机实测 256×36 → 256×0），不需要补空隙规则。
+ * 「插件」行重新藏起来（2026-11-02，用户逐字：「导航区的插件去掉呀，把插件入口重新换到品牌Logo上。」）：
+ * 按可访问名（`aria-label` = zh `插件` / en `Plugins`，其余语言回落英文）把它单独藏掉，
+ * 同一个 nav 里 `ui-schedule` 的「自动化任务」行与将来任何插件注册进来的行一律不动。
+ * Logo 指回插件面板，芯片 `CORE` 指点设置 —— 这又是第二十五轮那套三区，只是芯片换了字。
  *
- * 已知代价，写在明处：① 藏掉的入口没有快捷键，「插件」面板从此只能点 Logo 进（「设置」不受
- * 影响：官方那条命令本身没动，桌面端 `Ctrl+,`、Web 端 `Ctrl+Alt+,` 各按自己的地图照旧可用；
- * client.js 的桥在按钮缺失时兜底派发的是 Web 那一版 `Control+Alt+,`）；② 若某台
- * 机器上 `ui-settings-account` 是启用的，`settings.launcher` 槽里渲染的是账户菜单而不是回退
- * 的设置按钮，同样会被藏 —— 本机 profile 里它是 `disabled`，渲染的就是那个回退按钮。
+ * 已知代价，写在明处：① 插件面板没有快捷键，只能点 Logo 进；② 设置仍有两条路：芯片
+ * `CORE`，以及官方那条命令（桌面端 `Ctrl+,`、Web 端 `Ctrl+Alt+,` 各按自己的地图；
+ * client.js 的桥在按钮缺失时兜底派发的是 Web 那一版 `Control+Alt+,`）；③ 若某台机器上
+ * `ui-settings-account` 是启用的，`settings.launcher` 槽里渲染的是账户菜单而不是回退的
+ * 设置按钮，同样会被藏 —— 本机 profile 里它是 `disabled`，渲染的就是那个回退按钮；
+ * ④ 藏掉后整行塌成 0 高（真机实测 42 → 0），D62 给它的 `margin: 0 4px` 不再落到任何
+ * 像素上，规则保留只为记录历史。
  * ------------------------------------------------------------------------ */
 [data-slot='settings.launcher'] > button {
   display: none !important;

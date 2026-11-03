@@ -137,9 +137,16 @@
         }
 
         var watcher = typeof ResizeObserver === 'function' ? new ResizeObserver(function (entries) {
+          /* 一批里同一个 state 可能被多个 entry 命中（guide 的六行共用一张图）。
+             图只有一张、几何只认 els[0]，所以每个 state 本批只处理一次；Set 以
+             state 身份为准，局部变量，回调结束即丢，下一批照常重新处理。 */
+          var done = new Set()
           for (var e = 0; e < entries.length; e += 1) {
             for (var s = 0; s < states.length; s += 1) {
-              if (states[s].els.indexOf(entries[e].target) !== -1) paint(states[s])
+              if (states[s].els.indexOf(entries[e].target) === -1) continue
+              if (done.has(states[s])) continue
+              done.add(states[s])
+              paint(states[s])
             }
           }
         }) : null
@@ -184,34 +191,12 @@
         }
 
         /* The scan exists to catch a surface that has just been mounted, so it only has to
-           run when a batch could have mounted or unmounted one. Testing the handful of nodes
-           the batch actually added or removed is exact rather than a guess: this observer
-           watches childList only, so nothing but an addition or a removal can change which
-           elements match a selector. Without this test every batch paid a document-wide
-           query for each target. One of the two targets, [data-sidebar-right-guide-entry],
-           is not rendered at all on a plain new-Session page: there the query could never
-           find anything, and it still ran once per batch -- under a streaming reply, once
-           per coalesced frame, for nothing. */
-        var could = function (records, selector) {
-          for (var r = 0; r < records.length; r += 1) {
-            var bags = [records[r].addedNodes, records[r].removedNodes]
-            for (var b = 0; b < bags.length; b += 1) {
-              var bag = bags[b]
-              if (bag === undefined || bag === null) continue
-              for (var n = 0; n < bag.length; n += 1) {
-                var node = bag[n]
-                if (node === null || node === undefined) continue
-                if (typeof node.matches === 'function' && node.matches(selector)) return true
-                if (typeof node.querySelector === 'function' && node.querySelector(selector) !== null) return true
-              }
-            }
-          }
-          return false
-        }
-
+           run when a batch could have mounted or unmounted one. The added/removed-node test
+           that decides this is shared with lens.js: see uniMutationTouches in
+           src/runtime/mutation-records.js. */
         var mounted = function (records) {
           for (var s = 0; s < states.length; s += 1) {
-            if (could(records, states[s].target.selector)) return true
+            if (uniMutationTouches(records, states[s].target.selector)) return true
           }
           return false
         }

@@ -29,6 +29,7 @@ function fixture(patched, size, opts) {
     window:{devicePixelRatio:2,matchMedia:()=>motion,addEventListener:(k,fn)=>listeners.set('window:'+k,fn),removeEventListener:k=>listeners.delete('window:'+k)},document,ResizeObserver:Observer,IntersectionObserver:Observer,MutationObserver:Observer,
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:fn=>{timers.set(++id,fn);return id},clearTimeout:n=>timers.delete(n),
     requestAnimationFrame:fn=>{frames.set(++id,fn);return id},cancelAnimationFrame:n=>frames.delete(n)})
+  Object.assign(context,opts&&opts.globals) /* 仅测试替换：覆盖 VM 里的 Math 等 */
   vm.runInContext(patched||source,context)
   /* inks 记的是每枚圆 fill() 时用的 fillStyle：两档差异只允许出现在墨色上，
      所以测试要能把墨色和几何分开断言。 */
@@ -36,7 +37,7 @@ function fixture(patched, size, opts) {
   const canvas={dataset:{},width:0,height:0,getContext:()=>ctx,getBoundingClientRect:()=>({width:box.width,height:box.height})}
   function drain(){let count=0;while(timers.size){assert.ok(count++<1000);const tasks=[...timers.values()];timers.clear();tasks.forEach(fn=>fn())}}
   function frame(t){const tasks=[...frames.values()];frames.clear();tasks.forEach(fn=>fn(t))}
-  return {api:context.UniverseBlackHole,canvas,timers,frames,listeners,observers,painted,placed,arcs,fills,inks,bakes,motion,document,drain,frame,box}
+  return {api:context.UniverseBlackHole,canvas,context,timers,frames,listeners,observers,painted,placed,arcs,fills,inks,bakes,motion,document,drain,frame,box}
 }
 test('ASCII parameters clamp angle, cell budget and speed; glyph alphabet is printable ASCII',()=>{
   const {api}=fixture()
@@ -947,6 +948,95 @@ function assertG4Contract(api){
   close(pro.g4,Math.pow(a1Closed(6,1),4),A1_SAME,'理想顺行事件 g⁴')
   return ray
 }
+/* 改前 shade 的独立参考：内联常量、照抄原公式，不读生产模块里的任何标识符 ——
+   期望值只来自这份文本，不能让实现给自己出题。 */
+function shadeReference(ray,time,brightness,spin){
+  const INNER=6
+  const KNOTS=[{ n: 1, radial: 1.9, angular: 1.0, weight: .16 },
+    { n: 2, radial: 2.7, angular: -.62, weight: .11 }]
+  const smooth=(lo,hi,x)=>{const t=Math.min(1,Math.max(0,(x-lo)/(hi-lo)));return t*t*(3-2*t)}
+  const flux=0
+  const turn=time*(Number(spin)||0)
+  if(ray.radius){
+    const r=ray.radius
+    const phase=ray.phi-turn-time*(1.2+16/Math.pow(r,1.5))
+    const arms=.72+.28*Math.sin(2*phase-4*Math.log(r/INNER))
+    const band=.82+.18*Math.sin(r*1.1+1.6*Math.sin(2*phase))
+    let knots=0
+    for(let i=0;i<KNOTS.length;i++){
+      const knot=KNOTS[i]
+      knots+=knot.weight*Math.sin(knot.n*phase+knot.radial*Math.log(r/INNER)-time*knot.angular)
+    }
+    const breathe=1+.03*Math.sin(time*.33)
+    const edge=smooth(INNER-.2,INNER+.8,r)*(1-smooth(14.5,16.2,r))
+    return 1-Math.exp(-(edge*Math.pow(INNER/r,2)*arms*(band+knots)*breathe*ray.g4*3.2)*brightness)
+  }
+  return 0
+}
+test('shade 局部去重后与改前独立参考逐位相同：log 只算一次，公式与乘加顺序不变',()=>{
+  const {api}=fixture()
+  /* 有效着色分支里只留一处 Math.log(r / INNER)，KNOTS 循环不再各算一遍。 */
+  assert.equal(source.split('Math.log(r / INNER)').length,2,'shade 里的 Math.log(r / INNER) 必须恰好一处')
+  assert.ok(source.includes('var logR = Math.log(r / INNER)'),'logR 局部变量必须还在')
+  const rays=[]
+  /* 半径边界：盘两侧收口、呼吸区、外缘。相位/时间/自旋/g⁴/亮度在下面逐条组合。 */
+  for(const radius of [2,5.5,5.999,6,6.3,7,9.11,11.7,14.49,14.5,15.2,16.21,20]) {
+    for(const phi of [-3.1,-.7,0,.35,1.9,3.05]) {
+      for(const g4 of [.06,.4,1,3.55]) rays.push({radius,phi,g4})
+    }
+  }
+  /* 真实命中记录也进样本：半径与相位不是人造的。 */
+  for(const [u,v,angle] of [[.51,.14,15],[0,.34125,15],[-.11,.66,15],[.3,-.12,10],[0,.8,50]]){
+    const hit=api.trace(u,v,angle)
+    if(hit.radius) rays.push(hit)
+  }
+  let comparisons=0
+  for(const ray of rays){
+    for(const time of [0,.37,1.7,3.9,11.25]){
+      for(const brightness of [.15,.5,1,2]){
+        for(const spin of [undefined,0,.42]){
+          const actual=api.shade(ray,time,brightness,spin)
+          const expected=shadeReference(ray,time,brightness,spin)
+          assert.ok(Object.is(actual,expected),`shade(${ray.radius},${ray.phi},g⁴=${ray.g4},t=${time},b=${brightness},spin=${spin})=${actual}，参考 ${expected}`)
+          comparisons++
+        }
+      }
+    }
+  }
+  assert.ok(comparisons>5000,`样本量 ${comparisons} 太小`)
+  /* 没有半径的射线仍精确为 0：不触发任何着色分支。 */
+  assert.equal(api.shade({phi:1,g4:1},1,1),0)
+})
+test('有效着色分支的 Math.log 只计一次：隔离 VM 计数，宿主 Math 不动',()=>{
+  /* 计数对象是本 VM 内部的替身：它以 vm 自己的内在 %Math% 为原型，只覆盖 log，不改宿主 Math，
+     也不碰任何原型链。每次 fixture() 都新建一个，互不串号。 */
+  const hostLog=Math.log
+  const probe=fixture()
+  let calls=0
+  const sink=vm.runInContext('Math',probe.context)
+  const proxy=Object.create(sink)
+  proxy.log=v=>{calls++;return sink.log(v)}
+  probe.context.Math=proxy
+  const reset=()=>{calls=0}
+  const ray={radius:9.5,phi:.42,g4:1.3}
+  reset()
+  const once=probe.api.shade(ray,1.7,1,.42)
+  /* 旋臂一次 + 两个亮度团各一次，旧实现是三次；去重后只该剩一次。 */
+  assert.equal(calls,1,`有效着色分支调用了 ${calls} 次 Math.log`)
+  assert.equal(once,shadeReference(ray,1.7,1,.42),'计数用例里的值也必须与参考一致')
+  /* 无半径分支一次都不调。 */
+  reset()
+  probe.api.shade({phi:.42,g4:1.3},1.7,1,.42)
+  assert.equal(calls,0,'没有半径的射线不该进入着色分支')
+  /* 第二次有效着色：每一帧每一步仍然只算一次，不会因计数替身被缓存而漏算。 */
+  reset()
+  probe.api.shade(ray,2.2,.15)
+  assert.equal(calls,1,'第二次有效着色也必须只算一次')
+  /* 宿主 Math 与 vm 内在 Math 都没被替换：替身只换掉了那个上下文的 Math 绑定。 */
+  assert.equal(Math.log,hostLog,'宿主 Math.log 被改动了')
+  const shadow=fixture()
+  assert.equal(vm.runInContext('Math.log(1)===0&&Math.log!==undefined',shadow.context),true)
+})
 test('g⁴ 契约的负向注入：g³ 与夹限权重都被真实断言抓住（生产源被改就会非零退出）',()=>{
   /* 生产源里不许再出现 boost 权重字段或 ray.boost 读取：没有兼容层，也没有死字段。 */
   assert.ok(!/ray\.boost/.test(source),'生产源不许再读 ray.boost')
@@ -962,3 +1052,215 @@ test('g⁴ 契约的负向注入：g³ 与夹限权重都被真实断言抓住�
   assert.throws(()=>assertG4Contract(fixture(a1Source(clamped)).api),/越过旧上限 1\.7/)
 })
 
+/* 计数只插在测试 VM 里：格子几何的调用点换成先记账再调原函数，Math.sqrt/atan2 也在源码里换成
+   计数包装（见 countedSource）。两边合起来才说明「已访问格子的静态几何」真的少算了。 */
+function countedSource(src){
+  const patched=src.replace(/var g0 = geomFor\(/, 'var g0 = (function () { geoHits++; return geomFor.apply(null, arguments) }).call(null, ')
+    .replace(/function geomFor\(cache, cols, i, cw, ch, baseX, baseY\) \{/, 'var geoHits = 0\n  function geomFor(cache, cols, i, cw, ch, baseX, baseY) {')
+    /* VM 的 %Math% 是内建对象，宿主侧拿到的是副本，从外面替换 context.Math 拦不住模块里已经
+       闭包住的 Math 绑定。所以几何计数只替换源码里的调用点，被调用的仍是内建函数本身，
+       返回值逐位相同，宿主 Math 与 VM 内在 Math 都不变。 */
+    .replace(/Math\.sqrt\(/g, '__sqrt(')
+    .replace(/Math\.atan2\(/g, '__atan2(')
+    /* 生产源码是 \r\n：/m 的 ^ 只认 \n 之前的位置，锚不住缩进，所以这里按「缩进 + 换行」定位。 */
+    .replace(/  var geoHits = 0\r?\n/g, '  var geoHits = 0, sqrtCalls = 0, atanCalls = 0\n  function __sqrt(v) { sqrtCalls++; return Math.sqrt(v) }\n  function __atan2(y, x) { atanCalls++; return Math.atan2(y, x) }\n  globalThis.__geoCount = { sqrt: function () { return sqrtCalls }, atan: function () { return atanCalls } }\n')
+    .replace(/(debugSource: 'v3')/, "$1, geoHits: function () { return geoHits }")
+  assert.notEqual(patched,src,'几何计数插桩必须命中 geomFor 与对外接口')
+  assert.ok(patched.includes('return geoHits'),'几何计数插桩必须挂到对外接口上')
+  assert.ok(patched.includes('__geoCount'),'几何计数插桩必须把计数函数交出来')
+  return patched
+}
+test('静态几何缓存：同一生产绘制器分别走参考几何与缓存几何，逐帧的字符、位置、maxWidth、颜色与顺序全同',()=>{
+  /* 参考路径不缓存，也不复制渲染器：测试 VM 里只把 geomFor 换成一份「每次都按生产原式现算」的
+     独立表达式（基准来自改动前的 draw()），再跑同一个 create()/draw()。字符、顺序、位置、
+     maxWidth、fillStyle 与绘制调用顺序逐帧严格比较，不比较调用次数。 */
+  const reference=`function geomFor(cache, cols, i, cw, ch, baseX, baseY) {
+  /* 改动前 draw() 里那三行的原样：坐标、平方半径、按需开方、按需扇区。 */
+  var gx0 = (i % cols + .5) * cw - baseX
+  var gy0 = (((i / cols) | 0) + .5) * ch - baseY
+  var gd2 = gx0 * gx0 + gy0 * gy0
+  var exact = 0, d = 0, bin = 0
+  return { get: function (k) {
+    if (k === 0) return gx0
+    if (k === 1) return gy0
+    if (k === 2) return gd2
+    if (k === 3) return exact ? d : (exact = 1, d = Math.sqrt(gd2))
+    if (k === 4) return bin >= 0 ? bin : (bin = (((Math.atan2(gy0, gx0) + Math.PI) / (Math.PI * 2) * RING_BINS) | 0) % RING_BINS)
+    return 0
+  }, set: function (k, v) { if (k === 3) d = v; else if (k === 4) bin = v } }
+}`
+  const patchedSource=source.replace(/function geomFor\(cache, cols, i, cw, ch, baseX, baseY\) \{[\s\S]*?\n  \}\r?\n/,reference+'\n')
+  const countedCache=countedSource(source)
+  assert.notEqual(patchedSource,source,'参考几何的替换必须真的命中 geomFor，否则两边跑的是同一套实现')
+  function build(name){
+    /* VM 里被全局替换的 Math 未必能穿透到模块闭包，所以覆盖范围的判据是下面逐帧比较的
+       Canvas 调用序列，不指望在这里数调用次数。 */
+    const f=fixture(name==='cache'?source:patchedSource,{width:160,height:100},{canvas2d:true})
+    const calls=[]
+    const ctx=f.canvas.getContext()
+    for(const key of ['fillText','fill','drawImage','arc','clearRect','beginPath','save','restore'])
+      if(typeof ctx[key]==='function'){
+        const orig=ctx[key]
+        ctx[key]=function(){calls.push({op:key,args:[].slice.call(arguments).map(v=>typeof v==='object'&&v?`<${v.width}x${v.height}>`:v),fillStyle:String(ctx.fillStyle),font:String(ctx.font),textAlign:String(ctx.textAlign),textBaseline:String(ctx.textBaseline),globalAlpha:ctx.globalAlpha});return orig.apply(ctx,arguments)}
+      }
+    const props=()=>({fillStyle:String(ctx.fillStyle),font:ctx.font,align:ctx.textAlign,baseline:ctx.textBaseline,alpha:ctx.globalAlpha})
+    const r=f.api.create(f.canvas)
+    f.drain()
+    f.ticks=0
+    function tick(){
+      f.frame((f.ticks+=40))
+      return {calls:calls.splice(0,calls.length),state:props()}
+    }
+    return {f,r,tick,props}
+  }
+  const ref=build('ref'),cur=build('cache')
+  assert.equal(ref.r.stats().ready,true);assert.equal(cur.r.stats().ready,true)
+  let frames=0,glyphs=0
+  function same(where){
+    const a=ref.tick(),b=cur.tick()
+    assert.deepEqual(b.calls,a.calls,`${where}: 这一帧的 Canvas 调用序列必须逐项相同`)
+    assert.deepEqual(cur.props(),ref.props(),`${where}: 帧末的绘制状态（含 fillStyle）必须相同`)
+    frames++
+    for(const c of b.calls)if(c.op==='fillText')glyphs++
+  }
+  same('冷缓存首帧（暗档）')
+  same('暖缓存第二帧')
+  same('暖缓存第三帧')
+  /* 只改动态参数：时间、亮度、转速、浓淡都不该动静态几何。 */
+  cur.r.setAlpha(.35);ref.r.setAlpha(.35);same('暖缓存 + globalAlpha')
+  cur.r.update({brightness:.4});ref.r.update({brightness:.4});same('暖缓存 + 亮度变化')
+  cur.r.pose({speed:1.4});ref.r.pose({speed:1.4});same('暖缓存 + 转速变化')
+  /* 明暗档：只换墨色与影色。 */
+  ref.r.setMode('light');cur.r.setMode('light');same('亮档')
+  /* 非整数取景位移：baseX/baseY 逐位变，缓存按键失效并重算。 */
+  cur.r.pose({viewX:37.25,viewY:-11.5});ref.r.pose({viewX:37.25,viewY:-11.5});same('非整数取景位移')
+  same('非整数位移的暖帧')
+  cur.r.pose({viewX:-13.75,viewY:6.25});ref.r.pose({viewX:-13.75,viewY:6.25});same('负的非整数位移')
+  cur.r.update({ringProjection:.8});ref.r.update({ringProjection:.8});same('环投影范围缩放')
+  same('环投影缩放后的暖帧')
+  /* 尺寸变化后重建。 */
+  ref.f.box.width=241;cur.f.box.width=241
+  ref.r.resize();cur.r.resize();ref.f.drain();cur.f.drain();same('尺寸变化（含重建网格）')
+  same('尺寸变化后的暖帧')
+  /* 网格参数变化：仰角换重建，格子宽度换重分列。 */
+  ref.r.update({angle:22});cur.r.update({angle:22});ref.f.drain();cur.f.drain();same('仰角变化')
+  ref.r.update({cellWidth:7});cur.r.update({cellWidth:7});ref.f.drain();cur.f.drain();same('格子宽度变化')
+  same('格子宽度变化后的暖帧')
+  /* 环包络原地变化：直接改 stats 里那张 edge，不碰对象身份。 */
+  const edge=ref.r.stats().ring.edge
+  assert.ok(edge instanceof Float32Array,'这条用例需要环层就绪，否则测不到包络比较')
+  for(let i=0;i<edge.length;i++)edge[i]=i%7===0?0:400
+  same('环包络原地变化')
+  /* 环不可用：没有 createElement 就没有环层，纯 ASCII 路径也必须逐帧相同。 */
+  const noref=fixture(source,{width:160,height:100})
+  const nocur=fixture(patchedSource,{width:160,height:100})
+  const nr=noref.api.create(noref.canvas),nc=nocur.api.create(nocur.canvas)
+  noref.drain();nocur.drain()
+  assert.equal(nr.stats().ring.state,'unavailable');assert.equal(nc.stats().ring.state,'unavailable')
+  assert.deepEqual(nocur.placed,noref.placed,'环不可用时的 ASCII 落字也必须逐字相同')
+  assert.ok(noref.placed.length>50,'无环路径几乎没有落字，比不出来')
+  cur.r.dispose();ref.r.dispose()
+  assert.ok(frames>=15,`只比了 ${frames} 帧`)
+  assert.ok(glyphs>200,`字符样本 ${glyphs} 太少`)
+})
+test('静态几何缓存：隔离 VM 计数证明暖缓存不再重复算已访问格子的几何，失效后重算，改动态参数不误失效',()=>{
+  /* 计数只用 VM 内的替换：一次进格子几何记一次访问（countedSource 在调用点插桩），
+     Math.sqrt / Math.atan2 数的是整个 draw（构建在 create 里已经跑完，所以帧内数到的就是绘制）。
+     不要求「整个 draw 的 sqrt 为零」——盘面每帧本来就有一枚清屏用的 sqrt，不在格子几何分支里。
+     尺寸取 640×360：环的方位包络 edgeMax 约 64px，大于 short/2，环外确有盘格落在环带里，
+     所以「阴影圆外、环带内」这一支与扇区桶在固定输入下真的会被走到（160×100 时环整圈落在盘外）。 */
+  const f=fixture(countedSource(source),{width:640,height:360},{canvas2d:true})
+  /* create() 返回的控制器只有公开方法：几何访问口挂在模块的 api 上，Math 计数口挂在 VM 全局上。
+     不挂到 api 上是因为 geoSrc 只替换过一次 api 尾行，替换表必须逐条命中。 */
+  const geoHits=f.api.geoHits
+  const sqrtCalls=f.context.__geoCount.sqrt, atanCalls=f.context.__geoCount.atan
+  const r=f.api.create(f.canvas)
+  f.drain()
+  assert.ok(r.stats().cells>0)
+  assert.equal(r.stats().ring.state,'ready','环层必须就绪，否则环带分支根本不进')
+  function frame(n){
+    const g0=geoHits(),s0=sqrtCalls(),a0=atanCalls()
+    f.frame(n)
+    return {sqrt:sqrtCalls()-s0,atan:atanCalls()-a0,geo:geoHits()-g0}
+  }
+  /* 冷缓存首帧：被环区粗筛命中的格子要开方，说明这一帧几何真的算过。
+     不在这里要求 atan>0：构建期那次同步 draw（finishBuild → sync）已经把环带格的扇区桶算好，
+     首帧读到的都是缓存值。 */
+  const cold=frame(40)
+  assert.ok(cold.geo>0,'冷缓存首帧必须有格子几何访问')
+  assert.ok(cold.sqrt>0,'冷缓存首帧的绘制阶段必须有几何开方')
+  assert.equal(cold.atan,0,'构建期已把环带扇区桶算完，冷首帧不该再算 atan2')
+  const outer=cold.geo
+  /* 暖缓存：同一取景下每个被访问的格子都命中缓存，石头几何不再开方、不再算扇区。 */
+  const warm=frame(80)
+  assert.equal(warm.geo,outer,`暖缓存的格子几何访问应当与冷帧同一批，实际多了 ${warm.geo-outer} 次`)
+  assert.equal(warm.atan,0,`暖缓存仍多算了 ${warm.atan} 次 Math.atan2`)
+  /* 帧内剩的 sqrt 只有 ringClear = sqrt(cw²+ch²)/2+1 这一枚帧常量，不在格子几何分支里。 */
+  assert.ok(warm.sqrt<=1,`暖缓存仍多算了 ${warm.sqrt} 次 Math.sqrt（只允许 ringClear 那一枚）`)
+  /* 只改动态参数：不算失效。 */
+  r.update({brightness:.5});r.pose({speed:1.2});r.setAlpha(.5)
+  assert.ok(frame(120).sqrt<=1,'只改时间/亮度/转速/浓淡不该让几何缓存失效')
+  assert.equal(frame(130).atan,0)
+  /* 取景位移不改 baseX/baseY（两相抵消，恒等于 w/2、h/2，与原式一致）：缓存照旧命中，
+     位移由 setTransform 每帧施加，绘制结果由下面那条差分用例逐帧核对。 */
+  r.pose({viewX:21.5,viewY:4.25})
+  const moved=frame(160)
+  assert.ok(moved.geo>0,'取景位移后仍要走格子几何')
+  assert.ok(moved.sqrt<=1,'取景位移不该清空几何缓存')
+  assert.ok(frame(170).sqrt<=1,'位移后的下一帧必须回到暖状态')
+  /* 改格子宽度会重分列、整张网格重建：新格子从空缓存开始，扇区桶必须重算（这里才真正走到 atan2）。
+     构建期那次同步 draw 已经把有机会进环带的格子访问过一遍，所以开方要看「缓存被清掉」本身：
+     构建后总量必须明显高于上一份缓存的访问量。 */
+  const before=sqrtCalls(), atanBefore=atanCalls()
+  r.update({cellWidth:7});f.drain()
+  const regrid=frame(190)
+  assert.ok(regrid.geo>0,'网格参数变化后必须重建格子几何')
+  assert.ok(sqrtCalls()>before+regrid.geo,'网格参数变化后必须重算开方（构建期新网格的几何是冷的）')
+  assert.ok(atanCalls()>atanBefore,'网格参数变化后环带格的扇区桶必须重算（构建期那次同步 draw）')
+  assert.ok(frame(200).sqrt<=1,'重建后的下一帧回到暖缓存')
+  /* 环包络原地变化不会让几何缓存失效（缓存的是距离与扇区，不是让位结果）。 */
+  const edge=r.stats().ring.edge
+  for(let i=0;i<edge.length;i++)edge[i]=0
+  frame(240)
+  assert.ok(frame(280).sqrt<=1,'包络变化不该导致每帧重算')
+  /* 同尺寸 resize 短路不该清缓存。 */
+  r.resize()
+  assert.ok(frame(320).sqrt<=1,'同尺寸 resize 短路不该无故清空几何缓存')
+  assert.equal(frame(330).atan,0,'同尺寸 resize 短路后扇区桶仍该命中')
+  /* 不同尺寸：重建网格 + 重算几何（重建期的同步 draw 就把新几何算冷了一遍）。 */
+  const beforeSize=sqrtCalls()
+  f.box.width=680
+  r.resize();f.drain()
+  assert.ok(frame(360).geo>0,'尺寸变化后必须重建格子几何')
+  assert.ok(sqrtCalls()>beforeSize+772,'尺寸变化后必须重算几何')
+  assert.ok(frame(370).sqrt<=1,'新尺寸的下一帧回到暖缓存')
+  r.dispose()
+})
+test('静态几何缓存：失败与零尺寸都不保留旧缓存',()=>{
+  /* 最终失败：耗尽注入下网格失败闭合，之后恢复预算重建必须从空缓存开始。
+     测试里把失败那次的预算换成 4 步，再换回正常预算模拟「下一次 resize 重建」。 */
+  const f=fixture(injectBudget(4),{width:160,height:100},{canvas2d:true})
+  const r=f.api.create(f.canvas)
+  f.drain()
+  assert.equal(r.stats().ready,false)
+  assert.equal(f.canvas.dataset.blackHoleState,'failed')
+  assert.equal(f.painted.length,0,'失败态不落字')
+  r.dispose()
+  assert.equal(f.canvas.dataset.blackHoleState,'disposed')
+  /* 再建一个正常实例：丢弃的不是缓存而是这一次的网格，新实例从冷缓存开始也一样画对。 */
+  const ok=fixture(null,{width:160,height:100},{canvas2d:true})
+  const r2=ok.api.create(ok.canvas)
+  ok.drain()
+  assert.equal(r2.stats().ready,true)
+  assert.ok(ok.painted.length>0)
+  /* 零尺寸：draw 直接返回，缓存释放；恢复尺寸后照常重建并画。 */
+  ok.box.width=0
+  r2.resize()
+  ok.box.width=160
+  r2.resize();ok.drain()
+  assert.equal(r2.stats().ready,true)
+  const before=ok.painted.length
+  ok.frame(40)
+  assert.ok(ok.painted.length>before,'零尺寸恢复后必须继续出字')
+  r2.dispose()
+})

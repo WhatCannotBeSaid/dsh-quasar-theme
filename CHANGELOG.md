@@ -8,6 +8,61 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Added
 
+- **「插件」行收回导航区，Logo 改指插件面板（2026-11-02 第八十轮）。** 用户逐字：「导航区的插件去掉呀，
+  把插件入口重新换到品牌Logo上。」品牌行回到第二十五轮那套分区：**Logo → 插件、`QUASAR` → 新会话、
+  `CORE` 芯片 → 设置**。`src/theme.css` 重新放回按可访问名藏插件行的两条选择器（zh `插件` / en
+  `Plugins`），同 nav 里 `ui-schedule` 那行不动；`src/client.js` 恢复 `PANEL_ROW` 常量，分区判定改回
+  `zone` 三分（插件行缺失时不拦截，落回官方新会话）；`tools/selfcheck.mjs` 的 `css.10` 从「一条
+  `nav[aria-label]` 规则都不许有」反向回「必须按名藏、且中英两名都写」。README / README.zh 的三段
+  点击区表与被隐藏入口表同步（重新加回「插件」行，设置行改「点 `CORE` 芯片，或 `Ctrl+,`」）。
+  重建后 `client.js` **237,229 chars / 237,603 B**、`2 fonts`、`npm run verify` **113 assertions / 0 failed**；
+  真机复测品牌行几何未变（25.00–208.00，墨迹中心 20.50 / 20.50 / 20.25）。
+
+- **芯片回来：`CORE` 以 EB Garamond 500 / 12px 恢复（先 14px，随即调小），品牌行回到三区（2026-11-02 第七十九轮）。** 用户
+  逐字：「B，CORE调到14px/500」——B 指恢复第三区，即点芯片开设置。`src/theme.css` 重新放回
+  `[data-window-drag='true'] button:has([data-slot='sidebar.brand.name'])::after`：`content:'CORE'`、
+  `font-family:'EB Garamond', Garamond, Georgia, serif`、`font-weight:500`、`font-size:12px`，几何
+  （10px 外边距、4px 8px 内边距、硬边、`letter-spacing:0.8px`、84% 混合底）一字不改。
+  `src/client.js` 的品牌行 effect 回到三区，判定改成「只放行 name 盒子那一段」：
+  `if (event.clientX >= markRight && event.clientX < nameRight) return`，左侧贴图与右侧芯片都截下并转给设置。
+  `build/fonts.json` 重新收进 EB Garamond 500（`build/eb-garamond-latin-500.woff2`，25,264 B，连同 OFL）。
+  芯片补回了名字右侧那段留白：品牌组 25.00–139.00 扩到 **25.00–208.00**，缺口 166.50 → **97.50**；
+  三件套墨迹中心仍是 **20.50**（芯片 20.25）。重建后 `client.js` **236,644 chars / 237,010 B**、`2 fonts`、
+  `npm run verify` **113 assertions / 0 failed**。README / README.zh 的三区表与「被隐藏的官方入口」表同步。
+
+- **芯片撤掉，Logo 改指设置，插件行交还导航区（2026-11-02 第七十八轮）。** 用户逐字：「去掉
+  「CORE」，将黑洞Logo的功能调整为点击进入设置，将导航区的「插件」按钮重新显示！」三件事一起做：
+  `src/theme.css` 里那枚 `[data-window-drag='true'] button:has([data-slot='sidebar.brand.name'])::after`
+  芯片整条删除（连内边距、硬边、84% 混合底），按可访问名藏「插件」行的规则也整条删除，nav 里
+  plugin-manager 与 ui-schedule 两行恢复官方默认；设置启动按钮**仍然隐藏**。`src/client.js` 的
+  品牌行 effect 从三区收到一区：只有 `clientX < mark.getBoundingClientRect().right` 被截下并转给
+  设置（按钮在就 `.click()`，不在就走 `pressSettingsShortcut()`），文字区与行上其余位置一律不拦截。
+  `EB Garamond` 因此不再随包：`build/fonts.json` 只剩 Cinzel，`build/eb-garamond-latin-700.woff2`
+  与那份 OFL 移入回收站。`tools/selfcheck.mjs` 的 `css.10` 方向反转 —— 从「插件行必须按名藏」改成
+  「本表不许出现任何 `nav[aria-label]` 规则」。重建后 `client.js` **202,142 chars / 202,508 B**、
+  `npm run verify` **113 assertions / 0 failed**。
+
+- **品牌行换名换字：`WHALE-01` → `QUASAR`，`SYSTEM` → `CORE`，两枚字面随包内嵌（2026-11-02
+  第七十七轮）。** 用户先问「左栏顶部的品牌名称仍是「WHALE-01」「SYSTEM」，要不要改呢？改的话
+  改成什么好呢？用什么字体呢？」，随后逐项拍板：`-01` 去掉（「宇宙主题不用加数字」）、主名选
+  `QUASAR`、芯片选 `CORE`、主名 `Cinzel` + 芯片 `EB Garamond`；芯片随后被点名提到 `12px / 700`
+  （原排 `11px / 500`）。
+  改动：`src/theme.css` 的 `[data-slot='sidebar.brand.name']` 换族 Cinzel 700 / 0.10em，`::before`
+  出 `QUASAR`；`-01` 那条 `::after` 整条删除，随之失去「实色主词 + 78% 混合后缀」的两档层次，
+  层次改由字号（16 对 12）与明暗（亮字压暗底 / 深字压浅块）承担；芯片 `::after` 改 `CORE` +
+  EB Garamond 700、12px。`build/fonts.json` 是新的来源记录（对齐 `build/wallpapers.json` 的形状），
+  `tools/build-client.mjs` 读它生成 `@font-face` 拼在 `declarations` 最前、按记载字节数校验，
+  `tools/selfcheck.mjs` 新增 `font.1` 钉住「表里点名的字族必须是包里带的那两枚」。重建后
+  `client.js` 237,231 chars / 237,605 B，`npm run verify` **113 assertions / 0 failed**。
+
+  换族的原因不是审美：原栈 `Bahnschrift, 'DIN Alternate', 'DIN Next', 'Eurostile Extended',
+  'Montserrat'` 里只有 Bahnschrift 在 Windows 上真存在 —— DIN Alternate 是 macOS 字体，DIN Next
+  与 Eurostile Extended 是商业字体，Montserrat 要装，所谓跨平台稳定只在构建机成立。
+
+  报数：两枚 woff2 合计 40,476 B（Cinzel 700 15,184 / EB Garamond 700 25,292），base64 后
+  `declarations` 由 ~16K 涨到 70,373 chars；两份 OFL 全文随包（`build/cinzel-OFL.txt`
+  4,383 B、`build/eb-garamond-OFL.txt` 4,398 B）。
+
 - **亮档弧带换成更高对比度的绿（2026-11-02 第七十六轮）。** 用户逐字：「再优化一下亮色下
   的配色，现在不够显眼，应该也是对比度不够的原因，找一个对比度更高的绿色」。量下来，亮档
   继承的宿主 `--dsw-alias-state-success-primary` 是 `#397949`（oklch 0.521 0.100 150），

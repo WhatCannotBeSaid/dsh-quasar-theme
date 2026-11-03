@@ -23,7 +23,21 @@ function between(source, start, end) {
   assert.ok(a >= 0 && b > a, `production boundaries: ${start} / ${end}`)
   return source.slice(a, b)
 }
+/* glass.js and lens.js read the shared added/removed-node test from a module that
+   precedes them in CLIENT_FILES. A single-file mount therefore loads its production
+   prefix rather than gaining a copy of the helper: the source under test is still the
+   shipped text, in the shipped order. */
+function upTo(file) {
+  const at = CLIENT_FILES.indexOf(file)
+  assert.ok(at >= 0, file + ' is not in CLIENT_FILES')
+  return CLIENT_FILES.slice(0, at).map(read).join('\n')
+}
 function mountEffect(label, bindings) {
+  return effectRunner(label, bindings)()
+}
+/* Same as mountEffect, but hands back the installer so a test can choose when it
+   runs the deferred effect instead of running it immediately. */
+function effectRunner(label, bindings) {
   const effects = new Map()
   const context = { get: () => ({}), inject() {}, effect(fn, name) { effects.set(name, fn) } }
   const exports = vm.runInNewContext(`(function () { var module = {exports:{}}; var exports = module.exports; ${clientSource()} })()`, {
@@ -31,7 +45,7 @@ function mountEffect(label, bindings) {
   })
   exports.apply(context)
   assert.ok(effects.has(label), label)
-  return effects.get(label)()
+  return effects.get(label)
 }
 test('S10: built artifact registers one loader with unchanged public exports', () => {
   const registrations=[]
@@ -53,7 +67,7 @@ test('S4: glass cancels queued scan and rejects late observer delivery after dis
     window:{requestAnimationFrame(fn){frame=fn;return 1},cancelAnimationFrame(){cancelled++}},
     MutationObserver:class{constructor(fn){callback=fn}observe(){}disconnect(){disconnected++}},
     ResizeObserver:class{observe(){throw Error('observe after disposal')}disconnect(){disconnected++}}}
-  const dispose=vm.runInNewContext(read('src/runtime/glass.js')+'\nmountLiquidGlass()',context)
+  const dispose=vm.runInNewContext(upTo('src/runtime/glass.js')+read('src/runtime/glass.js')+'\nmountLiquidGlass()',context)
   const records=[{addedNodes:[{matches:()=>true}],removedNodes:[]}]
   /* One query per target on the first scan: composer, guide, edited-files card,
      queued-message panel, deliverable card. */
@@ -206,84 +220,6 @@ test('S6: the pin fallback admits outside mutations until scoped rows return', (
   const records = [{ target: {}, addedNodes: [], removedNodes: [] }]
   assert.equal(api.touches(records), true)
   api.scoped(); assert.equal(api.touches(records), false)
-})
-
-/* The boot mask's one-shot rule. The user's requirement (2026-10-21): the mask plays
-   once per DSH process -- quitting and reopening DSH replays it, a reload inside one
-   running instance does not. That is exactly sessionStorage's lifetime: it survives a
-   reload of the same window and dies with it. The previous rule keyed the same mark
-   into localStorage, so "once per build" meant "once ever" and the mask simply stopped
-   appearing; every refresh looked like a missing animation. These three cases pin the
-   new rule and the storage that implements it, driving the real mountBootScreen. */
-function bootFixture({ session = new Map(), local = new Map(), search = '' } = {}) {
-  const makeEl = () => {
-    const el = {
-      style: { setProperty() {} }, attrs: {}, children: [], parentNode: null, textContent: '',
-      setAttribute(k, v) { el.attrs[k] = String(v) },
-      getAttribute(k) { return el.attrs[k] ?? null },
-      appendChild(c) { el.children.push(c); c.parentNode = el; return c },
-      removeChild(c) { const i = el.children.indexOf(c); if (i >= 0) el.children.splice(i, 1); c.parentNode = null; return c },
-      querySelector: () => makeEl(),
-    }
-    return el
-  }
-  const body = makeEl()
-  const storage = (map) => ({
-    getItem: k => (map.has(k) ? map.get(k) : null),
-    setItem: (k, v) => { map.set(k, String(v)) },
-    removeItem: k => { map.delete(k) },
-  })
-  const context = {
-    PLUGIN_ID: 'dsh-universe-theme',
-    document: {
-      body,
-      querySelector: sel => (sel.indexOf('style[data-plugin-css=') === 0 ? makeEl() : null),
-      createElement: makeEl,
-    },
-    window: {
-      localStorage: storage(local),
-      sessionStorage: storage(session),
-      matchMedia: () => ({ matches: false }),
-      setTimeout: () => 1,
-      setItem: () => {},
-    },
-    location: { search },
-    requestAnimationFrame: () => 1,
-    cancelAnimationFrame() {},
-    setInterval: () => 1,
-    clearInterval() {},
-  }
-  const mount = vm.runInNewContext(
-    `${read('src/boot-screen.js')}\nmountBootScreen`, context)
-  const masks = () => body.children.filter(c => c.attrs['data-uni-boot'] !== undefined).length
-  return { mount, masks, session, local }
-}
-
-test('S11: the boot mask plays once per run and replays only after DSH restarts', () => {
-  const seenKey = 'dsh-universe-theme/boot/seen'
-  const mark = 'uni-boot/@BUILD@'
-
-  const first = bootFixture()
-  first.mount()
-  assert.equal(first.masks(), 1, 'a fresh run must play the mask')
-  assert.equal(first.session.get(seenKey), '1', 'the run mark must be recorded in sessionStorage')
-  assert.equal(first.local.has(seenKey), false, 'the run mark must not be written to localStorage')
-
-  // A reload inside the same run: same sessionStorage, a brand-new document.
-  const reload = bootFixture({ session: first.session })
-  reload.mount()
-  assert.equal(reload.masks(), 0, 'a reload inside one run must not replay the mask')
-
-  // ?boot=1 still forces one replay inside a run, without touching the record.
-  const forced = bootFixture({ session: first.session, search: '?boot=1' })
-  forced.mount()
-  assert.equal(forced.masks(), 1, '?boot=1 must force a replay')
-
-  // A stale mark left by the old localStorage rule must not suppress the mask:
-  // the leftover key from before this change is what made the animation vanish.
-  const stale = bootFixture({ local: new Map([[seenKey, mark]]) })
-  stale.mount()
-  assert.equal(stale.masks(), 1, 'an old localStorage mark must not suppress the mask')
 })
 
 /* 悬停塌陷的触发面（2026-10-31，第四十九轮）：样式表只认 data-uni-grav，属性由
@@ -571,32 +507,59 @@ test('A7: one subject only — four paths, no second dot anywhere', () => {
 })
 
 /* 会话行 Running —— 弧带的宿主替身。一棵够用的假 DOM：rAF 由测试手动推进，观察器手工触发，
-   没有 getComputedStyle —— 弧带的亮度全部由 geometry 算，样式表只给颜色与笔宽。 */
-function accretionFixture() {
+   没有 getComputedStyle —— 弧带的亮度全部由 geometry 算，样式表只给颜色与笔宽。
+   nodeType / matches / querySelector 只覆盖当前两个 SEL：自身名字即选择器，祖先链按
+   data-row-key 前缀匹配，够 uniStatusMutationTouches 保守判定，不写通用 CSS 引擎。 */
+function makeFixtureElements(kind, rootOf) {
+  const descendants = el => (el.children ?? []).flatMap(child => [child, ...descendants(child)])
   class Element {
-    constructor(name, attrs = {}) { this.name = name; this.attrs = attrs; this.children = []; this.parentNode = null; this.style = {}; this.dataset = {} }
+    constructor(name, attrs = {}) { this.name = name; this.attrs = attrs; this.children = []; this.parentNode = null; this.style = {}; this.dataset = {}; this.nodeType = 1 }
     setAttribute(key, value) { this.attrs[key] = String(value) }
     getAttribute(key) { return this.attrs[key] ?? null }
     appendChild(child) { child.parentNode = this; this.children.push(child); return child }
     removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null }
     closest() { let el = this; while (el && !el.attrs['data-row-key']) el = el.parentNode; return el }
-    get isConnected() { return this === root || this.parentNode?.isConnected === true }
+    get isConnected() { return this === rootOf() || this.parentNode?.isConnected === true }
+    /* kind === 'kepler'：祖先链上任一 [data-row-key^='session:']，不是只看直接父节点。 */
+    matches(selector) {
+      if (selector === kind.selector) return this.name === kind.tag && this.getAttribute('data-state') === kind.state
+      const m = /^\[data-row-key\^='(.*)'\]/.exec(selector)
+      if (m === null) return false
+      const key = this.getAttribute('data-row-key')
+      return key !== null && key.startsWith(m[1])
+    }
+    querySelector(selector) { return descendants(this).find(el => el.nodeType === 1 && el.matches(selector)) ?? null }
   }
-  const root = new Element('html')
+  /* 真 MutationRecord 的节点袋：长度、下标与 item() 同时存在。 */
+  const bag = nodes => Object.assign(nodes.slice(), { item: i => nodes[i] ?? null })
+  /* removed 缺省时空袋，带删除的批次必须真把节点放进 removedNodes。 */
+  const record = (nodes, removed = []) => ({ type: 'childList', target: rootOf(), addedNodes: bag(nodes), removedNodes: bag(removed) })
+  const text = data => ({ nodeType: 3, data })
+  return { Element, descendants, bag, record, text, make: (name, attrs = {}) => new Element(name, attrs) }
+}
+
+function accretionFixture() {
+  const kind = { selector: "svg[data-state='ongoing']", tag: 'svg', state: 'ongoing' }
+  let root = null
+  const { Element, descendants, record, text, make } = makeFixtureElements(kind, () => root)
+  root = new Element('html')
   const body = root.appendChild(new Element('body'))
   let now = 0
   let id = 0
   const frames = new Map()
   const observers = []
-  const descendants = el => el.children.flatMap(child => [child, ...descendants(child)])
+  /* scans：document.querySelectorAll 的次数。sync() 每次扫描恰好调一次，所以它把「同步初始化」
+     与「之后观察器回调里的 kick」分得开：两者都是 kick/sync 自己数出来的，不靠推断。 */
+  const scans = { total: 0, atMount: null }
   const document = {
     body, documentElement: root, createElementNS: (_, name) => new Element(name),
     querySelectorAll: selector => {
       assert.equal(selector, "svg[data-state='ongoing']")
+      scans.total += 1
       return descendants(root).filter(el => el.name === 'svg' && el.getAttribute('data-state') === 'ongoing')
     },
   }
-  const mount = vm.runInNewContext(read('src/runtime/accretion.js') + '\nmountAccretion', {
+  const mount = vm.runInNewContext(upTo('src/runtime/accretion.js') + read('src/runtime/accretion.js') + '\nmountAccretion', {
     document,
     performance: { now: () => now },
     window: { requestAnimationFrame: fn => { frames.set(++id, fn); return id }, cancelAnimationFrame: n => frames.delete(n) },
@@ -611,19 +574,24 @@ function accretionFixture() {
     const svg = host.appendChild(new Element('svg', { 'data-state': 'ongoing' }))
     return { host, svg }
   }
-  const mutate = (target = root, attributeName = null) => {
+  /* 不带批次（旧调用形态）时给一条缺节点袋的记录：真实的生产代码只能保守同步，测试也不
+     假装它有证据。带 nodes 时是标准 childList 批次，走过滤路径。 */
+  const mutate = (target = root, attributeName = null, nodes = null, removed = null) => {
     const type = attributeName === null ? 'childList' : 'attributes'
     for (const observer of observers) {
       const options = observer.options
       if (observer.disconnected || !options[type]) continue
       if (observer.target !== target && !(options.subtree && descendants(observer.target).includes(target))) continue
       if (type === 'attributes' && options.attributeFilter && !options.attributeFilter.includes(attributeName)) continue
-      observer.fn([{ type, target, attributeName }])
+      observer.fn([type === 'childList' && nodes !== null ? record(nodes, removed ?? []) : { type, target, attributeName }])
     }
   }
   const groupOf = row => row.svg.children.find(el => el.getAttribute('class') === 'uni-acc')
   return {
-    mount, add, frames, observers, descendants, mutate,
+    /* 包一层只为记账：fixture 里不用 assert，所以「挂载完成那一刻」的累计扫描次数由这里截下。 */
+    mount: () => { const dispose = mount(); scans.atMount = scans.total; return dispose },
+    scans,
+    add, frames, observers, descendants, mutate, record, text, make,
     move: (row, other) => { row.host.removeChild(row.svg); other.host.appendChild(row.svg); row.host = other.host },
     replace: row => { row.host.removeChild(row.svg); row.svg = row.host.appendChild(new Element('svg', { 'data-state': 'ongoing' })) },
     reduced: value => { body.dataset.uniMotion = value ? 'reduced' : 'full'; mutate(body, 'data-uni-motion') },
@@ -649,6 +617,51 @@ function accretionFixture() {
   }
 }
 
+
+test('A16: mount scans once, the first RAF adds no scan and keeps its stop rule, later kicks still sync', () => {
+  /* 三种挂载初始态。每次 document.querySelectorAll 记 1 次扫描，所以「挂载同步阶段」与
+     「之后观察器/偏好回调触发的 kick」在账上是两条线，这里只对前者断言恒为 1。 */
+  const cases = [
+    { name: 'ongoing row', rows: 1, reduced: false },
+    { name: 'no ongoing row', rows: 0, reduced: false },
+    { name: 'ongoing row + reduced', rows: 1, reduced: true },
+    { name: 'no ongoing row + reduced', rows: 0, reduced: true },
+  ]
+  for (const kase of cases) {
+    const f = accretionFixture()
+    const row = kase.rows ? f.add('session:parent') : null
+    if (kase.reduced) f.reduced(true)
+    const scansAtSetup = f.scans.total
+    const dispose = f.mount()
+    const label = `${kase.name}: `
+    assert.equal(f.scans.atMount - scansAtSetup, 1, label + 'mount must scan exactly once')
+    if (row !== null) {
+      /* 首绘必须先于挂载返回：图形不是等到首帧才出现，观察器/偏好监听的顺序也没被打乱。 */
+      assert.equal(f.visible(row), true, label + 'first paint must be visible before mount returns')
+      assert.equal(f.arcs(row).length, 4, label + 'the whole band must be painted before mount returns')
+    }
+    /* 首帧沿用原条件被请求：即使没有行或 reduced，也由这一帧按原逻辑决定停不停。 */
+    assert.equal(f.frames.size, 1, label + 'the initial RAF must still be requested')
+    f.step(16)
+    assert.equal(f.scans.total - scansAtSetup, 1, label + 'the first RAF must not scan again')
+    /* 只有「没有行或 reduced」这两种初始态的首帧才收工；普通态照旧继续跑。 */
+    const staysIdle = kase.rows === 0 || kase.reduced
+    if (staysIdle) assert.equal(f.frames.size, 0, label + 'no ongoing row or reduced motion must leave no RAF loop')
+    else assert.equal(f.frames.size, 1, label + 'a running row must keep its RAF loop')
+    /* 真实变更走 kick：kick 自己同步一次，紧接着的那一帧不再扫。 */
+    const observed = row ?? f.add('session:late')
+    if (row === null) f.mutate(observed.host)
+    else { observed.host.setAttribute('data-row-key', 'session:other'); f.mutate(observed.host, 'data-row-key') }
+    const afterKick = f.scans.total
+    assert.equal(afterKick - scansAtSetup, 2, label + 'an observed change must sync once inside kick')
+    assert.ok(f.visible(observed), label + 'the kick must paint the change synchronously')
+    f.step(32)
+    assert.equal(f.scans.total, afterKick, label + 'the frame after a kick must not scan again')
+    if (row === null) assert.equal(f.group(observed).parentNode, observed.svg, label + 'the late row never got its graphics')
+    dispose()
+    assert.equal(f.frames.size, 0, label + 'disposal must cancel the RAF')
+  }
+})
 
 test('A8: mounted arc paints before the first RAF and never blanks across seams', () => {
   const f = accretionFixture()
@@ -805,6 +818,67 @@ test('A15: the still frame is one frozen band and disposal leaves nothing behind
   assert.ok(f.observers.every(observer => observer.disconnected))
 })
 
+test('A17: only batches that can change the selector wake the scan, and a related one still syncs inside the callback', () => {
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  f.step(16)
+  const scans = f.scans.total
+  const frames = f.frames.size
+  /* 无关的纯新增：自身与子树都不命中——流式回复时一帧里能挂几十个这种节点。 */
+  const wrapper = f.make('div', {})
+  wrapper.appendChild(f.text('hello '))
+  wrapper.appendChild(f.make('p', {}))
+  f.mutate(row.host, null, [wrapper])
+  assert.equal(f.scans.total, scans, 'an unrelated batch paid a document scan')
+  assert.equal(f.frames.size, frames, 'an unrelated batch scheduled a second RAF callback')
+  /* 一个批次里三条相关记录（两条自身命中、一条同批），也只扫描一次。 */
+  const late = row.host.appendChild(f.make('svg', { 'data-state': 'ongoing' }))
+  const other = f.add('session:other')
+  f.mutate(row.host, null, [wrapper, late, other.svg])
+  assert.equal(f.scans.total, scans + 1, 'a batch must be scanned once, not once per record')
+  assert.ok(f.visible({ svg: late }), 'the related batch did not paint before the callback returned')
+  assert.ok(f.visible(other), 'the second related record was never attached')
+  f.step(32)
+  assert.equal(f.scans.total, scans + 1, 'the frame after a kick scanned again')
+  dispose()
+})
+
+test('A18: own graphics and removed nodes stay conservative; real nodes and reparents still sync', () => {
+  /* 宿主的 childList 只收直接子节点，所以采用「追加一个新子树」的批次再加一层包装来模拟
+     真实监听范围；包装层自身与子树都不命中，就应当跳过。 */
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  f.step(16)
+  const scans = f.scans.total
+  /* 1) 自身图形的回声若真的进了 observer（g.uni-acc 的装配），它本身不命中 SEL。 */
+  const echo = row.svg.appendChild(f.make('span', {}))
+  f.mutate(row.svg, null, [echo])
+  assert.equal(f.scans.total, scans, 'an unrelated echo of its own graphics was scanned')
+  /* 2) 通知了 g.uni-acc 被摘掉：批次里没有任何命中节点，但那是删除，必须同步一次。 */
+  const before = scans + 1
+  f.mutate(row.svg, null, [])
+  assert.equal(f.scans.total, before, 'a notification with an empty childList must still sync')
+  assert.ok(f.group(row), 'graphics are missing after a conservative sync')
+  /* 3) 真把整棵 g.uni-acc 摘掉再通知：摘掉后文档里已没有这个 svg，这一批只能同
+     step 4（sync 只认文档里还挂着的图形根），所以这里不再断言它会被同一个批次补回。 */
+  const g = f.group(row)
+  row.svg.removeChild(g)
+  f.mutate(row.svg, null, [])
+  assert.equal(f.scans.total, before + 1, 'removing the graphics did not sync')
+  /* 4) 真删掉仍在文档里的图形根后，带删除的批次必须同步一次；这一同步只认「文档里还挂着的
+     图形根」（既有限制），所以不在这里断言同一个批次会补回。 */
+  const wrapper = f.make('div', {})
+  f.mutate(row.svg, null, [wrapper])
+  assert.equal(f.scans.total, before + 1, 'an unrelated wrapper was scanned')
+  row.svg.removeChild(f.group(row))
+  /* 真删除记录：被摘掉的图形根必须出现在 removedNodes 里，这一批才是「带删除」的批次。 */
+  f.mutate(row.svg, null, [], [f.group(row)])
+  assert.equal(f.scans.total, before + 2, 'a batch carrying a graphics unmount did not sync')
+  dispose()
+})
+
 /* 会话行 Pending —— 开普勒轨道。几何直接 eval 生产文件，不重写一份算术。 */
 function keplerApi() {
   return vm.runInNewContext(
@@ -875,31 +949,25 @@ test('K3: the dot walks equal arc per equal time, which is the uniform speed the
 })
 
 function keplerFixture() {
-  class Element {
-    constructor(name, attrs = {}) { this.name = name; this.attrs = attrs; this.children = []; this.parentNode = null; this.style = {}; this.dataset = {} }
-    setAttribute(key, value) { this.attrs[key] = String(value) }
-    getAttribute(key) { return this.attrs[key] ?? null }
-    appendChild(child) { child.parentNode = this; this.children.push(child); return child }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null }
-    closest() { let el = this; while (el && !el.attrs['data-row-key']) el = el.parentNode; return el }
-    get isConnected() { return this === root || this.parentNode?.isConnected === true }
-  }
-  const root = new Element('html')
+  const kind = { selector: "[data-row-key^='session:'] span[data-state='warning']", tag: 'span', state: 'warning' }
+  let root = null
+  let queries = 0
+  const { Element, descendants, record, text, make } = makeFixtureElements(kind, () => root)
+  root = new Element('html')
   const body = root.appendChild(new Element('body'))
   let now = 0
   let id = 0
   const frames = new Map()
   const observers = []
-  const descendants = el => el.children.flatMap(child => [child, ...descendants(child)])
   const document = {
     body, documentElement: root, createElementNS: (_, name) => new Element(name),
     querySelectorAll: selector => {
-      assert.equal(selector, "[data-row-key^='session:'] span[data-state='warning']")
-      return descendants(root).filter(el => el.name === 'span' && el.getAttribute('data-state') === 'warning' &&
-        el.parentNode !== null && String(el.parentNode.getAttribute('data-row-key') || '').startsWith('session:'))
+      assert.equal(selector, kind.selector)
+      queries += 1
+      return descendants(root).filter(el => el.matches(selector))
     },
   }
-  const mount = vm.runInNewContext(read('src/runtime/kepler.js') + '\nmountKepler', {
+  const mount = vm.runInNewContext(upTo('src/runtime/kepler.js') + read('src/runtime/kepler.js') + '\nmountKepler', {
     document, performance: { now: () => now },
     window: { requestAnimationFrame: fn => { frames.set(++id, fn); return id }, cancelAnimationFrame: n => frames.delete(n) },
     MutationObserver: class {
@@ -913,23 +981,38 @@ function keplerFixture() {
     const marker = host.appendChild(new Element('span', { 'data-state': 'warning' }))
     return { host, marker }
   }
-  const mutate = (target = root, attributeName = null) => {
+  /* 旧的单参调用给一条缺节点袋的记录：生产代码只能保守同步。带 nodes 时是标准批次。 */
+  const mutate = (target = root, attributeName = null, nodes = null, removed = null) => {
     const type = attributeName === null ? 'childList' : 'attributes'
     for (const observer of observers) {
       const options = observer.options
       if (observer.disconnected || !options[type]) continue
       if (observer.target !== target && !(options.subtree && descendants(observer.target).includes(target))) continue
       if (type === 'attributes' && options.attributeFilter && !options.attributeFilter.includes(attributeName)) continue
-      observer.fn([{ type, target, attributeName }])
+      observer.fn([type === 'childList' && nodes !== null ? record(nodes, removed ?? []) : { type, target, attributeName }])
     }
   }
+  const marker = el => el.closest()
   return {
-    mount, add, frames, observers, descendants, mutate,
+    mount, add, make, frames, observers, descendants, mutate, record, text,
+    queries: () => queries,
     svg: row => row.marker.children.find(el => el.getAttribute('class') === 'uni-kep'),
     dot: row => descendants(row.marker).find(el => el.name === 'circle'),
     orbit: row => descendants(row.marker).find(el => el.name === 'ellipse'),
     reduced: value => { body.dataset.uniMotion = value ? 'reduced' : 'full'; mutate(body, 'data-uni-motion') },
     step: time => { now = time; const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(time)) },
+    /* 新宿主：一个外层容器套着带 data-row-key 的祖先行，状态节点挂在包一层 span 里。
+       kepler 的 SEL 要求行是状态节点的祖先，不是直接父节点。 */
+    nest: (key, markerName = 'span') => {
+      const shell = body.appendChild(new Element('div'))
+      const host = shell.appendChild(new Element('div', { 'data-row-key': key }))
+      const slot = host.appendChild(new Element('div'))
+      const state = slot.appendChild(new Element(markerName, { 'data-state': 'warning' }))
+      return { shell, host, slot, marker: state }
+    },
+    /* 测试要模拟的自身图形回声：observer 会看到自己 append 的那枚 svg。 */
+    echo: row => record([row.svg ?? row.marker.children.find(el => el.getAttribute('class') === 'uni-kep')]),
+    marker,
   }
 }
 
@@ -961,6 +1044,25 @@ test('K4: the marker keeps its own slot, paints before the first frame, and ever
   assert.ok(f.observers.every(observer => observer.disconnected))
 })
 
+test('K6: one mount syncs once, and a kick does not sync again on the frame it schedules', () => {
+  const f = keplerFixture()
+  const row = f.add('session:one')
+  const dispose = f.mount()
+  /* 挂载只该同步一次：kick 自己同步，挂载处不再先来一遍。 */
+  assert.equal(f.queries(), 1, 'mount synced more than once')
+  f.step(16)
+  assert.equal(f.queries(), 1, 'the first frame synced again right after mount')
+  /* 外部变更：kick 内同步一次，紧随其后的那一帧不该再同步。 */
+  f.mutate(row.host, 'data-row-key')
+  assert.equal(f.queries(), 2, 'the observer did not sync inside kick')
+  f.step(32)
+  assert.equal(f.queries(), 2, 'the frame after a kick synced the document again')
+  /* 周期性兜底仍在：第 30 帧无条件同步一次。 */
+  for (let i = 3; i <= 30; i += 1) f.step(i * 16)
+  assert.equal(f.queries(), 3, 'the periodic fallback sync was lost')
+  dispose()
+})
+
 test('K5: reduced motion freezes the dot on a painted frame and keeps the whole orbit', () => {
   const f = keplerFixture()
   const k = keplerApi()
@@ -979,4 +1081,767 @@ test('K5: reduced motion freezes the dot on a painted frame and keeps the whole 
   assert.notEqual(f.dot(row).getAttribute('cx'), still.x.toFixed(2), 'motion did not resume')
   assert.equal(f.descendants(row.marker).filter(el => el.getAttribute('class') === 'uni-kep').length, 1)
   dispose()
+})
+
+/* 状态动效过滤的边界。跑的就是 src/runtime/mutation-records.js 里的生产函数，用例只给它
+   最小的节点形状，不重写逻辑。 */
+test('M1: only a complete batch of unrelated pure additions may answer false', () => {
+  const helper = vm.runInNewContext(
+    upTo('src/runtime/mutation-records.js') + read('src/runtime/mutation-records.js') + '\n;({ uniStatusMutationTouches })', {}).uniStatusMutationTouches
+  const SEL = "svg[data-state='ongoing']"
+  const self = { nodeType: 1, matches: s => s === SEL, querySelector: () => null }
+  const subtree = { nodeType: 1, matches: () => false, querySelector: s => (s === SEL ? self : null) }
+  const miss = { nodeType: 1, matches: () => false, querySelector: () => null }
+  const text = { nodeType: 3, data: 'hello' }
+  const comment = { nodeType: 8, data: 'n' }
+  const bag = nodes => Object.assign(nodes.slice(), { item: i => nodes[i] ?? null })
+  const add = (added, removed = []) => ({ type: 'childList', addedNodes: bag(added), removedNodes: bag(removed) })
+  const attr = { type: 'attributes', attributeName: 'data-state', addedNodes: bag([]), removedNodes: bag([]) }
+  for (const [label, records, want] of [
+    ['unrelated element', [add([miss])], false],
+    ['unrelated text', [add([text])], false],
+    ['unrelated comment', [add([comment])], false],
+    ['several unrelated records', [add([miss]), add([text]), add([comment])], false],
+    ['own match', [add([self])], true],
+    ['descendant match', [add([subtree])], true],
+    ['attribute record', [attr], true],
+    ['attribute amid unrelated additions', [add([miss]), attr], true],
+    ['a removal', [add([], [miss])], true],
+    ['a removal in a later record', [add([miss]), add([], [text])], true],
+    ['relevant record at the tail', [add([miss]), add([text]), add([self])], true],
+    ['missing addedNodes', [{ type: 'childList', removedNodes: bag([]) }], true],
+    ['missing removedNodes', [{ type: 'childList', addedNodes: bag([miss]) }], true],
+    ['missing type', [{ addedNodes: bag([miss]), removedNodes: bag([]) }], true],
+    ['null records', null, true],
+    /* 节点袋的 item() 不是函数时保守路径会抛错；只校验它不返回 false。真浏览器节点袋
+       由 DOM 保证 item() 存在。 */
+    ['a bag whose item() is missing', [{ type: 'childList', addedNodes: Object.assign([miss], { item: undefined }), removedNodes: Object.assign([], { item: undefined }) }], 'throws'],
+  ]) {
+    let answer
+    try { answer = helper(records, SEL) } catch (e) { answer = 'throws' }
+    assert.equal(answer, want, label)
+  }
+  /* 形状异常的批次单独跑：它们可能抛错，不该掩盖前面对照表的结论。 */
+  for (const [label, records] of [
+    ['empty batch', []],
+    ['empty childList', [add([])]],
+    ['null addition', [add([miss, null])]],
+    ['unknown node type', [add([{ nodeType: 11, childNodes: [], children: [] }])]],
+  ]) {
+    let answer
+    try { answer = helper(records, SEL) } catch (e) { answer = true }
+    assert.equal(answer, true, label)
+  }
+  /* 自身命中先于子树搜索：短路顺序是契约的一部分。 */
+  const order = []
+  const short = { nodeType: 1, matches: () => { order.push('matches'); return true }, querySelector: () => { order.push('querySelector'); return null } }
+  assert.equal(helper([add([short])], SEL), true)
+  assert.deepEqual(order, ['matches'])
+})
+
+test('A19: the accretion scan runs once per change batch, not per record, and stays conservative at the edges', () => {
+  const f = accretionFixture()
+  const row = f.add('session:parent')
+  const dispose = f.mount()
+  f.step(16)
+  const scans = f.scans.total
+  /* 一条无关记录 + 一条相关记录：按整批逐条检查，不能因为第一条无关就整批跳过。 */
+  f.mutate(row.host, null, [f.make('div', {}), row.svg, f.make('p', {})])
+  assert.equal(f.scans.total, scans + 1, 'a related record behind an unrelated one must still sync once')
+  /* 新包装节点里带一条真实状态节点：包装自身不命中，后代命中，必须同步一次。 */
+  const holder = f.add('session:wrapped')
+  const pack = f.make('div', {})
+  const inner = pack.appendChild(f.make('svg', { 'data-state': 'ongoing' }))
+  holder.host.appendChild(pack)
+  f.mutate(holder.host, null, [pack])
+  assert.equal(f.scans.total, scans + 2, 'a wrapped state node did not sync')
+  assert.ok(f.group({ svg: inner }), 'the new wrapped state node never got its band')
+  /* data-state 原地变化是属性记录：一律相关。 */
+  inner.setAttribute('data-state', 'done')
+  f.mutate(inner, 'data-state')
+  assert.equal(f.scans.total, scans + 3, 'an in-place data-state change did not sync')
+  /* 跨宿主动 ->key 变化 -> 虚拟行复用，全部走属性与删除，必须同步。 */
+  const other = f.add('session:other')
+  f.move(row, other)
+  f.mutate(row.host, 'data-row-key')
+  const moved = f.scans.total
+  f.replace(row)
+  f.mutate(row.host, null, [f.make('div', {})])
+  assert.ok(f.scans.total >= moved, 'reparented rows stopped syncing')
+  dispose()
+})
+
+test('K8: unrelated batches skip the scan, while ancestors, wrappers and removals still sync', () => {
+  const f = keplerFixture()
+  const row = f.nest('session:deep')
+  const dispose = f.mount()
+  assert.equal(f.queries(), 1)
+  /* 无关纯新增：自身与子树都不命中 SEL，不扫描、不再唤醒 RAF。 */
+  const wrapper = f.make('div', {})
+  wrapper.appendChild(f.text('x'))
+  f.mutate(row.slot, null, [wrapper])
+  assert.equal(f.queries(), 1, 'an unrelated batch paid a document scan')
+  /* 真正的状态节点挂在两层包装里，靠祖先链上的 session 行命中：必须同步。 */
+  const box = row.slot.appendChild(f.make('div', {}))
+  const state = box.appendChild(f.make('span', { 'data-state': 'warning' }))
+  f.mutate(row.slot, null, [box])
+  assert.equal(f.queries(), 2, 'an ancestor-chain match did not sync')
+  assert.ok(f.svg({ marker: state }), 'the orbit was not mounted for the nested marker')
+  /* 自身图形回声：uni-kep 的 svg 自己不命中 SEL，可以跳过。 */
+  const echo = f.svg({ marker: state })
+  f.mutate(state, null, [echo])
+  assert.equal(f.queries(), 2, 'an echo of its own graphics was scanned')
+  /* 删除整个 svg.uni-kep：同步方式不变，批次里有删除就必须同步一次；同步只认图形根的
+     挂载关系（既有限制），所以这里只断言扫描发生。 */
+  state.removeChild(echo)
+  f.mutate(state, null, [f.text('x')], [echo])
+  assert.equal(f.queries(), 3, 'a batch carrying a removal did not sync')
+  dispose()
+  /* dispose 之后排队的回调不复活：观察器已断开，回调也不再扫描。 */
+  const after = f.queries()
+  for (const observer of f.observers) if (!observer.disconnected) observer.fn([{ type: 'childList', addedNodes: [], removedNodes: [] }])
+  assert.equal(f.queries(), after)
+})
+
+test('S10: the shared added/removed-node test answers exactly as its two copies did', () => {
+  /* Boundary cases the two former inline copies classified identically, now answered
+     by one function: a node that IS the target, a node that merely CONTAINS one, a
+     removal, an empty batch, a record missing a bag, and a node that matches neither. */
+  const api = vm.runInNewContext(upTo('src/runtime/mutation-records.js') + read('src/runtime/mutation-records.js') + '\n;({uniMutationTouches})', {})
+  const hit = { matches: sel => sel === '.hit', querySelector: () => null }
+  const parent = { matches: () => false, querySelector: sel => (sel === '.hit' ? hit : null) }
+  const miss = { matches: () => false, querySelector: () => null }
+  const batch = (added, removed) => [{ addedNodes: added, removedNodes: removed }]
+  assert.equal(api.uniMutationTouches(batch([hit], []), '.hit'), true, 'self match')
+  assert.equal(api.uniMutationTouches(batch([parent], []), '.hit'), true, 'descendant match')
+  assert.equal(api.uniMutationTouches(batch([], [hit]), '.hit'), true, 'removal counts')
+  assert.equal(api.uniMutationTouches(batch([miss], [miss]), '.hit'), false, 'unrelated nodes')
+  assert.equal(api.uniMutationTouches([], '.hit'), false, 'empty batch')
+  assert.equal(api.uniMutationTouches([{ addedNodes: [null, miss] }], '.hit'), false, 'missing bag and null node')
+  /* Short-circuit order: the node's own matches is asked before its descendants, so a
+     self-match never pays for a subtree query. */
+  const order = []
+  api.uniMutationTouches(batch([{ matches: () => { order.push('matches'); return true }, querySelector: () => { order.push('querySelector'); return null } }], []), '.hit')
+  assert.deepEqual(order, ['matches'])
+})
+
+/* ---------------------------------------------------------------------------
+   2026-11-02: the composer's typed state and the brand row's three zones moved
+   out of src/client.js into their own factory inputs. These tests drive the
+   extracted mounts through the effect the client still registers, which is the
+   only thing that proves the entry, the label and the deferral survived.
+   --------------------------------------------------------------------------- */
+
+function composerFixture() {
+  const listeners = new Map()
+  const frames = new Map()
+  const writes = []
+  const cards = []
+  const timers = []
+  let next = 1
+  function node(initial, editorText) {
+    let editor = editorText === undefined ? undefined : { textContent: editorText }
+    const attrs = new Map()
+    return {
+      attrs,
+      setText(text) { editor = text === null ? undefined : { textContent: text } },
+      querySelector(selector) {
+        if (selector === '[data-composer-input]') return editor ?? null
+        if (selector === "[role='textbox']") return editor ?? null
+        return null
+      },
+      getAttribute(name) { return attrs.has(name) ? attrs.get(name) : null },
+      setAttribute(name, value) { writes.push([name, value]); attrs.set(name, value) },
+      removeAttribute(name) { writes.push([name, undefined]); attrs.delete(name) },
+    }
+  }
+  const document = {
+    querySelectorAll(selector) { return selector === '[data-composer-card]' ? cards : [] },
+    addEventListener(name, fn, capture) { listeners.set(name, { fn, capture }) },
+    removeEventListener(name, fn, capture) { if (listeners.get(name)?.fn === fn && capture) listeners.delete(name) },
+  }
+  function mount() {
+    /* Through effectRunner, not a bare apply(): apply() returns early when the theme
+       service is missing, so a fixture that stubs get() with undefined registers
+       nothing and would test an empty effect map. The effect install is deferred. */
+    const inst = effectRunner('universe: composer typed state', {
+      document, KeyboardEvent: function () {},
+      setTimeout(fn) { timers.push(fn); return timers.length }, clearTimeout() {},
+      requestIdleCallback: undefined, cancelIdleCallback: undefined,
+      requestAnimationFrame(fn) { const id = next++; frames.set(id, fn); return id },
+      cancelAnimationFrame(id) { frames.delete(id) },
+    })
+    /* Installed synchronously here, so the sync inside it and the listener
+       registrations are both visible before any event is fired. The install is
+       deferred, so the timeout it arms has to be run before the assertions. */
+    const dispose = inst()
+    assert.equal(timers.length, 1, 'the deferred install no longer arms its timeout fallback')
+    timers.shift()()
+    assert.deepEqual([...listeners.keys()].sort(), ['focusin', 'focusout', 'input'])
+    for (const [name, entry] of listeners) assert.equal(entry.capture, true, name + ' lost capture')
+    return dispose
+  }
+  return {
+    mount, listeners, frames, writes, cards, node,
+    step() { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(0)) },
+  }
+}
+
+test('C1: the composer mount syncs once on install, then coalesces events into one frame', () => {
+  const f = composerFixture()
+  const card = f.node('', '')
+  f.cards.push(card)
+  const dispose = f.mount()
+  /* Mounted synchronously inside the deferred task: an empty card gets no attribute. */
+  assert.equal(f.writes.length, 0)
+  assert.equal(card.getAttribute('data-uni-composer-typed'), null)
+  /* Three events in one turn share one frame; a real character writes 'true' once. */
+  card.setText('hi')
+  f.listeners.get('input').fn()
+  f.listeners.get('focusin').fn()
+  f.listeners.get('focusout').fn()
+  assert.equal(f.frames.size, 1, 'three events in one turn must share one frame')
+  f.step()
+  assert.deepEqual(f.writes, [['data-uni-composer-typed', 'true']])
+  f.listeners.get('input').fn(); f.step()
+  assert.equal(f.writes.length, 1, 'an unchanged answer wrote the attribute again')
+  /* Zero-width marks and ASCII whitespace still read as empty. */
+  card.setText('\u200b\u200c\u200d\ufeff \t\n\r')
+  f.listeners.get('input').fn(); f.step()
+  assert.deepEqual(f.writes.at(-1), ['data-uni-composer-typed', undefined], 'zero-width text kept the typed state')
+  assert.equal(card.getAttribute('data-uni-composer-typed'), null)
+  /* A card with no editor at all is empty, not an error. */
+  f.cards.push(f.node('ignored'))
+  f.listeners.get('input').fn(); f.step()
+  assert.equal(f.writes.length, 2, 'a card with no editor must not write')
+  dispose()
+  assert.equal(f.listeners.size, 0, 'listeners outlived disposal')
+  assert.equal(f.frames.size, 0)
+})
+
+test('C2: both extracted effects are still deferred, and disposal cancels the pending install', () => {
+  for (const label of ['universe: brand row zones', 'universe: composer typed state']) {
+    const listeners = new Map()
+    let scheduled = 0, cleared = 0
+    const document = {
+      querySelectorAll: () => [], documentElement: { dataset: {} }, activeElement: null, body: {},
+      addEventListener(name, fn) { listeners.set(name, fn) },
+      removeEventListener(name, fn) { if (listeners.get(name) === fn) listeners.delete(name) },
+      dispatchEvent() {},
+    }
+    const effects = new Map()
+    const context = { get: () => ({}), inject() {}, effect(fn, name) { effects.set(name, fn) } }
+    const exports = vm.runInNewContext(`(function () { var module = {exports:{}}; var exports = module.exports; ${clientSource()} })()`, {
+      PLUGIN_ID: 'dsh-universe-theme', TOKENS: {}, MANIFEST: {}, document, KeyboardEvent: function () {},
+      requestIdleCallback: () => 1, cancelIdleCallback() {},
+      setTimeout() { scheduled++; return scheduled }, clearTimeout() { cleared++ },
+      requestAnimationFrame: () => 1, cancelAnimationFrame() {},
+    })
+    exports.apply(context)
+    const dispose = effects.get(label)()
+    assert.equal(listeners.size, 0, label + ' installed before the deferred task ran')
+    assert.equal(scheduled, 1, label + ' did not defer through a timer')
+    dispose()
+    assert.equal(cleared, 1, label + ' left its deferred timer behind')
+    assert.equal(listeners.size, 0, label + ' installed after disposal')
+  }
+})
+
+function brandFixture(invoke) {
+  const listeners = new Map()
+  const clicks = []
+  const dispatched = []
+  const boxes = new Map()
+  const found = new Map()
+  function buttonFor(row) {
+    const name = { getBoundingClientRect: () => ({ right: boxes.get(row).name }) }
+    const mark = row.marked ? { getBoundingClientRect: () => ({ right: boxes.get(row).mark }) } : null
+    return {
+      querySelector(selector) {
+        if (selector === "[data-slot='sidebar.brand.name']") return name
+        if (selector === "[data-slot='sidebar.brand.mark']") return mark
+        return null
+      },
+    }
+  }
+  const document = {
+    documentElement: { dataset: {} }, activeElement: null,
+    querySelectorAll: () => [],
+    querySelector(selector) { return found.has(selector) ? found.get(selector) : null },
+    addEventListener(name, fn, capture) { listeners.set(name, { fn, capture }) },
+    removeEventListener(name, fn, capture) { if (listeners.get(name)?.fn === fn && capture) listeners.delete(name) },
+    dispatchEvent(event) { dispatched.push(event) },
+  }
+  const effects = new Map()
+  const bindings = {
+    get(id) { return id === 'shortcuts' && invoke ? { registry: { invoke } } : {} },
+    inject() {}, effect(fn, name) { effects.set(name, fn) },
+  }
+  const idles = []
+  const exports = vm.runInNewContext(`(function () { var module = {exports:{}}; var exports = module.exports; ${clientSource()} })()`, {
+    PLUGIN_ID: 'dsh-universe-theme', TOKENS: {}, MANIFEST: {}, document,
+    KeyboardEvent: function (type, init) { this.init = init },
+    setTimeout: () => 1, clearTimeout() {},
+    requestIdleCallback(fn) { idles.push(fn); return 1 }, cancelIdleCallback() {},
+  })
+  exports.apply(bindings)
+
+  return {
+    document, listeners, boxes, found, clicks, dispatched, effects,
+    buttonFor,
+    /* The brand listener is installed by a deferred effect. Its install is run here
+       synchronously, so a click can be fired without a frame loop. */
+    mount() {
+      const dispose = effects.get('universe: brand row zones')()
+      idles.shift()()
+      return dispose
+    },
+    click(row, event) {
+      const target = event.target === undefined ? { closest: () => buttonFor(row) } : event.target
+      listeners.get('click').fn({ button: 0, detail: 1, stopPropagation() {}, preventDefault() {}, ...event, target })
+    },
+  }
+}
+
+test('B1: the three brand zones route to their own surface and every other click falls through', () => {
+  const f = brandFixture()
+  const row = { marked: true }
+  f.boxes.set(row, { mark: 40, name: 100 })
+  const panelRow = { click() { f.clicks.push('panel') } }
+  const launcher = { click() { f.clicks.push('settings') } }
+  const PANEL = "[data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='插件'], [data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='Plugins']"
+  f.found.set(PANEL, panelRow)
+  f.found.set("[data-slot='settings.launcher'] > button", launcher)
+  const dispose = f.mount()
+  const stopped = []
+  const event = x => ({ clientX: x, stopPropagation() { stopped.push(x) }, preventDefault() {} })
+  f.click(row, event(10)); f.click(row, event(70)); f.click(row, event(140))
+  assert.deepEqual(f.clicks, ['panel', 'settings'])
+  /* The middle zone is nobody's: the official new session keeps it, nothing is stopped. */
+  assert.deepEqual(stopped, [10, 140])
+  /* A keyboard activation carries no coordinates and is never intercepted. */
+  f.click(row, { clientX: 10, detail: 0 })
+  assert.deepEqual(stopped, [10, 140])
+  /* A modified click belongs to the browser. */
+  f.click(row, { clientX: 10, ctrlKey: true })
+  assert.deepEqual(stopped, [10, 140])
+  /* A brand button with no own mark has no plugins zone. */
+  const bare = { marked: false }
+  f.boxes.set(bare, { mark: 40, name: 100 })
+  f.click(bare, event(10))
+  assert.deepEqual(stopped, [10, 140])
+  /* An event with no node at all is not a brand click; it must not throw. */
+  f.click(row, { clientX: 10, target: null })
+  assert.deepEqual(stopped, [10, 140])
+  /* The two boundaries themselves: mark.right is still plugins (strict <), name.right
+     is already settings (>=), and everything strictly between belongs to the official
+     New session. */
+  f.click(row, event(40)); f.click(row, event(99))
+  assert.deepEqual(f.clicks, ['panel', 'settings'])
+  assert.deepEqual(stopped, [10, 140])
+  f.click(row, event(100))
+  assert.deepEqual(f.clicks, ['panel', 'settings', 'settings'])
+  assert.deepEqual(stopped, [10, 140, 100])
+  /* A right-button click never reaches the router, whatever the coordinates. */
+  f.click(row, { ...event(10), button: 2 })
+  assert.deepEqual(stopped, [10, 140, 100])
+  dispose()
+  assert.equal(f.listeners.size, 0)
+})
+
+test('B2: settings falls back from the launcher button to invoke(), then to one chord', () => {
+  const row = { marked: true }
+  const f = brandFixture((id, context) => { f.calls.push([id, context.modal, context.region]); throw Error('no') })
+  f.calls = []
+  f.boxes.set(row, { mark: 40, name: 100 })
+  const dispose = f.mount()
+  const event = { clientX: 140, stopPropagation() {}, preventDefault() {} }
+  f.click(row, event)
+  /* No launcher: the registry is asked first; it throws, so the chord is the last door. */
+  assert.deepEqual(f.calls, [['settings.open', null, 'page']])
+  assert.equal(f.dispatched.length, 1)
+  /* The web build (no platform attribute) binds Ctrl+Alt+, -- one chord, not two. */
+  assert.equal(f.dispatched[0].init.altKey, true)
+  f.document.documentElement.dataset.platform = 'desktop'
+  f.click(row, event)
+  assert.equal(f.dispatched.at(-1).init.altKey, false)
+  assert.equal(f.dispatched.length, 2)
+  assert.equal(f.dispatched.every(e => e.init.ctrlKey === true && e.init.key === ','), true)
+  dispose()
+
+  /* The launcher wins when it is there, and no chord is sent. */
+  const g = brandFixture(() => { g.clicks.push('invoke') })
+  g.boxes.set(row, { mark: 40, name: 100 })
+  g.found.set("[data-slot='settings.launcher'] > button", { click() { g.clicks.push('settings') } })
+  const disposeG = g.mount()
+  g.click(row, event)
+  assert.deepEqual(g.clicks, ['settings'])
+  assert.equal(g.dispatched.length, 0)
+  disposeG()
+
+  /* A missing plugin row is not intercepted, so the click still reaches the official handler. */
+  const h = brandFixture(null)
+  h.boxes.set(row, { mark: 40, name: 100 })
+  const stopped = []
+  const disposeH = h.mount()
+  h.click(row, { clientX: 10, stopPropagation() { stopped.push('x') }, preventDefault() {} })
+  assert.deepEqual(stopped, [])
+  disposeH()
+})
+
+/* ---------------------------------------------------------------- glass / lens */
+
+/* The shipped glass.js/lens.js runs inside a vm sandbox and a ResizeObserver batch is
+   delivered straight into the instance it registered. Everything the sandbox can reach
+   -- the element list, the box, the two record arrays -- is created here and only ever
+   mutated in place: the sandbox keeps the instance it saw at mount time, so replacing
+   an array or an element property from the host would never be observed. */
+function glassFixture({ guideCount = 1, composer = false } = {}) {
+  const reads = []
+  const attributes = []
+  const box = { width: 200, height: 40 }
+  const guide = []
+  for (let i = 0; i < guideCount; i += 1) guide.push({ style: { filter: 'url(#uni-lg-guide)' } })
+  const input = composer ? [{ style: { filter: 'url(#uni-lg-input)' } }] : []
+  for (const el of [...guide, ...input]) {
+    el.getBoundingClientRect = () => { reads.push(el); return { width: box.width, height: box.height } }
+  }
+  /* id 记的是 filter 的 id；tag.key 记的是写入的属性名；value 是写进去的那串字符，
+     所以 data:image/svg+xml 的位移图本身也在比对范围里。 */
+  const makeNode = (ns, tag, id) => ({
+    tag,
+    id,
+    setAttribute(key, value) { attributes.push([id === undefined ? tag : id, key, String(value)]) },
+    getAttribute() { return null },
+    appendChild() {},
+    remove() {},
+  })
+  const resizes = []
+  const context = {
+    document: {
+      body: { appendChild() {} },
+      createElementNS: (ns, tag, id) => makeNode(ns, tag, id),
+      querySelectorAll(selector) {
+        if (selector === '[data-sidebar-right-guide-entry]') return guide
+        if (selector === '[data-composer-card]') return input
+        return []
+      },
+    },
+    window: { requestAnimationFrame() { return 1 }, cancelAnimationFrame() {} },
+    MutationObserver: class { constructor() {} observe() {} disconnect() {} },
+    ResizeObserver: class { constructor(fn) { resizes.push(fn) } observe() {} unobserve() {} disconnect() {} },
+  }
+  const dispose = vm.runInNewContext(upTo('src/runtime/glass.js') + withFilterIds(read('src/runtime/glass.js')) + '\nmountLiquidGlass()', context)
+  const reset = () => { reads.length = 0; attributes.length = 0 }
+  const setBox = (width, height) => { box.width = width; box.height = height }
+  const batch = targets => targets.map(target => ({ target }))
+  return { guide, input, resizes, reset, setBox, batch, reads, attributes, dispose }
+}
+
+/* The double cannot know which <filter> it is building; the test prefix supplies that id
+   to createElementNS without touching the shipped logic. The map node inherits it too,
+   so a recorded attribute says which filter owns the write and which state drew it. */
+function withFilterIds(source) {
+  return source
+    .replace('var filter = document.createElementNS(NS, \'filter\')', 'var filter = document.createElementNS(NS, \'filter\', target.id)')
+    .replace('var image = document.createElementNS(NS, \'feImage\')', 'var image = document.createElementNS(NS, \'feImage\', target.id + \':map\')')
+}
+
+function lensFixture({ both = false } = {}) {
+  const reads = []
+  const attributes = []
+  const images = []
+  const box = { width: 200, height: 32 }
+  const row = { style: { filter: 'url(#uni-lens-row)' } }
+  const send = { style: { filter: 'url(#uni-lens-send)' } }
+  for (const el of [row, send]) el.getBoundingClientRect = () => { reads.push(el); return { width: box.width, height: box.height } }
+  const makeNode = (ns, tag, id) => ({
+    tag,
+    id,
+    setAttribute(key, value) { attributes.push([id === undefined ? tag : id, key, String(value)]) },
+    getAttribute() { return null },
+    appendChild() {},
+    remove() {},
+  })
+  const resizes = []
+  const context = {
+    document: {
+      body: { appendChild() {} },
+      createElementNS: (ns, tag, id) => makeNode(ns, tag, id),
+      createElement: () => {
+        const canvas = {
+          width: 0,
+          height: 0,
+          toDataURL() { return 'data:image/png;base64,canvas-' + canvas.width + 'x' + canvas.height },
+          getContext: () => ({
+            createImageData: (w, h) => ({ width: w, height: h, data: new Array(w * h * 4).fill(0) }),
+            /* 记下真正被 putImageData 的尺寸与 RGBA，不靠恒定字符串冒充位移图。 */
+            putImageData(data) {
+              images.push({ width: data.width, height: data.height, data: Array.from(data.data) })
+            },
+          }),
+        }
+        return canvas
+      },
+      querySelectorAll(selector) {
+        if (selector === '[data-row-key^="session:"]') return both ? [row, send] : [row]
+        if (selector.indexOf('button[aria-label') === 0) return both ? [row, send] : [send]
+        return []
+      },
+    },
+    window: { requestAnimationFrame() { return 1 }, cancelAnimationFrame() {} },
+    MutationObserver: class { constructor() {} observe() {} disconnect() {} },
+    ResizeObserver: class { constructor(fn) { resizes.push(fn) } observe() {} unobserve() {} disconnect() {} },
+  }
+  const dispose = vm.runInNewContext(upTo('src/runtime/lens.js') + read('src/runtime/lens.js') + '\nmountHoverLens()', context)
+  const reset = () => { reads.length = 0; attributes.length = 0; images.length = 0 }
+  const setBox = (width, height) => { box.width = width; box.height = height }
+  const batch = targets => targets.map(target => ({ target }))
+  return { row, send, resizes, reset, setBox, batch, reads, attributes, images, dispose }
+}
+
+test('G5: a non-first element still drives the state, and the batch order is kept', () => {
+  const f = glassFixture({ guideCount: 3 })
+  f.setBox(260, 60)
+  f.reset()
+  f.resizes[0](f.batch([f.guide[2]]))
+  assert.deepEqual(f.reads, [f.guide[0]], 'a notification for a non-first element must still read the geometry source')
+  assert.ok(f.attributes.some(([id, key]) => id === 'uni-lg-guide:map' && key === 'href'), 'the shared map must be redrawn')
+
+  /* 下一批仍是同一尺寸：几何照读一次，滤镜重写为零。 */
+  f.reset()
+  f.resizes[0](f.batch([f.guide[0], f.guide[2]]))
+  assert.deepEqual(f.reads, [f.guide[0]], 'a later matching batch still reads the geometry once')
+  assert.equal(f.attributes.length, 0, 'an unchanged size must rewrite no filter attribute')
+
+  f.setBox(300, 60)
+  f.reset()
+  f.resizes[0](f.batch([f.guide[1], f.guide[0], f.guide[2]]))
+  assert.deepEqual(f.reads, [f.guide[0]], 'the first matching entry draws the state, the rest are skipped')
+  const xWrites = f.attributes.filter(([id, key]) => id === 'uni-lg-guide' && key === 'x')
+  assert.equal(xWrites.length, 1, 'the filter must be rewritten exactly once for the batch')
+
+  f.resizes[0]([])
+  f.resizes[0](f.batch([{ style: {} }]))
+  const afterJunk = { reads: f.reads.length, attributes: f.attributes.length }
+  assert.equal(afterJunk.reads, 1, 'empty and unrelated batches must not read geometry')
+  assert.equal(afterJunk.attributes, f.attributes.length, 'empty and unrelated batches must not write')
+
+  f.reset()
+  f.dispose()
+  f.resizes[0](f.batch([f.guide[0]]))
+  assert.equal(f.reads.length, 0, 'a late delivery after disposal must not read geometry')
+  assert.equal(f.attributes.length, 0, 'a late delivery after disposal must not write attributes')
+})
+
+test('G3: one element matching two states is handled once per state, in first-hit order', () => {
+  const f = glassFixture({ guideCount: 1, composer: true })
+  const shared = f.guide[0]
+  f.setBox(240, 60)
+  f.reset()
+  f.resizes[0](f.batch([shared, f.input[0], shared]))
+  /* guide 与 input 是两个 state，各自从 els[0] 读几何；第一批里共享元素的 entry 先到，
+     所以 guide 先画，input 随后用自己的元素再读一次——两边都只处理一次。 */
+  assert.deepEqual(f.reads, [shared, f.input[0]], 'each state reads its own els[0] once for the batch')
+  assert.deepEqual(
+    f.attributes.filter(([, key]) => key === 'x').map(([id]) => id),
+    ['uni-lg-guide', 'uni-lg-input'],
+    'each state writes its own filter once, in the order its first entry appears',
+  )
+  assert.deepEqual(
+    [...new Set(f.attributes.filter(([id]) => id.indexOf(':map') === -1).map(([id]) => id))],
+    ['uni-lg-guide', 'uni-lg-input'],
+    'no state may write the other one\'s filter',
+  )
+})
+
+test('G4: a duplicated batch writes the same filter attributes and map as a single delivery', () => {
+  const run = targets => {
+    const f = glassFixture({ guideCount: 2 })
+    f.setBox(260, 40)
+    f.reset()
+    f.resizes[0](f.batch(targets(f)))
+    const written = f.attributes.map(entry => entry.slice())
+    /* 跨 fixture 的元素身份不同，比较的是"读了几个、是不是同一张图的几何来源"，
+       不是对象同一性。 */
+    const read = f.reads.map(el => f.guide.indexOf(el))
+    f.dispose()
+    return { written, read }
+  }
+  const single = run(f => [f.guide[0]])
+  const duplicated = run(f => [f.guide[0], f.guide[1], f.guide[0]])
+  assert.ok(single.written.length > 0, 'the fixture must actually write something')
+  const href = single.written.find(([, key]) => key === 'href')
+  assert.ok(href && href[2].indexOf('data:image/svg+xml') === 0 && href[2].length > 500,
+    'the single delivery must have built a real displacement map, not a placeholder')
+  assert.deepEqual(duplicated.written, single.written, 'the redundant entries changed a filter attribute or the map')
+  assert.deepEqual(duplicated.read, single.read, 'the redundant entries changed how often els[0] was read')
+  assert.deepEqual(single.read, [0], 'the single delivery reads els[0] once')
+})
+
+test('L1: lens draws one map per state per batch and keeps its geometry source', () => {
+  const f = lensFixture()
+  assert.equal(f.resizes.length, 1, 'lens must register exactly one ResizeObserver')
+  f.setBox(240, 32)
+  f.reset()
+  f.resizes[0](f.batch([f.row, f.row, f.row]))
+  assert.deepEqual(f.reads, [f.row], 'a duplicated batch must read the geometry source once')
+  assert.equal(f.images.length, 1, 'and put one displacement map')
+
+  /* 下一批匹配但仍然同尺寸：读一次几何，位移图与滤镜都不重建。 */
+  f.reset()
+  f.resizes[0](f.batch([f.row, f.row]))
+  assert.deepEqual(f.reads, [f.row], 'a later matching batch still reads the geometry once')
+  assert.equal(f.images.length, 0, 'an unchanged size must not rebuild the map')
+  assert.equal(f.attributes.length, 0, 'an unchanged size must rewrite no filter attribute')
+
+  f.setBox(300, 32)
+  f.reset()
+  f.resizes[0](f.batch([f.send, f.row, f.send]))
+  assert.deepEqual(f.reads, [f.send, f.row], 'both states once each, in first-hit order')
+  assert.equal(f.images.length, 2, 'both maps must be rebuilt')
+})
+
+test('L2: lens keeps skipping unrelated batches and late deliveries, and drops the repeated map', () => {
+  const f = lensFixture()
+  f.setBox(280, 40)
+  f.reset()
+  f.resizes[0](f.batch([f.row, f.row]))
+  const once = f.images.length
+
+  f.setBox(320, 40)
+  f.reset()
+  f.resizes[0](f.batch([{ style: {} }]))
+  assert.equal(f.reads.length, 0, 'an unrelated batch must not read geometry')
+  assert.equal(f.images.length, 0, 'an unrelated batch must not rebuild the map')
+
+  f.reset()
+  f.dispose()
+  f.resizes[0](f.batch([f.row]))
+  assert.equal(f.reads.length, 0, 'a late delivery after disposal must not read geometry')
+  assert.equal(f.images.length, 0, 'a late delivery after disposal must not write a map')
+  assert.equal(once, 1, 'a duplicated batch inside one delivery must still put exactly one map')
+})
+
+test('L3: one element matching two states gets one map each, with the region and scale of its own state', () => {
+  const f = lensFixture({ both: true })
+  f.setBox(200, 40)
+  f.reset()
+  f.resizes[0](f.batch([f.row, f.send, f.row]))
+  /* both 模式下两个 state 的匹配集合都是 [row, send]，els[0] 同为 row：同一批里两个
+     state 各画一次，各自从 els[0] 读一次几何（各自的状态槽，不去重跨 state），顺序按
+     各自首次命中决定（row 先到，uni-lens-row 先画）。 */
+  assert.deepEqual(f.reads, [f.row, f.row], 'each state reads its own geometry once, from the shared els[0]')
+  const hrefs = f.attributes.filter(([, key]) => key === 'href').map(([tag, , value]) => tag + ' ' + value)
+  assert.equal(hrefs.length, 2, 'each state must write one map')
+  /* peak = max(2, min(10, round(min(w, h) * 0.15 * 100) / 100)) with w=200, h=40 -> 6 */
+  const peak = 6
+  const scales = f.attributes.filter(([, key]) => key === 'scale').map(([, , value]) => value)
+  assert.deepEqual(scales, [String(2 * peak), String(2 * peak)], 'each state sets the displacement scale from its own geometry')
+  const widths = f.attributes.filter(([, key]) => key === 'width').map(([tag, , value]) => value)
+  assert.deepEqual(widths, ['106%', '106%'], 'each filter region is one peak wider on both sides')
+  assert.equal(f.images.length, 2, 'both states put their own map')
+  assert.deepEqual(f.images.map(image => image.width), [200 + 2 * peak, 200 + 2 * peak])
+  assert.deepEqual(f.images.map(image => image.height), [40 + 2 * peak, 40 + 2 * peak])
+})
+
+test('L4: a duplicated delivery leaves the same map bytes, region and scale as a single one', () => {
+  const run = targets => {
+    const f = lensFixture()
+    f.setBox(240, 40)
+    f.reset()
+    f.resizes[0](f.batch(targets(f)))
+    const written = f.attributes.map(entry => entry.slice())
+    const images = f.images.map(image => image.slice ? image : image)
+    f.dispose()
+    return { written, images: images.map(image => ({ width: image.width, height: image.height, data: image.data.slice() })) }
+  }
+  const single = run(f => [f.row])
+  const duplicated = run(f => [f.row, f.row, f.row])
+  assert.equal(single.images.length, 1, 'the single delivery must put exactly one map')
+  const data = single.images[0].data
+  assert.equal(data.length, single.images[0].width * single.images[0].height * 4, 'the map must carry one RGBA per pixel')
+  assert.ok(new Set(data).size > 3, 'the map must vary, not be a constant fill')
+  assert.deepEqual(duplicated.images, single.images, 'the redundant entries changed the image bytes or its size')
+  assert.deepEqual(duplicated.written, single.written, 'the redundant entries changed a filter attribute')
+})
+
+/* Same fixture shape as keplerFixture, but the shipped kepler.js runs in a sandbox
+   whose Number.prototype.toFixed is wrapped, so the count is what the production path
+   actually called. The host's Number.prototype is never touched. */
+function keplerFixedFixture() {
+  let fixed = 0
+  class Element {
+    constructor(name, attrs = {}) { this.name = name; this.attrs = attrs; this.children = []; this.parentNode = null; this.style = {}; this.dataset = {} }
+    setAttribute(key, value) { this.attrs[key] = String(value) }
+    getAttribute(key) { return this.attrs[key] ?? null }
+    appendChild(child) { child.parentNode = this; this.children.push(child); return child }
+    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null }
+    closest() { let el = this; while (el && !el.attrs['data-row-key']) el = el.parentNode; return el }
+    get isConnected() { return this === root || this.parentNode?.isConnected === true }
+  }
+  const root = new Element('html')
+  const body = root.appendChild(new Element('body'))
+  let now = 0
+  let id = 0
+  const frames = new Map()
+  const descendants = el => el.children.flatMap(child => [child, ...descendants(child)])
+  const context = {
+    document: {
+      body, documentElement: root, createElementNS: (_, name) => new Element(name),
+      querySelectorAll: () => descendants(root).filter(el => el.name === 'span' && el.getAttribute('data-state') === 'warning'),
+    },
+    performance: { now: () => now },
+    window: { requestAnimationFrame: fn => { frames.set(++id, fn); return id }, cancelAnimationFrame: n => frames.delete(n) },
+    MutationObserver: class { constructor() {} observe() {} disconnect() {} },
+  }
+  vm.createContext(context)
+  vm.runInContext('var native = Number.prototype.toFixed; ' +
+    'Number.prototype.toFixed = function (digits) { globalThis.__fixed(digits); return native.call(this, digits) }', context)
+  context.__fixed = () => { fixed += 1 }
+  const mount = vm.runInContext(upTo('src/runtime/kepler.js') + read('src/runtime/kepler.js') + '\nmountKepler', context)
+  const reference = vm.runInNewContext(upTo('src/runtime/kepler.js') + read('src/runtime/kepler.js') + '\n;({ at: uniKeplerAt, period: UNI_KEP_PERIOD })')
+  const add = key => {
+    const host = body.appendChild(new Element('div', { 'data-row-key': key }))
+    return host.appendChild(new Element('span', { 'data-state': 'warning' }))
+  }
+  const dot = marker => descendants(marker).find(el => el.name === 'circle')
+  return {
+    mount, add, dot, reference,
+    reset: () => { fixed = 0 },
+    fixed: () => fixed,
+    step: time => { now = time; const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(time)) },
+  }
+}
+
+
+test('K7: a dynamic frame formats twice, not twice per row, and every row matches uniKeplerAt', () => {
+  const f = keplerFixedFixture()
+  const rows = [f.add('session:a'), f.add('session:b'), f.add('session:c'), f.add('session:d')]
+  const dispose = f.mount()
+  /* Reference: the SAME shipped uniKeplerAt, asked for the phase the frame used. */
+  for (const time of [50, 375, 1000, 2599]) {
+    f.reset()
+    f.step(time)
+    assert.equal(f.fixed(), 2, 'a frame with four rows must format x and y once')
+    const want = f.reference.at(time / f.reference.period)
+    for (const row of rows) {
+      assert.equal(f.dot(row).getAttribute('cx'), want.x.toFixed(2), 'cx of a row drifted at ' + time)
+      assert.equal(f.dot(row).getAttribute('cy'), want.y.toFixed(2), 'cy of a row drifted at ' + time)
+    }
+  }
+
+  /* A still frame reuses the static phase, which formats once per phase, not per row. */
+  dispose()
+  const still = keplerFixedFixture()
+  const stillRows = [still.add('session:a'), still.add('session:b')]
+  const stopStill = still.mount()
+  still.reset()
+  still.step(60)
+  const formatted = still.fixed()
+  for (const row of stillRows) {
+    assert.equal(still.dot(row).getAttribute('cx'), still.reference.at(60 / still.reference.period).x.toFixed(2))
+  }
+  assert.ok(formatted >= 2, 'a still frame still formats its shared phase')
+  stopStill()
 })

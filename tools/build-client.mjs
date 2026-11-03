@@ -7,11 +7,6 @@
  *   src/theme.css           the paint layer (wallpaper stack, shell rescue)
  *   build/wallpapers.json   the art, already encoded as data URLs
  *
- * Two more inputs joined on 2026-10-06 — the boot mask, 「闸门开启」:
- *
- *   src/boot-screen.css     paint rules, appended to the same paint-layer tag
- *   src/boot-screen.js      behaviour, interpolated verbatim
- *
  * And a third on 2026-10-07 — the glue that mounts all of it. It used to be written
  * inline in the template below, which is how a `.hIlkoa_*`-shaped review of a string
  * became the only way to read the half that actually mounts the theme:
@@ -71,7 +66,6 @@
  *   node tools/build-client.mjs --check    # fail if client.js is stale
  */
 
-import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -155,7 +149,6 @@ const cssPaint = css.replace(/\/\*[\s\S]*?\*\//g, '')
  * then join — replacing that comment with one space deletes the break, and automatic
  * semicolon insertion can read the pair as a single expression. Measured across all
  * three JS inputs by C:/Work/scratch/eva-perf4/q1q2.mjs: 0 such sites in src/client.js,
- * 0 in src/boot-screen.js, 0 in src/model-effort-picker.js. A separate, much looser
  * census (a line that does not end in a terminator followed by a line that could
  * continue the previous expression) reports 21 / 1 / 0 — but that counts ordinary
  * intentional multi-line code such as a wrapped argument list, where no comment is
@@ -168,7 +161,6 @@ const cssPaint = css.replace(/\/\*[\s\S]*?\*\//g, '')
  * hand-written JS scanner tokenizes the file before and after the strip and compares
  * every token's type, line number and value —
  *   src/client.js                98,095 -> 45,016 chars, 1,768 lines, 7,436 tokens, 0 differences
- *   src/boot-screen.js           12,281 ->  8,625 chars,   290 lines, 1,486 tokens, 0 differences
  *   src/model-effort-picker.js   45,755 -> 28,465 chars, 1,074 lines, 5,902 tokens, 0 differences
  * Identical line numbers matter as much as identical tokens: they are what ASI reads.
  * Full report: docs/perf-report-4-2026-10-16.md. */
@@ -258,17 +250,9 @@ const cssPaint = css.replace(/\/\*[\s\S]*?\*\//g, '')
  * the bulk of it; the two small sheets account for 1,542 of the 3,135. */
 // minifyCss is imported from source-transforms.mjs.
 
-/* The boot mask (「闸门开启」) is two more inputs but no third stylesheet: its paint
- * rules are appended to the SAME `<style data-plugin-css>` tag as the paint layer,
- * and its behaviour layer is interpolated verbatim next to the vendored switch. The
- * file is inserted with `${…}` — verbatim — so it must contain no backtick, no `${`
- * and no backslash (that is the double-escaping lesson from 2026-10-06). */
-const bootCss = read('src/boot-screen.css')
-const bootJs = read('src/boot-screen.js')
-
 /* Round 50 (2026-10-14): the composer's model seat. Two more inputs, still no fourth
  * stylesheet — the picker's paint rules ride in the SAME <style data-plugin-css> tag as
- * the paint layer and the boot mask, appended after them.
+ * the paint layer, appended after it.
  *
  * They cannot go INTO src/theme.css: that sheet is scanned by selfcheck css.7, whose
  * selector regex is anchored on `(^|})\s*([^{}@][^{}]*?)\{` — it skips an at-block only
@@ -278,7 +262,7 @@ const bootJs = read('src/boot-screen.js')
  * src/model-effort-picker.js takes for its behaviour.
  *
  * Neither new file may carry a backtick or `${` (they are interpolated with ${…});
- * checked below before the template can be built, exactly as bootJs and clientJs are. */
+ * checked below before the template can be built, exactly as clientJs is. */
 const pickerCss = read('src/model-effort-picker.css')
 const pickerJs = read('src/model-effort-picker.js')
 
@@ -289,26 +273,6 @@ if (pickerVerbanned !== null) {
     + 'found ' + JSON.stringify(pickerVerbanned[0]) + ' at offset ' + pickerVerbanned.index)
 }
 
-/* The rule in the comment above now has teeth. `bootJs` is interpolated verbatim, so
- * one backtick in it would be read as this template's own terminator — the 2026-10-06
- * failure produced a bundle the app reported as "Failed to load plugins /
- * dsh-universe-theme / import failed". tools/selfcheck.mjs (boot.1) asserts the same
- * thing after the fact; checking here stops the build before it can write the file. */
-const bootVerbanned = /[`\\]|\$\{/.exec(bootJs)
-if (bootVerbanned !== null) {
-  throw new Error(
-    'src/boot-screen.js must stay free of backticks, backslashes and template '
-    + 'placeholders (tools/selfcheck.mjs boot.1); found ' + JSON.stringify(bootVerbanned[0])
-    + ' at offset ' + bootVerbanned.index)
-}
-
-/* The theme's own glue is a file too, interpolated the same way, so the half that
- * mounts the theme can be read as code instead of as template text. It is allowed one
- * thing src/boot-screen.js is not — a literal backslash, because the paint layer joins
- * three sheets with '\n' — since nothing escapes this text on the way into the
- * template: a backslash here is data, not syntax. The final newline is dropped because
- * the template supplies the line break, which keeps the generated bytes identical to
- * the ones this extraction replaced. */
 /* The client half is a SET of files since 2026-10-27: the black-hole brand mark is the
  * component that boxes the raster artwork, concatenated in CLIENT_FILES order so every
  * part lands in one factory scope. Same verbatim rule for each of them. */
@@ -385,7 +349,41 @@ const artFor = (paper) => {
   return src
 }
 
+/* ------------------------------------------------------------ embedded fonts
+ * 2026-11-02 (round 77): the brand row gets its own two faces. 「QUASAR：Cinzel +
+ * CORE：EB Garamond」 names both the pairing and the two weights. The previous
+ * commit removed every font asset on 2026-10-31 (D104), so this is a fresh
+ * introduction rather than a revival: build/fonts.json is the new provenance file,
+ * shaped like build/wallpapers.json, and no face is fetched at build time.
+ *
+ * Why embed instead of naming them: the stack it replaces listed DIN Alternate
+ * (macOS only) and Eurostile Extended (commercial), so the old cross-platform
+ * promise only ever held on the build machine. A face that exists on one OS is not
+ * a design, it is a coincidence.
+ *
+ * @font-face cannot live in src/theme.css: selfcheck css.7 gates that sheet to
+ * element contracts and rejects at-blocks. It rides in `declarations` instead,
+ * which src/client.js:417 writes at the head of the same <style> tag -- one
+ * removable layer -- and shortenDataUrls turns each data URL into a blob URL at
+ * runtime, exactly as it already does for the wallpapers and the mark.
+ *
+ * The byte count is checked, not trusted: a swapped file with the same name would
+ * otherwise ship silently and surface only as a fallback face. */
+const FONTS_FILE = join(ROOT, 'build', 'fonts.json')
+const fonts = JSON.parse(readFileSync(FONTS_FILE, 'utf8'))
+const fontFaces = fonts.map((font) => {
+  const bytes = readFileSync(join(ROOT, font.file))
+  if (bytes.length !== font.bytes) {
+    throw new Error(`font "${font.id}" is ${bytes.length} bytes, ` +
+      `${FONTS_FILE} records ${font.bytes}`)
+  }
+  return `@font-face {font-family:'${font.family}';font-style:${font.style};` +
+    `font-weight:${font.weight};font-display:swap;` +
+    `src:url("data:font/woff2;base64,${bytes.toString('base64')}") format("woff2");}`
+})
+
 const declarations = [
+  ...fontFaces,
   ':root {',
   ...wallpapers.map((paper) => `  ${variableFor(paper)}: url("${artFor(paper)}");`),
   `  --cp-pick-light: ${pick('light')};`,
@@ -420,6 +418,14 @@ const MANIFEST = {
   name: 'dsh-universe-theme / 霓虹闸口',
   modes: { light: 'Daylight City', dark: 'Neon Night' },
   tokens: Object.keys(TOKENS).length,
+  fonts: fonts.map((font) => ({
+    id: font.id,
+    family: font.family,
+    weight: font.weight,
+    bytes: font.bytes,
+    license: font.license,
+    licenseFile: font.licenseFile,
+  })),
   wallpapers: wallpapers.map((paper) => ({
     id: paper.id,
     name: paper.name,
@@ -483,11 +489,6 @@ const banner = `/**
  *      because a box that shrinks itself loses its own hit area and its edge then
  *      oscillates between 0.97 and 1.00 forever (gravity.js is the accounting).
  *
- *   4. src/boot-screen.js — the startup mask: one overlay and one wall-clock
- *      timeline, taken down again by the same disposer. It is pure paint: since
- *      2026-10-07 it makes no request at all, and the startup chime it used to ask
- *      the host for is gone (see 2b in the host half's header).
- *
  *   5. the sidebar brand row's three zones (since round 25) — that row is ONE
  *      official button whose click starts a session, and two of the three labels
  *      drawn on it open surfaces this theme hides, so a capture-phase click
@@ -519,7 +520,7 @@ const banner = `/**
  *      one WAAPI keyframe, played only when the user changed the selection, driving
  *      the registered --uni-sel-k back to the stable value the sheet declares.
  *
- * Ten is pinned by tools/selfcheck.mjs (cli.11d), so another effect cannot slip in
+ * Nine is pinned by tools/selfcheck.mjs (cli.11d), so another effect cannot slip in
  * unnoticed.
  *
  * The effect disposers are the whole uninstall story: the theme is one removable
@@ -546,41 +547,16 @@ window.__ModuleLoader__.load({
 
     var CSS = ${JSON.stringify(minifyCss(cssPaint))}
 
-    var BOOT_CSS = ${JSON.stringify(minifyCss(stripBlockComments(bootCss)))}
-
     var PICKER_CSS = ${JSON.stringify(minifyCss(stripBlockComments(pickerCss)))}
 
     var BRAND_LOGO_CSS = ${JSON.stringify(BRAND_LOGO_CSS)}
-
-${compressJs(bootJs)}
-${compressJs(pickerJs)}
+${compressJs(pickerJs)}
 ${compressJs(clientJs)}
   },
 })
 `
 
-/* ----------------------------------------------------------- boot build mark
- * src/boot-screen.js keeps BOOT_MARK as the placeholder `'uni-boot/@BUILD@'`, and
- * this replaces it with a hash of the bundle itself. Hashing the OUTPUT rather than
- * a hand-kept list of inputs is deliberate: the output already contains every input
- * (the tokens, two sheets, the brand mark, the vendored blocks),
- * so any source change moves the mark and there is no second list to fall behind.
- *
- * The placeholder is what gets hashed, not the hash, so the value is stable: the
- * same sources always produce the same mark and `--check` cannot fight itself.
- *
- * Why it matters (2026-10-12): the mark used to be the frozen literal
- * `eva-boot/2026-10-06-a`. It never changed, so "once per build" degraded into
- * "once ever" and the mask stopped appearing after its very first play — which is
- * how the user reported it. tools/selfcheck.mjs (boot.7) pins both ends. */
-const MARK_PLACEHOLDER = "'uni-boot/@BUILD@'"
-if (!body.includes(MARK_PLACEHOLDER)) {
-  throw new Error('src/boot-screen.js lost its build mark placeholder ' + MARK_PLACEHOLDER
-    + ' — without it the boot mask would play once per browser profile, not once per build')
-}
-const marked = `${banner}\n${body}`
-const buildMark = createHash('sha256').update(marked).digest('hex').slice(0, 8)
-const output = marked.split(MARK_PLACEHOLDER).join(`'uni-boot/${buildMark}'`)
+const output = `${banner}\n${body}`
 
 /* ------------------------------------------------------------------- check */
 
@@ -594,7 +570,8 @@ if (process.argv.includes('--check')) {
   const onDisk = readFileSync(target, 'utf8')
   if (onDisk === output) {
     console.log(`client.js check: OK (in sync with src/, ${output.length} chars, ` +
-      `${MANIFEST.tokens} tokens, ${MANIFEST.wallpapers.length} wallpapers from ${wallpaperFile})`)
+      `${MANIFEST.tokens} tokens, ${MANIFEST.fonts.length} fonts, ` +
+      `${MANIFEST.wallpapers.length} wallpapers from ${wallpaperFile})`)
     process.exit(0)
   }
   console.error('client.js is STALE — it does not match src/ + the wallpaper manifest.')
@@ -620,8 +597,8 @@ writeFileSync(target, output)
  * the file on disk is a little larger. Both numbers are reported honestly rather
  * than calling the character count "bytes". */
 console.log(`wrote client.js  ${output.length} chars (${Buffer.byteLength(output, 'utf8')} bytes)  ` +
-  `${MANIFEST.tokens} tokens  ${MANIFEST.wallpapers.length} wallpapers from ${wallpaperFile}  ` +
+  `${MANIFEST.tokens} tokens  ${MANIFEST.fonts.length} fonts  ` +
+  `${MANIFEST.wallpapers.length} wallpapers from ${wallpaperFile}  ` +
   `css ${css.length} chars (${cssPaint.length} after the comment strip, ` +
   `${minifyCss(cssPaint).length} after comment+whitespace)  ` +
-  `wallpaper block ${declarations.length} chars  ` +
-  `boot mark uni-boot/${buildMark}`)
+  `wallpaper block ${declarations.length} chars`)

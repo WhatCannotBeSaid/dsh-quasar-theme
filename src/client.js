@@ -1,20 +1,4 @@
-/* The theme's own client glue: apply(), the mount order, and the exports map.
- *
- * tools/build-client.mjs interpolates this file VERBATIM into the generated
- * client.js, next to src/boot-screen.js (which defines mountBootScreen). It closes
- * over six
- * values the builder defines above it in the same factory: PLUGIN_ID, TOKENS, MANIFEST,
- * WALLPAPER_DECLARATIONS, CSS and BOOT_CSS. Nothing here is re-parsed by the
- * builder, so the code below is exactly the code that runs — which is the whole
- * point of keeping it in a file instead of in a template string.
- *
- * It stays free of backticks and template placeholders by the same house rule
- * src/boot-screen.js follows: not because verbatim interpolation would break, but
- * because a file that reads as itself is one that can be reviewed, grepped and
- * diffed. A literal backslash is fine here and only here — the paint layer needs one
- * to join three sheets into a single tag — since nothing escapes this text on the
- * way in.
- */
+/* The theme's own client glue: lifecycle mounts and exports, interpolated by the builder. */
 
     /* The two wallpaper bitmaps ship as base64 data URLs inside the generated
        --cp-wall-<id> declarations, about 441 KB and 281 KB of text. A data URL in a
@@ -430,7 +414,7 @@
            disposer gives them back; without this a reload of the module would leave
            the bitmaps reachable for the life of the document. */
         var blobUrls = []
-        tag.textContent = shortenDataUrls(WALLPAPER_DECLARATIONS, blobUrls) + '\n' + CSS + '\n' + BOOT_CSS + '\n' + PICKER_CSS + '\n' + BRAND_LOGO_CSS
+        tag.textContent = shortenDataUrls(WALLPAPER_DECLARATIONS, blobUrls) + '\n' + CSS + '\n' + PICKER_CSS + '\n' + BRAND_LOGO_CSS
         document.head.appendChild(tag)
 
         /* prefers-reduced-motion cannot be honoured from the stylesheet: the paint
@@ -479,13 +463,6 @@
         }
       }, 'universe: paint layer')
 
-      /* Boot mask -- 「星野展开」. One page load plays it once (the in-page
-         window.__uniBootMark guard), then it deletes itself. The disposer returned
-         by mountBootScreen IS destroyBoot, so turning the theme off mid-play takes
-         the mask away with the stylesheet. It waits for the paint layer's tag, so it
-         must be registered after it. */
-      ctx.effect(() => mountBootScreen(), 'universe: boot screen')
-
       /* The composer's model seat (round 50, 2026-10-14): two independent controls
          where the official composer had one merged button. It is called for its own
          side effect -- the seat registration -- and registers through
@@ -505,18 +482,18 @@
          own foreground colour so the one asset serves both modes. */
       UniverseBrandLogo.mount(ctx)
 
-      /* Brand row, three zones -- the user's own mapping (2026-10-08, round 25, D68):
-         the avatar Logo opens Plugins, WHALE-01 stays New session, SYSTEM opens
-         Settings, and the sheet hides both official entries (the settings button and
-         the plugin row).
+      /* Brand row, three zones (2026-11-02, back to round 25's split): the black-hole
+         mark opens the plugin panel, the name keeps the official New session, and the
+         CORE chip to the right of the name opens Settings. The plugin row in the nav is
+         hidden by its two accessible names again, and the settings launcher button is
+         still hidden, so the chip is that surface's visible door beside Ctrl+,.
 
-         Why this is script and not CSS: the three labels are ONE button. The official
+         Why this is script and not CSS: the two labels are ONE button. The official
          SidebarRoot renders the brand.mark and brand.name slots INSIDE the sidebar's
-         brand button, and the sheet draws SYSTEM as that button's own ::after -- so
-         the zones are coordinates on one button, never three elements, and a
-         pseudo-element has no box to measure. The third zone therefore starts where
-         the NAME box ends: SYSTEM and its padding follow the name, so they share its
-         zone.
+         brand button, and the chip is that button's own ::after, so the zones are
+         coordinates on one button, never separate elements. The name's box is the only
+         stretch that is left alone; nothing outside it is read, so the chip's width
+         (and any future change to it) needs no second measurement.
 
          A capture-phase listener on document is the only place that can pre-empt the
          official onClick (which starts a session). React delegates at #root, which
@@ -528,149 +505,18 @@
 
          Every mismatch falls back to the official behaviour rather than to a dead
          click: keyboard activation has no coordinates and is let through, a modified
-         click is left to the browser, and a plugins zone whose row is missing is not
-         intercepted at all. The settings zone is the one exception -- with its button
-         gone it presses the command's own shortcut instead, the same command by
-         another door (measured: the dispatcher reads the event's keys, not its
-         isTrusted flag).
+         click is left to the browser, and anything that is not the mark is not
+         intercepted at all. The mark zone is the one exception -- with its button gone
+         it presses the command's own shortcut instead, the same command by another
+         door (measured: the dispatcher reads the event's keys, not its isTrusted
+         flag).
 
          Zones are measured at click time, never cached: the sidebar can be wide
          (mark + name) or a rail (mark only, no name -- and then no brand button at
          all), and a cached box would route a click to the wrong surface. */
-      ctx.effect(() => deferEffect(() => {
-        if (typeof document === 'undefined') return undefined
-
-        var NAME = "[data-slot='sidebar.brand.name']"
-        var MARK = "[data-slot='sidebar.brand.mark']"
-        var LAUNCHER = "[data-slot='settings.launcher'] > button"
-        /* The plugins row, named by its accessible name. The row carries no
-           id-bearing attribute at all (measured: type / class / aria-label), and the
-           slot anchor inside it is an anonymous display:contents wrapper, so its
-           siblings in the same nav cannot be told apart structurally. The label comes
-           from the plugin-manager dictionary, which ships exactly two strings (zh
-           '插件', en 'Plugins') with every other locale falling back to en -- naming
-           both is complete, and naming only these leaves the nav's other rows (the
-           shipped composition also has ui-schedule's, order 10) alone. An unmatched
-           row is not intercepted at all, so the click falls through to the official
-           handler. */
-        var PANEL_ROW = "[data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='插件'], [data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='Plugins']"
-
-        /* The settings command by its other door. dsh-client-shortcuts declares a map
-           per receiving device and the two maps disagree on this one command: the
-           desktop build binds settings.open to Ctrl+, and the web build to Ctrl+Alt+,.
-           The host decides which map is in force exactly one way -- detectEnvironment
-           reads document.documentElement.dataset.platform and calls it desktop when
-           the attribute is there -- so the same test picks the chord here. Only ONE
-           event is dispatched: sending both would match twice, and the second match
-           lands with modal === 'settings', whose resolve() closes the panel it just
-           opened. Reached only when the launcher button is absent from the DOM.
-
-           Why absent covers the account card too (round 64, D101): when
-           ui-settings-account is enabled the slot holds a Menu trigger, not a button
-           -- the real chain is div[data-slot] > div > span > button -- so the direct-
-           child selector above matches nothing and this is the path that runs. That
-           is what keeps SYSTEM live while the sheet hides the card's subtree. */
-        /* Round 68 (2026-10-20): a synthesised keydown does NOT reach the command
-           registry on the desktop build. dsh-client-shortcuts installs the DOM
-           listener with native = true there (ShortcutsService: the keyboard bridge
-           exists whenever runtime is desktop), and its keydown handler returns
-           right after the fixed-input hook -- client.js:813, 'if (native) return'.
-           Bindings are resolved only from the native bridge in that build, so the
-           synthetic event was silently dropped and SYSTEM became a dead click as
-           soon as the account card pushed the button out of LAUNCHER. Web builds
-           keep native = false and still dispatch, which is why this reproduced only
-           after the account plugin was enabled on the desktop profile.
-           The fix is to ask the command registry directly instead of synthesising a
-           key press. ctx.shortcuts is the ShortcutsService; the invocable registry is
-           service.registry, and registry.invoke(id, context) is the same door the
-           native menu uses (dsh-client-shortcuts/lib/client.js:644). The context is
-           exactly the facts settings.open's resolve() reads -- the topmost modal and
-           the focused region -- probed from the live document with the host's own
-           modalSelector expression, so the command behaves as if chosen from the
-           menu: closed settings open, open settings close.
-           The chord below stays as the second door for a build without the service,
-           and is still the only thing that runs if invoke() throws. */
-        var modalScopeOf = function () {
-          var nodes = document.querySelectorAll('[role="dialog"][aria-modal="true"], [role="menu"]')
-          /* The host's selector, read the host's way: the LAST match in the document,
-             on screen or not (dsh-client-ui-primitives modalSelector; the keyboard
-             path at dsh-client-shortcuts/lib/client.js:1405 reads it identically). A
-             popover that collapses by CSS while staying mounted therefore counts as an
-             open modal, and a scope other than settings refuses the invoke below.
-             Round 69 (2026-10-24): walk back past matches with no layout box, so the
-             scope returned is the modal a person could actually see. The composer's two
-             picker popovers used to claim role="menu" while closed and are fixed at the
-             source (src/model-effort-picker.js, setMenuRole); this guard covers the same
-             mistake made by any other mounted popover. Without it, SYSTEM is a dead
-             click in a conversation and live everywhere else -- exactly the asymmetry
-             that was reported. */
-          for (var i = nodes.length - 1; i >= 0; i -= 1) {
-            var node = nodes[i]
-            if (node.getClientRects().length === 0) continue
-            var scope = node.getAttribute('data-shortcut-modal')
-            return scope === null || scope === '' ? 'other' : scope
-          }
-          return null
-        }
-
-        var pressSettingsShortcut = function () {
-          var service = ctx.get('shortcuts')
-          var registry = service === null || service === undefined ? undefined : service.registry
-          if (registry !== undefined && registry !== null && typeof registry.invoke === 'function') {
-            var modal = modalScopeOf()
-            /* invoke() silently drops a command whose modals list excludes the
-               current modal, so a foreign dialog is left alone here rather than
-               looking like a click that did nothing. */
-            if (modal === null || modal === 'settings') {
-              var focus = document.activeElement
-              var editable = focus !== null && typeof focus.matches === 'function' &&
-                focus.matches('input, textarea, select, [contenteditable="true"], [contenteditable=""]')
-              try {
-                registry.invoke('settings.open', {
-                  target: focus, region: editable ? 'editable' : 'page', modal: modal, source: 'menu',
-                })
-                return
-              }
-              catch (error) { /* fall through to the chord below */ }
-            }
-          }
-          if (typeof KeyboardEvent !== 'function') return
-          var desktop = document.documentElement.dataset.platform !== undefined
-          document.dispatchEvent(new KeyboardEvent('keydown', {
-            key: ',', code: 'Comma', ctrlKey: true, altKey: !desktop, bubbles: true, cancelable: true,
-          }))
-        }
-
-        var onCapture = function (event) {
-          if (event.button !== 0) return
-          if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
-          var node = event.target
-          var button = node !== null && node.closest ? node.closest('button') : null
-          if (button === null) return
-          var name = button.querySelector(NAME)
-          if (name === null) return
-          /* detail 0 is Enter/Space on the focused button (and any programmatic
-             click): no coordinates, so no zone -- the official new session stands. */
-          if (event.detail === 0) return
-          var mark = button.querySelector(MARK)
-          var x = event.clientX
-          var zone = ''
-          if (mark !== null && x < mark.getBoundingClientRect().right) zone = 'plugins'
-          else if (x >= name.getBoundingClientRect().right) zone = 'settings'
-          if (zone === '') return
-          var hidden = document.querySelector(zone === 'plugins' ? PANEL_ROW : LAUNCHER)
-          /* A missing plugin row is not intercepted at all, so the click still falls
-             through to the official handler instead of becoming a hole. */
-          if (hidden === null && zone === 'plugins') return
-          event.stopPropagation()
-          event.preventDefault()
-          if (hidden !== null) hidden.click()
-          else pressSettingsShortcut()
-        }
-
-        document.addEventListener('click', onCapture, true)
-        return () => { document.removeEventListener('click', onCapture, true) }
-      }), 'universe: brand row zones')
+      /* 2026-11-02: the callback body moved to src/runtime/brand-routing.js
+         (mountBrandRowZones). */
+      ctx.effect(() => deferEffect(() => mountBrandRowZones(ctx)), 'universe: brand row zones')
 
       /* ---- Workspace pins: hold chosen Workspaces at the top of the list
          (round 39, 2026-10-09)
@@ -802,61 +648,7 @@
          (a restored draft landing while the page is already unfocused) keeps the ghost
          fill until the reader touches it. Every user-driven path hits one of the
          three. */
-      function composerHasText(card) {
-        var editor = card.querySelector("[data-composer-input]")
-        if (editor === null) editor = card.querySelector("[role='textbox']")
-        if (editor === null) return false
-        /* Character codes, not a regex with escapes: this file is interpolated verbatim
-           into the bundle, and U+200B..U+200D / U+FEFF are the ways an editor spells
-           "empty" inside a string. Whitespace counts as empty too. */
-        var text = editor.textContent || ''
-        for (var i = 0; i < text.length; i += 1) {
-          var code = text.charCodeAt(i)
-          if (code === 0x200b || code === 0x200c || code === 0x200d || code === 0xfeff) continue
-          if (code === 32 || code === 9 || code === 10 || code === 13) continue
-          return true
-        }
-        return false
-      }
-
-      function syncComposerTyped() {
-        var cards = document.querySelectorAll('[data-composer-card]')
-        for (var i = 0; i < cards.length; i += 1) {
-          var card = cards[i]
-          var typed = composerHasText(card)
-          if (typed === (card.getAttribute('data-uni-composer-typed') === 'true')) continue
-          if (typed) card.setAttribute('data-uni-composer-typed', 'true')
-          else card.removeAttribute('data-uni-composer-typed')
-        }
-      }
-
-      function mountComposerTyped() {
-        var frame = null
-        function flush() {
-          frame = null
-          syncComposerTyped()
-        }
-        function schedule() {
-          if (frame !== null) return
-          frame = typeof requestAnimationFrame === 'function'
-            ? requestAnimationFrame(flush)
-            : setTimeout(flush, 16)
-        }
-        syncComposerTyped()
-        document.addEventListener('input', schedule, true)
-        document.addEventListener('focusin', schedule, true)
-        document.addEventListener('focusout', schedule, true)
-        return function () {
-          document.removeEventListener('input', schedule, true)
-          document.removeEventListener('focusin', schedule, true)
-          document.removeEventListener('focusout', schedule, true)
-          if (frame !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame)
-        }
-      }
-
-      /* The attribute carries a value rather than being bare, for the same reason the
-         theme's other hooks do ('data-uni-motion', 'data-uni-black-hole'): one shape to
-         read in the sheet and in a devtools console. */
+      /* 2026-11-02: moved to src/runtime/composer-typed.js (mountComposerTyped). */
       ctx.effect(() => deferEffect(() => mountComposerTyped()), 'universe: composer typed state')
 
       /* Read-only surface for troubleshooting and for the delivery docs. */
