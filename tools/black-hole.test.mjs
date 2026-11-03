@@ -840,8 +840,8 @@ test('A1 带符号理想切向事件：μ=±1 两侧的 g⁴ 同时越过旧限�
 const OLD_WEIGHT_CALC='var g4 = Math.min(1.7, Math.max(.4, Math.pow(g, 1.8)))'
 const OLD_WEIGHT_FIELD='boost: g4,'
 const CLAMPED_G4='var g4 = Math.min(1.7, Math.max(.4, g * g * g * g))'
-const NEW_SHADE_TERM='breathe * ray.g4 * 3.2'
-const OLD_SHADE_TERM='breathe * ray.boost * 3.2'
+const NEW_SHADE_TERM='* arms * band * turb * eddington * ray.g4 * 3.2'
+const OLD_SHADE_TERM='* ray.g4 * 3.2'
 /* 只把「权重定义 + 字段名 + 发射项」还原成第二十八阶段的旧契约；相机、积分器、事件定位
    一个字都不动，所以两边任何几何字段的差异都只能来自本阶段改的那两处。 */
 function legacySource(src){
@@ -971,35 +971,46 @@ function assertG4Contract(api){
   return ray
 }
 /* 独立参考：内联常量、照抄当前公式，不读生产模块里的任何标识符 ——
-   期望值只来自这份文本，不能让实现给自己出题。band 自第三十三阶段起是双层焦散。 */
+   期望值只来自这份文本，不能让实现给自己出题。自「只留开普勒差旋」起，
+   盘相位没有整盘刚体项，band 是 m=3 对数螺旋，亮度团与呼吸都随物质走。 */
 function shadeReference(ray,time,brightness,spin){
-  const INNER=6
-  const KNOTS=[{ n: 1, radial: 1.9, angular: 1.0, weight: .16 },
-    { n: 2, radial: 2.7, angular: -.62, weight: .11 }]
+  const INNER=6,OUTER=16
   const smooth=(lo,hi,x)=>{const t=Math.min(1,Math.max(0,(x-lo)/(hi-lo)));return t*t*(3-2*t)}
-  const flux=0
-  const turn=time*(Number(spin)||0)
-  if(ray.radius){
-    const r=ray.radius
-    const phase=ray.phi-turn-time*(1.2+16/Math.pow(r,1.5))
-    const arms=.72+.28*Math.sin(2*phase-4*Math.log(r/INNER))
-    const band=.82+.18*Math.sin(r*1.1+1.6*Math.sin(2*phase))*Math.sin(phase*3-r*.7-time*.27)
-    let knots=0
-    for(let i=0;i<KNOTS.length;i++){
-      const knot=KNOTS[i]
-      knots+=knot.weight*Math.sin(knot.n*phase+knot.radial*Math.log(r/INNER)-time*knot.angular)
+  const hash2=(a,b)=>{let h=Math.imul(a|0,374761393)^Math.imul(b|0,668265263);h=Math.imul(h^(h>>>13),1274126177);return (h^(h>>>16))>>>0}
+  const TURB_N=[2,3,5]
+  const turbulence=(epoch,rho,phase)=>{
+    let sum=0
+    for(let k=0;k<3;k++){
+      const h=hash2(epoch,k+1)
+      const ph=(h%6283)/1000
+      const amp=.012+((h>>>12)%100)/100*.016
+      sum+=amp*Math.sin(TURB_N[k]*phase+TURB_N[k]*.55*(rho-1)+ph)
     }
-    const breathe=1+.03*Math.sin(time*.33)
-    const edge=smooth(INNER-.2,INNER+.8,r)*(1-smooth(14.5,16.2,r))
-    return 1-Math.exp(-(edge*Math.pow(INNER/r,2)*arms*(band+knots)*breathe*ray.g4*3.2)*brightness)
+    return sum
+  }
+  if(ray.radius){
+    const r=ray.radius,rho=r/INNER,span=OUTER-INNER
+    let drifted=r-time*.045
+    drifted-=Math.floor((drifted-INNER)/span)*span
+    const omega=32/Math.pow(r,1.5)
+    const life=1.6*Math.pow(rho,1.5)
+    const epoch=Math.floor(time/life),age=time-epoch*life
+    const phase=ray.phi-age*omega
+    const pattern=ray.phi-time*.42
+    const logR=Math.log(rho)
+    const arms=1+.06*Math.sin(2*pattern-4*logR)
+    const band=1+.03*Math.sin(3*pattern-6*logR)
+    const turb=1+turbulence(epoch,drifted/INNER,phase)
+    const eddington=1+.022*Math.sin(time*.21-r*.55)+.016*Math.sin(time*.13+r*.31+2.1)
+    const edge=smooth(INNER-.2,INNER+1.6,r)*(1-smooth(14.5,16.2,r))
+    return 1-Math.exp(-(edge*Math.pow(INNER/r,2)*arms*band*turb*eddington*ray.g4*3.2)*brightness)
   }
   return 0
 }
-test('shade 与独立参考逐位相同：band 是双层焦散，log 只算一次，乘加顺序不变',()=>{
+test('shade 与独立参考逐位相同：五层物理动效',()=>{
   const {api}=fixture()
-  /* 有效着色分支里只留一处 Math.log(r / INNER)，KNOTS 循环不再各算一遍。 */
-  assert.equal(source.split('Math.log(r / INNER)').length,2,'shade 里的 Math.log(r / INNER) 必须恰好一处')
-  assert.ok(source.includes('var logR = Math.log(r / INNER)'),'logR 局部变量必须还在')
+  /* 螺旋臂与亮度带共用一处对数；湍流改用线性径向项，不再各算一遍。 */
+  assert.equal(source.split('Math.log(rho)').length,2,'shade 里的 Math.log(rho) 必须恰好一处')
   const rays=[]
   /* 半径边界：盘两侧收口、呼吸区、外缘。相位/时间/自旋/g⁴/亮度在下面逐条组合。 */
   for(const radius of [2,5.5,5.999,6,6.3,7,9.11,11.7,14.49,14.5,15.2,16.21,20]) {
@@ -1043,14 +1054,14 @@ test('有效着色分支的 Math.log 只计一次：隔离 VM 计数，宿主 Ma
   const ray={radius:9.5,phi:.42,g4:1.3}
   reset()
   const once=probe.api.shade(ray,1.7,1,.42)
-  /* 旋臂一次 + 两个亮度团各一次，旧实现是三次；去重后只该剩一次。 */
+  /* 旋臂与亮度带共用一次 log。 */
   assert.equal(calls,1,`有效着色分支调用了 ${calls} 次 Math.log`)
   assert.equal(once,shadeReference(ray,1.7,1,.42),'计数用例里的值也必须与参考一致')
   /* 无半径分支一次都不调。 */
   reset()
   probe.api.shade({phi:.42,g4:1.3},1.7,1,.42)
   assert.equal(calls,0,'没有半径的射线不该进入着色分支')
-  /* 第二次有效着色：每一帧每一步仍然只算一次，不会因计数替身被缓存而漏算。 */
+  /* 第二次有效着色同样只算一次。 */
   reset()
   probe.api.shade(ray,2.2,.15)
   assert.equal(calls,1,'第二次有效着色也必须只算一次')
