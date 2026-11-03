@@ -163,16 +163,6 @@ var UniverseAccretionDisk = (function () {
       geo = []; geoGrid = grid; geoW = w; geoH = h; geoCols = cols
       geoCw = cw; geoCh = ch; geoX = baseX; geoY = baseY; geoHZ = horizon
     }
-    /* 脏格渲染（2026-11-03 性能提交）：盘画布不再逐帧清屏，只重画与上一帧不同的格子。
-       glyphOf / inkOf 记每格上次真正落下的字形索引与墨色索引（-1 表示这一格没画），两个
-       都没变就跳过 fillText —— 实测相邻两帧只有约 4.7% 的格子会跨档。整帧失效的路径
-       （重建网格、改尺寸、改位移）把 painted 置 false，下一帧清屏全画；换墨档不改位置，
-       靠脏格各自换墨即可。上一帧脏格超过六成时下一帧退回清屏全量：那种帧省不下什么，
-       清屏更稳。glyphOf.length 与 grid 不等时（重建后格数变了）同样整帧重来。 */
-    var painted = false, glyphOf = new Int8Array(0), inkOf = new Int8Array(0)
-    var paintVX = 0, paintVY = 0, paintShift = false, lastDirty = 1
-    /* 墨色索引：0..11 是暗档的 DARK，12..23 是亮档的 LIGHT，免得每格比字符串。 */
-    var INKS = DARK.concat(LIGHT)
     var motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     function draw() {
       if (disposed || !w || !h || !ready) return
@@ -191,21 +181,12 @@ var UniverseAccretionDisk = (function () {
       var shifted = !!(config.viewX || config.viewY)
       /* 画布透明（2026-10-29 终版）：左栏透明、透出 body 那层底，主区也必须透出同一层，
          否则画布的不透明清屏色与左栏的底色永远差一档 —— 前面几次「割裂」都是这么来的。
-         底色交给 body。清屏只在整帧失效时做（painted 为 false：首次绘制、换尺寸、网格重建、
-         位移变化，或上一帧脏格过多）；其余帧靠脏格各自覆盖，不再每帧擦一遍。
-         清屏按缓冲区像素走：这里 ctx 还带着 dpr 变换，用 w × h 当坐标只擦掉左上角一小块，
-         其余格子会叠在上一帧上。 */
-      var vx = Number(config.viewX) || 0, vy = Number(config.viewY) || 0
-      if (painted && (vx !== paintVX || vy !== paintVY || shifted !== paintShift ||
-        glyphOf.length !== grid.length || lastDirty > .6)) painted = false
-      if (!painted) {
-        ctx.save()
-        ctx.setTransform(1, 0, 0, 1, 0, 0)
-        ctx.clearRect(0, 0, canvas.width, canvas.height)
-        ctx.restore()
-        if (glyphOf.length !== grid.length) { glyphOf = new Int8Array(grid.length); inkOf = new Int8Array(grid.length) }
-        glyphOf.fill(-1); inkOf.fill(-1)
-      }
+         底色交给 body，画布每帧只清上一帧。清屏按缓冲区像素走：这里 ctx 还带着 dpr 变换，
+         用 w × h 当坐标只擦掉左上角一小块，其余格子会叠在上一帧上。 */
+      ctx.save()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.restore()
       /* 取景位移在这里落地：画布本身不动，绘制原点整体平移。setTransform 重置成单位阵
          之后必须把 dpr 重新乘回去，否则高 DPI 下字会缩一半。
          偏移量不能直接读 config：options() 对没传的键会保留上一轮的值，首次 update 只给
@@ -237,9 +218,8 @@ var UniverseAccretionDisk = (function () {
       /* 每格都会走一遍的量提到循环外：一次转场是 19 帧 × 约 15876 格，这些值在帧内不变。
          lastIndex / 12 这两个常数以前在格子内部被求值了两万多次。 */
       var lastGlyph = GLYPHS.length - 1, ink = config.brightness, t = elapsed
-      var dirty = 0, currentInk = -1
       for (var i = 0; i < grid.length; i++) {
-        var cell = grid[i], value = 0, bucket = 0, wantGlyph = -1, wantInk = -1, blanked = false
+        var cell = grid[i], glyph = '', value = 0, bucket = 0
         if (cell.radius) {
           /* 环上不落字：第十五阶段把环交给 Canvas 精细层之后，盘格在环的位置上照常显影，
              环层就从字缝里透出来，读成「一圈零散杂点压在细环上」。
@@ -263,53 +243,32 @@ var UniverseAccretionDisk = (function () {
               if (gd > horizon) {
                 var rb = g0[BIN]
                 if (rb < 0) rb = g0[BIN] = (((Math.atan2(g0[GY], g0[GX]) + Math.PI) / (Math.PI * 2) * ringBins) | 0) % ringBins
-                /* 让位改成标记「本帧没字」，不能再 continue：不清屏之后，上一帧留在这格里的
-                   字不会自己消失，跳过反而会留下残影。 */
-                if (gd <= ringEdge[rb] * ringScale + ringClear) blanked = true
+                if (gd <= ringEdge[rb] * ringScale + ringClear) continue
               }
             }
           }
-          if (!blanked) {
-            value = shade(cell, t, ink, SPIN)
-            if (value > .004) {
-              /* 字与墨都走同一个显示映射：物理亮度 value 先过 TONE_GAMMA，再落进 11 档字符。
-                 两处必须用同一个 shown —— 只压字形不压墨色，暗侧会拿到亮的字形配最暗的墨，
-                 读起来反而更糊。落字门槛 .004 仍是物理阈值，不随 gamma 变。 */
-              var shown = Math.pow(value, TONE_GAMMA)
-              /* (shown * 12) | 0 与 Math.floor(shown * 12) 在 shown ∈ [0,1) 上逐位相同，
-                 shown 不可能到 1（value < 1，gamma > 0），所以上限那次比较是空转。 */
-              var index = Math.min(lastGlyph, Math.floor(shown * lastGlyph + .5))
-              bucket = (shown * 12) | 0
-              if (bucket > 11) bucket = 11
-              /* 档位 0 是空格符，画出来等于没画，一并并进「本帧没字」那条路。 */
-              if (index > 0) {
-                wantGlyph = index
-                var luminous = !light
-                if (light) {
-                  var qx = (i % cols + .5) * cw - baseX, qy = (((i / cols) | 0) + .5) * ch - baseY
-                  luminous = qx * qx + qy * qy <= horizon * horizon
-                }
-                wantInk = luminous ? bucket : 12 + bucket
-              }
+          value = shade(cell, t, ink, SPIN)
+          if (value > .004) {
+            /* 字与墨都走同一个显示映射：物理亮度 value 先过 TONE_GAMMA，再落进 11 档字符。
+               两处必须用同一个 shown —— 只压字形不压墨色，暗侧会拿到亮的字形配最暗的墨，
+               读起来反而更糊。落字门槛 .004 仍是物理阈值，不随 gamma 变。 */
+            var shown = Math.pow(value, TONE_GAMMA)
+            /* (shown * 12) | 0 与 Math.floor(shown * 12) 在 shown ∈ [0,1) 上逐位相同，
+               shown 不可能到 1（value < 1，gamma > 0），所以上限那次比较是空转。 */
+            var index = Math.min(lastGlyph, Math.floor(shown * lastGlyph + .5))
+            glyph = GLYPHS.charAt(index)
+            bucket = (shown * 12) | 0
+            if (bucket > 11) bucket = 11
+            var luminous = !light
+            if (light) {
+              var qx = (i % cols + .5) * cw - baseX, qy = (((i / cols) | 0) + .5) * ch - baseY
+              luminous = qx * qx + qy * qy <= horizon * horizon
             }
+            ctx.fillStyle = luminous ? DARK[bucket] : LIGHT[bucket]
           }
         }
-        if (wantGlyph === glyphOf[i] && wantInk === inkOf[i]) continue
-        dirty++
-        var gx = (i % cols + .5) * cw, gy = (((i / cols) | 0) + .5) * ch
-        if (wantGlyph < 0) {
-          /* 从有字变成没字：只擦这一格的矩形。画布是透明的，擦成透明才是「没字」。 */
-          ctx.clearRect(gx - cw * .5, gy - ch * .5, cw, ch)
-        } else {
-          /* 墨色连续相同的格子共用一次 fillStyle：一帧下来赋值次数从格数降到档数级别。 */
-          if (wantInk !== currentInk) { ctx.fillStyle = INKS[wantInk]; currentInk = wantInk }
-          ctx.fillText(GLYPHS.charAt(wantGlyph), gx, gy, cw)
-        }
-        glyphOf[i] = wantGlyph; inkOf[i] = wantInk
+        if (glyph && glyph !== ' ') ctx.fillText(glyph, (i % cols + .5) * cw, (((i / cols) | 0) + .5) * ch, cw)
       }
-      lastDirty = grid.length ? dirty / grid.length : 1
-      painted = true
-      paintVX = vx; paintVY = vy; paintShift = shifted
       /* 位移只活在这一个函数里：帧末复位成居中，下一次进 draw() 再按当时的 config 决定。
          不复位的话，从对话页反向切回新会话页时，第一帧仍带着旧位移。 */
       if (shifted) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -341,9 +300,9 @@ var UniverseAccretionDisk = (function () {
          画，'Math.floor(w / cw)' 会算出 0 列，'new Array(0)' 之后的行循环写 'next[-1]' 直接抛
          「Invalid array length」，create() 整个挂不上。方框为 0 时先停在这里，等容器的
          ResizeObserver 再来一次。 */
-      if (!(nw > 0) || !(nh > 0)) { w = 0; h = 0; ready = false; painted = false; geo = []; geoGrid = null; stop(); return }
+      if (!(nw > 0) || !(nh > 0)) { w = 0; h = 0; ready = false; geo = []; geoGrid = null; stop(); return }
       if (nw === w && nh === h && ready) return
-      w = nw; h = nh; ready = false; painted = false; stop(); generation++
+      w = nw; h = nh; ready = false; stop(); generation++
       var mine = generation
       /* 环烘完才动手铺格子：draw 会在构建期同步跑一遍，缓存若在环就绪之前先冷启动，
          那批格子的扇区桶会按「环未就绪」的路子留下未算状态，等环层就绪后白白多算一轮。
@@ -396,14 +355,14 @@ var UniverseAccretionDisk = (function () {
         if (left) {
           /* 没算完的射线不能伪装成逃逸、捕获或命中：整张网格作废，画布明确置为失败态并清空。
              ready 保持 false，所以 draw() / tick() 都不会再把这张网格当成可用结果。 */
-          grid = []; ready = false; painted = false; geo = []; geoGrid = null
+          grid = []; ready = false; geo = []; geoGrid = null
           canvas.dataset.blackHoleState = 'failed'
           stop()
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
           ctx.clearRect(0, 0, w, h)
           return
         }
-        grid = next; ready = true; painted = false
+        grid = next; ready = true
         canvas.dataset.blackHoleState = 'ready'; sync()
       }
       if (w > 0 && h > 0) buildTimer = setTimeout(chunk, 0)
