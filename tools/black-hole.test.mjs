@@ -840,7 +840,7 @@ test('A1 带符号理想切向事件：μ=±1 两侧的 g⁴ 同时越过旧限�
 const OLD_WEIGHT_CALC='var g4 = Math.min(1.7, Math.max(.4, Math.pow(g, 1.8)))'
 const OLD_WEIGHT_FIELD='boost: g4,'
 const CLAMPED_G4='var g4 = Math.min(1.7, Math.max(.4, g * g * g * g))'
-const NEW_SHADE_TERM='* arms * band * turb * eddington * ray.g4 * 3.2'
+const NEW_SHADE_TERM='* arms * band * turb * eddington * qpo * (1 + flares) * ray.g4 * 3.2'
 const OLD_SHADE_TERM='* ray.g4 * 3.2'
 /* 只把「权重定义 + 字段名 + 发射项」还原成第二十八阶段的旧契约；相机、积分器、事件定位
    一个字都不动，所以两边任何几何字段的差异都只能来自本阶段改的那两处。 */
@@ -978,6 +978,26 @@ function shadeReference(ray,time,brightness,spin){
   const smooth=(lo,hi,x)=>{const t=Math.min(1,Math.max(0,(x-lo)/(hi-lo)));return t*t*(3-2*t)}
   const hash2=(a,b)=>{let h=Math.imul(a|0,374761393)^Math.imul(b|0,668265263);h=Math.imul(h^(h>>>13),1274126177);return (h^(h>>>16))>>>0}
   const TURB_N=[2,3,5]
+  const FLARE_WINDOW=4,FLARE_CHANCE=.35,QPO_F1=10.7,QPO_F2=2.7,QPO_AMP=.035
+  const flare=(time,rho,pattern)=>{
+    let sum=0
+    for(let k=0;k<2;k++){
+      const win=Math.floor(time/FLARE_WINDOW)-k
+      const h=hash2(win,91)
+      if((h%1000)/1000>FLARE_CHANCE) continue
+      const start=win*FLARE_WINDOW+((h>>>10)%1000)/1000*FLARE_WINDOW
+      const dur=1.2+((h>>>20)%100)/100*1.8
+      const age=time-start
+      if(age<0||age>dur) continue
+      const env=Math.sin(Math.PI*age/dur)
+      const at=1.6+((h>>>4)%100)/100*5.5
+      const ph=((h>>>8)%1000)/1000*6.283
+      const dphi=Math.atan2(Math.sin(pattern-ph),Math.cos(pattern-ph))
+      const d2=(rho-at)*(rho-at)*.55+dphi*dphi*2.2
+      sum+=env*Math.exp(-d2)*.9
+    }
+    return sum
+  }
   const turbulence=(epoch,rho,phase)=>{
     let sum=0
     for(let k=0;k<3;k++){
@@ -1002,8 +1022,10 @@ function shadeReference(ray,time,brightness,spin){
     const band=1+.03*Math.sin(3*pattern-6*logR)
     const turb=1+turbulence(epoch,drifted/INNER,phase)
     const eddington=1+.022*Math.sin(time*.21-r*.55)+.016*Math.sin(time*.13+r*.31+2.1)
+    const flares=flare(time,rho,pattern)
+    const qpo=1+QPO_AMP*Math.sin(time*QPO_F1+.6*Math.sin(time*QPO_F2))
     const edge=smooth(INNER-.2,INNER+2.2,r)*(1-smooth(14.5,16.2,r))
-    return 1-Math.exp(-(edge*Math.pow(INNER/r,2)*arms*band*turb*eddington*ray.g4*3.2)*brightness)
+    return 1-Math.exp(-(edge*Math.pow(INNER/r,2)*arms*band*turb*eddington*qpo*(1+flares)*ray.g4*3.2)*brightness)
   }
   return 0
 }

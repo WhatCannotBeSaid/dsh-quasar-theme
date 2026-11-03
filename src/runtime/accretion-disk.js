@@ -93,6 +93,12 @@ var UniverseAccretionDisk = (function () {
   var TURB_LIFE = 1.6
   var PATTERN = .42
   var TURB_N = [2, 3, 5]
+  /* 爆发的窗口长度与触发概率；QPO 的角频率（10.7 rad/s ≈ 1.7Hz）与抖动角频率。 */
+  var FLARE_WINDOW = 4
+  var FLARE_CHANCE = .35
+  var QPO_F1 = 10.7
+  var QPO_F2 = 2.7
+  var QPO_AMP = .035
   /* 湍流要「不断翻新」，每层每段寿命换一个相位种子；这个 hash 只喂这个用途。 */
   function hash2(a, b) {
     var h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263)
@@ -108,6 +114,28 @@ var UniverseAccretionDisk = (function () {
       var ph = (h % 6283) / 1000
       var amp = .012 + ((h >>> 12) % 100) / 100 * .016
       sum += amp * Math.sin(TURB_N[k] * phase + TURB_N[k] * .55 * (rho - 1) + ph)
+    }
+    return sum
+  }
+  /* 爆发：热不稳定性触发的局部增亮。时间轴切成 FLARE_WINDOW 的窗口，每个窗口按
+     hash 决定是否触发；同一窗口最多一个事件，起始/时长/位置/方位全部由 hash 决定，
+     所以同一时刻重放出来的事件完全一样。只读最近两个窗口 —— 更早的已经结束。 */
+  function flare(time, rho, pattern) {
+    var sum = 0
+    for (var k = 0; k < 2; k++) {
+      var win = Math.floor(time / FLARE_WINDOW) - k
+      var h = hash2(win, 91)
+      if ((h % 1000) / 1000 > FLARE_CHANCE) continue
+      var start = win * FLARE_WINDOW + ((h >>> 10) % 1000) / 1000 * FLARE_WINDOW
+      var dur = 1.2 + ((h >>> 20) % 100) / 100 * 1.8
+      var age = time - start
+      if (age < 0 || age > dur) continue
+      var env = Math.sin(Math.PI * age / dur)
+      var at = 1.6 + ((h >>> 4) % 100) / 100 * 5.5
+      var ph = ((h >>> 8) % 1000) / 1000 * 6.283
+      var dphi = Math.atan2(Math.sin(pattern - ph), Math.cos(pattern - ph))
+      var d2 = (rho - at) * (rho - at) * .55 + dphi * dphi * 2.2
+      sum += env * Math.exp(-d2) * .9
     }
     return sum
   }
@@ -142,11 +170,15 @@ var UniverseAccretionDisk = (function () {
       var eddington = 1
         + .022 * Math.sin(time * .21 - r * .55)
         + .016 * Math.sin(time * .13 + r * .31 + 2.1)
+      /* 五、爆发：间歇的局部增亮；五、QPO：窄带准周期振荡，相位被一个慢正弦抖动，
+         所以频率在一个窄区间里摆，而不是严格周期。30fps 下只能取可读的低频段。 */
+      var flares = flare(time, rho, pattern)
+      var qpo = 1 + QPO_AMP * Math.sin(time * QPO_F1 + .6 * Math.sin(time * QPO_F2))
       /* 四、垂直结构：内缘收口放宽到 2.2R_g。真正的几何厚度（|y|<H 求交）会把
          三十多个独立物理参考值作废，而 155×96 的网格下 H/R=0.05 只有 3 格厚 ——
          收益是「边缘毛糙」不是「体积感」。这里只用收口宽度换同样的观感，几何不动。 */
       var edge = smooth(INNER - .2, INNER + 2.2, r) * (1 - smooth(14.5, 16.2, r))
-      flux += edge * Math.pow(INNER / r, 2) * arms * band * turb * eddington * ray.g4 * 3.2
+      flux += edge * Math.pow(INNER / r, 2) * arms * band * turb * eddington * qpo * (1 + flares) * ray.g4 * 3.2
     }
     if (!(flux > 0)) return 0
     return 1 - Math.exp(-flux * brightness)
