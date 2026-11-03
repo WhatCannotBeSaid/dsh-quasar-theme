@@ -103,7 +103,7 @@ var UniverseAccretionDisk = (function () {
   /* spin 是可选的第三层相位（见 SPIN）：不传等于 0，退回只按开普勒相位转，
      trace 出来的半径 / 方位角一个都不改，所以不传的调用点画面与以前逐位相同。
      要整盘旋起来就显式传 SPIN —— 唯一调用点（draw 里）就是这么传的。 */
-  function shade(ray, time, brightness, spin) {
+  function shade(ray, time, brightness, spin, out) {
     var flux = 0
     var turn = time * (Number(spin) || 0)
     /* 环权重不再进入 ASCII 亮度（第十五阶段）：光子环已经交给 bakeRing 的 Canvas 精细层，
@@ -112,10 +112,17 @@ var UniverseAccretionDisk = (function () {
     if (ray.radius) {
       var r = ray.radius
       var phase = ray.phi - turn - time * (DISK + SWIRL / Math.pow(r, 1.5))
+      /* 第五个参数是可选的相位回写（第三十三阶段）：字形颗粒要按盘面坐标取 key，
+         在 draw 里重算一遍 pow / 开方不值当。不传时这一行是空操作。 */
+      if (out) out[0] = phase
       /* log r 只算一次，旋臂与亮度团共用；乘加顺序原样保留。 */
       var logR = Math.log(r / INNER)
       var arms = .72 + .28 * Math.sin(2 * phase - 4 * logR)
-      var band = .82 + .18 * Math.sin(r * 1.1 + 1.6 * Math.sin(2 * phase))
+      /* 焦散（第三十三阶段）：原来是单层径向正弦，盘上只有一圈圈静止的明暗环；
+         换成两层不同速度、不同方向的波相乘，干涉出会流动的光斑 —— 与 ascii-sharks 的
+         caustic 同一构造（renderer.ts L895）。幅度仍是 .18，整盘通量量级不变。 */
+      var band = .82 + .18 * Math.sin(r * 1.1 + 1.6 * Math.sin(2 * phase)) *
+        Math.sin(phase * 3 - r * .7 - time * .27)
       /* 亮度团：径向按 log r 起波（等对数宽度），角向跟着同一套 Kepler 相位走，
          所以团块和盘一起转，但换相的节奏与双旋臂不同 —— 眼睛读到的是「盘里有东西在动」。 */
       var knots = 0
@@ -132,6 +139,16 @@ var UniverseAccretionDisk = (function () {
     }
     if (!(flux > 0)) return 0
     return 1 - Math.exp(-flux * brightness)
+  }
+  /* 字形颗粒的 key（第三十三阶段）：输入是盘面坐标（相位、半径）的量化桶，
+     不是屏幕格索引。取格索引的纹理钉在屏幕上，盘转起来就是一张不动的噪点；
+     取盘面坐标的纹理随盘流过去 —— 这正是要的「抖动一次打散阶梯带，之后跟着盘转」。
+     相邻格在内缘的相位差约 1rad、外缘约 .37rad，量化频率 3 后基本落进不同的桶。
+     一条 imul 链，无查表、无分配。 */
+  function grainKey(a, b) {
+    var h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263)
+    h = Math.imul(h ^ (h >>> 13), 1274126177)
+    return h ^ (h >>> 16)
   }
   function lit(cell) { return cell ? !!(cell.radius || cell.ring) : false }
   /* holeLayer 是洞那层（hole.js）的渲染器：阴影圆、光子环与它的方位包络都由那边负责，
@@ -218,6 +235,8 @@ var UniverseAccretionDisk = (function () {
       /* 每格都会走一遍的量提到循环外：一次转场是 19 帧 × 约 15876 格，这些值在帧内不变。
          lastIndex / 12 这两个常数以前在格子内部被求值了两万多次。 */
       var lastGlyph = GLYPHS.length - 1, ink = config.brightness, t = elapsed
+      /* phaseOut 由 shade 顺带写回；tick 是微闪的重掷节拍（约 2.4s 一次，同 ascii-sharks L769）。 */
+      var phaseOut = [0], tick = (t * .42) | 0
       for (var i = 0; i < grid.length; i++) {
         var cell = grid[i], glyph = '', value = 0, bucket = 0
         if (cell.radius) {
@@ -247,14 +266,24 @@ var UniverseAccretionDisk = (function () {
               }
             }
           }
-          value = shade(cell, t, ink, SPIN)
+          value = shade(cell, t, ink, SPIN, phaseOut)
           if (value > .004) {
             /* 字与墨都走同一个显示映射：物理亮度 value 先过 TONE_GAMMA，再落进 11 档字符。
                两处必须用同一个 shown —— 只压字形不压墨色，暗侧会拿到亮的字形配最暗的墨，
                读起来反而更糊。落字门槛 .004 仍是物理阈值，不随 gamma 变。 */
             var shown = Math.pow(value, TONE_GAMMA)
-            /* (shown * 12) | 0 与 Math.floor(shown * 12) 在 shown ∈ [0,1) 上逐位相同，
-               shown 不可能到 1（value < 1，gamma > 0），所以上限那次比较是空转。 */
+            /* 字形颗粒：同亮度的相邻格原本全落同一个字，沿盘面读成一圈圈阶梯带。
+               按盘面坐标（相位 × 半径）取 key 给 ±1 档偏移，阶梯带被打散；
+               纹理锚在盘面上，所以它随盘转、不在格子上沸腾（第三十三阶段）。
+               错峰微闪：约 1.5% 的格按 tick 重掷，提一档，读成湍流里的闪烁。 */
+            var grain = grainKey((phaseOut[0] * 3) | 0, (cell.radius * 1.5) | 0)
+            var shift = ((grain >>> 0) % 3) - 1
+            if (((grainKey(grain, tick) >>> 0) % 1000) < 15 && shift < 1) shift += 1
+            shown += shift / lastGlyph
+            if (shown < 0) shown = 0
+            else if (shown > .999) shown = .999
+            /* (shown * 12) | 0 与 Math.floor(shown * 12) 在 shown ∈ [0,1) 上逐位相同。
+               抖动后 shown 可能顶到 .999，上限那次比较因此留着。 */
             var index = Math.min(lastGlyph, Math.floor(shown * lastGlyph + .5))
             glyph = GLYPHS.charAt(index)
             bucket = (shown * 12) | 0

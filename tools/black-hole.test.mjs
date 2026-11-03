@@ -970,8 +970,8 @@ function assertG4Contract(api){
   close(pro.g4,Math.pow(a1Closed(6,1),4),A1_SAME,'理想顺行事件 g⁴')
   return ray
 }
-/* 改前 shade 的独立参考：内联常量、照抄原公式，不读生产模块里的任何标识符 ——
-   期望值只来自这份文本，不能让实现给自己出题。 */
+/* 独立参考：内联常量、照抄当前公式，不读生产模块里的任何标识符 ——
+   期望值只来自这份文本，不能让实现给自己出题。band 自第三十三阶段起是双层焦散。 */
 function shadeReference(ray,time,brightness,spin){
   const INNER=6
   const KNOTS=[{ n: 1, radial: 1.9, angular: 1.0, weight: .16 },
@@ -983,7 +983,7 @@ function shadeReference(ray,time,brightness,spin){
     const r=ray.radius
     const phase=ray.phi-turn-time*(1.2+16/Math.pow(r,1.5))
     const arms=.72+.28*Math.sin(2*phase-4*Math.log(r/INNER))
-    const band=.82+.18*Math.sin(r*1.1+1.6*Math.sin(2*phase))
+    const band=.82+.18*Math.sin(r*1.1+1.6*Math.sin(2*phase))*Math.sin(phase*3-r*.7-time*.27)
     let knots=0
     for(let i=0;i<KNOTS.length;i++){
       const knot=KNOTS[i]
@@ -995,7 +995,7 @@ function shadeReference(ray,time,brightness,spin){
   }
   return 0
 }
-test('shade 局部去重后与改前独立参考逐位相同：log 只算一次，公式与乘加顺序不变',()=>{
+test('shade 与独立参考逐位相同：band 是双层焦散，log 只算一次，乘加顺序不变',()=>{
   const {api}=fixture()
   /* 有效着色分支里只留一处 Math.log(r / INNER)，KNOTS 循环不再各算一遍。 */
   assert.equal(source.split('Math.log(r / INNER)').length,2,'shade 里的 Math.log(r / INNER) 必须恰好一处')
