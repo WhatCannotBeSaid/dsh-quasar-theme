@@ -1845,3 +1845,115 @@ test('K7: a dynamic frame formats twice, not twice per row, and every row matche
   assert.ok(formatted >= 2, 'a still frame still formats its shared phase')
   stopStill()
 })
+
+/* ── 输入卡换页转场（第八十一轮）──────────────────────────────────────────────── */
+/* 跑生产闭包，不重写一份曲线：mountComposerTransition 的源码直接取
+   src/runtime/composer-transition.js，宿主侧只给最小 document / window。 */
+function composerSwapFixture() {
+  const frames = clocks()
+  const observers = []
+  let phase = 'hero'
+  const root = { getAttribute: name => (name === 'data-phase' ? phase : null) }
+  const card = {
+    rect: { top: 400, left: 100 },
+    plays: [],
+    getBoundingClientRect() { return this.rect },
+    animate(keys, options) {
+      this.plays.push({ keys, options })
+      const animation = {
+        onfinish: null,
+        oncancel: null,
+        cancel() { if (typeof this.oncancel === 'function') this.oncancel() },
+      }
+      this.animation = animation
+      return animation
+    },
+  }
+  const body = { getAttribute: name => (name === 'data-content-phase' ? phase : null) }
+  const document = {
+    body,
+    querySelector(selector) {
+      if (selector === '[data-phase]') return root
+      if (selector === '[data-composer-card]') return card
+      return null
+    },
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  class Observer {
+    constructor(fn) { this.fn = fn; observers.push(this) }
+    observe() {}
+    disconnect() {}
+    emit() { this.fn([]) }
+  }
+  const window = {
+    requestAnimationFrame: frames.setTimeout,
+    cancelAnimationFrame: frames.clearTimeout,
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  const Element = { prototype: { animate() {} } }
+  const source = read('src/runtime/composer-transition.js')
+  const start = source.indexOf('function mountComposerTransition()')
+  assert.ok(start > 0, 'production boundary: mountComposerTransition')
+  const make = new Function('document', 'window', 'MutationObserver', 'Element',
+    source.slice(start) + '\nreturn mountComposerTransition')
+  const mount = make(document, window, Observer, Element)
+  const dispose = mount()
+  const move = (next, top) => {
+    phase = next
+    card.rect = { top, left: 100 }
+    observers.forEach(observer => observer.emit())
+    frames.fire()
+  }
+  /* 真机上一段运镜结束会触发 onfinish，之后的帧才记落点；测试必须补这一步，
+     否则反向运镜永远没有起点。 */
+  const finish = () => {
+    if (typeof card.animation.onfinish === 'function') card.animation.onfinish()
+    frames.fire()
+  }
+  return { card, move, finish, dispose }
+}
+
+test('SW1: hero→active 全量位移、全程可见，只在运镜中点浅呼吸', () => {
+  const f = composerSwapFixture()
+  f.move('active', 800)
+  const play = f.card.plays[0]
+  assert.ok(play, '相位切换必须起一段动画')
+  assert.equal(play.options.duration, 1000, '与黑洞运镜同长')
+  assert.equal(play.keys.length, 13, '12 段关键帧')
+  assert.equal(play.keys[0].opacity, 1, '首帧不许从透明起播')
+  assert.equal(play.keys[6].opacity, 0.86, '中点浅呼吸')
+  assert.equal(play.keys[12].opacity, 1, '落地必须回到可读的实态')
+  assert.equal(play.keys[0].transform, 'translate3d(0px, -400px, 0)', '位移取全量差值')
+  f.dispose()
+})
+
+test('SW2: 反向 active→hero 同样运镜，绕过中间相的 active 不从旧位置起飞', () => {
+  const back = composerSwapFixture()
+  back.move('active', 800)
+  back.finish()
+  back.card.plays.length = 0
+  back.move('hero', 400)
+  const play = back.card.plays[0]
+  assert.ok(play, '回英雄页也要运镜')
+  assert.equal(play.keys[0].transform, 'translate3d(0px, 400px, 0)', '反向位移取反号')
+  back.dispose()
+
+  const crossed = composerSwapFixture()
+  crossed.move('settling', 400)
+  crossed.move('active', 800)
+  assert.equal(crossed.card.plays.length, 0, 'settling 之后的 active 不许从过期位置飞来')
+  crossed.dispose()
+})
+
+test('SW3: 不等上一段收尾就往返，反向仍有起点', () => {
+  const f = composerSwapFixture()
+  f.move('active', 800)
+  f.card.plays.length = 0
+  f.move('hero', 400)
+  const play = f.card.plays[0]
+  assert.ok(play, '1 秒内往返也要反向运镜')
+  assert.equal(play.keys[0].transform, 'translate3d(0px, 400px, 0)', '起点取自布局真值，不等 onfinish')
+  f.dispose()
+})

@@ -8,6 +8,21 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Added
 
+- **输入卡转场改成「连续运镜」（2026-11-03 第八十一轮）。** 用户逐字：「我选B」——B 指上一轮对比里
+  的连续运镜：全量位移、卡片全程可见，而不是淡出淡入。`src/runtime/composer-transition.js` 的
+  `play()` 把透明度从 `0→1` 改成浅呼吸 `1 → 0.86 → 1`（`DIM = 0.86`，中点最暗，与位移共用同一条
+  easeInOutCubic 的 12 段关键帧，1000ms 不变），位移仍走全量 FLIP：新卡第一帧就带着回位的
+  transform 画在英雄页位置，观感是同一张卡连续滑落，不再是「原地消失 → 底部冒出」。`enter()` 遇到
+  settling 等中间相即作废起点，绕过中间相才到的 active 不会从过期位置起飞（不按时间判定：用户在
+  英雄页停顿再发送，仍从最后记录的位置起飞）。宿主 `settling` 经核实
+  （`app.asar`，`ConversationMainPanel`）只出现在打开历史会话、摘要仍在 loading 时，发第一条消息的
+  hero→active 不经过它——「消失」的真正来源是旧节点卸载 + 新卡 opacity 从 0 起播，不是 settling 的
+  `visibility:hidden`。`DIM` 取 0.86 而非 0.4：黑洞终态是停泊在淡态，卡片落地必须回到可读的实态，
+  这里只借节奏不借浓度。已知未做：两页卡片宽高不同时起播第一帧会暴露尺寸跳变（FLIP 只补位移不补
+  scale，需真机确认是否可见）；宿主若分两次提交相位与卡片节点，刷新落点那一帧会空转且不重试。
+  重建后 `client.js` **245,964 chars / 246,338 B**、`npm run verify` **113 assertions / 0 failed**、
+  `node --test tools/runtime.test.mjs` **55 pass**。
+
 - **「插件」行收回导航区，Logo 改指插件面板（2026-11-02 第八十轮）。** 用户逐字：「导航区的插件去掉呀，
   把插件入口重新换到品牌Logo上。」品牌行回到第二十五轮那套分区：**Logo → 插件、`QUASAR` → 新会话、
   `CORE` 芯片 → 设置**。`src/theme.css` 重新放回按可访问名藏插件行的两条选择器（zh `插件` / en

@@ -14,8 +14,9 @@
      *      上的 visibility:hidden。
      * 于是没有本文件时，卡片在两个位置之间没有任何一帧过渡：原地消失、底部出现。
      *
-     * 形态（本会话逐题定案）：位移下沉 + 淡入；正向反向同一套参数；prefers-reduced-motion
-     * 为 reduce 时不播。
+     * 形态（2026-11-03 定案，用户选「连续运镜」）：位移全量下沉，透明度全程可见、只在中点
+     * 压到 0.86 再回实 —— 借黑洞的节奏，不借它的停泊浓度（卡片落地必须可读）；正向反向
+     * 同一套参数；prefers-reduced-motion 为 reduce 时不播。
      *
      * 时长与曲线跟黑洞的那次运镜对齐（用户 2026-11-01：「跟黑洞的转场同步好不。」）：同 1000ms，
      * 同 easeInOutCubic —— 曲线照抄 accretion-disk.js 的做法烘焙成 12 段关键帧、每段标 linear，
@@ -39,9 +40,12 @@
      * 动画对象是 [data-composer-card]，不是 [data-composer-seat]：座席在对话页带一层渐变底，
      * 动它会把背景一起拖走。
      *
-     * 已知不做（用户当轮的选择，留作升级路径）：settling 那一帧卡片仍被宿主藏掉，也就是「消失」
-     * 本身还在。把真卡片在 settling 期间用内联 transform + visibility 冻在原地，能连这一帧也补上
-     * —— 那是幽灵副本方案的等价物，只是不用克隆；本轮按「照旧隐藏」实现。
+     * 2026-11-03 追记：settling 经核实只出现在「打开历史会话、摘要仍在 loading」时（宿主
+     * ConversationMainPanel 的 settling 判定），发第一条消息的 hero→active 并不经过它。
+     * 所以「消失 → 冒出」的真正来源不是 settling 的 visibility:hidden，而是旧卡片节点在相位
+     * 切换时被卸载、新卡片又以 opacity 0 起播。本轮把透明度改成全程可见（浅呼吸），新卡第一帧
+     * 就带着回位的 transform 画在旧位置，观感即是同一张卡连续滑落；起点矩形只在相位切换
+     * 时取用一次，绕过 settling 之类中间相才到的 active 不从过期位置起飞。
      */
 
     function mountComposerTransition() {
@@ -56,6 +60,9 @@
         var STEPS = 12
         /* 小于这个像素差视为没动：不排动画，避免一次亚像素抖动也起一段过渡。 */
         var STILL = 1
+        /* 运镜途中的最暗点。黑洞是「可见 → 变淡 → 停泊在淡态」，卡片落地必须回到可读的
+           实态，所以只做一次浅呼吸（中点 0.86），不落到黑洞那个浓度。 */
+        var DIM = 0.86
 
         var disposed = false
         var frame = 0
@@ -123,6 +130,10 @@
             var node = cardOf()
             if (node === null || from === null) return
             var to = boxOf(node)
+            /* 这一帧的 to 是布局真值（animate 还没生效）。顺手记成反向运镜的起点：
+               用户发完消息 1 秒内就点回新会话，也不必等 onfinish 那一帧。 */
+            if (phase === 'active') dockAt = to
+            else if (phase === 'hero') heroAt = to
             var dx = from.left - to.left
             var dy = from.top - to.top
             if (Math.abs(dx) < STILL && Math.abs(dy) < STILL) return
@@ -132,18 +143,22 @@
             for (var i = 0; i <= STEPS; i += 1) {
                 var k = i / STEPS
                 var e = ease(k)
+                /* 全程可见：起点 1、中点 DIM、终点 1。黑洞是运镜中逐渐变淡并停泊在淡态，
+                   卡片落地却必须是可读的实态，所以这里只借它的节奏，不借它的终态浓度。 */
+                var dim = 1 - (1 - DIM) * Math.sin(Math.PI * e)
                 keys.push({
                     transform: 'translate3d(' + px(dx * (1 - e)) + ', ' + px(dy * (1 - e)) + ', 0)',
-                    opacity: Math.round(e * 1000) / 1000,
+                    opacity: Math.round(dim * 1000) / 1000,
                     offset: k,
                     easing: 'linear'
                 })
             }
-            running = node.animate(keys, { duration: DURATION, easing: 'linear', fill: 'none' })
-            /* 结束后重记一次落点：收尾到终点的那一帧才是对话页的真实位置。
-               中途取消（下一次翻页插队）不记，等新的那段自己收尾。 */
-            running.onfinish = function () { running = null; schedule() }
-            running.oncancel = function () { running = null }
+            var animation = node.animate(keys, { duration: DURATION, easing: 'linear', fill: 'none' })
+            running = animation
+            /* 结束/取消都只清自己：cancel 事件是异步派发的，旧动画不能在下一段开始之后
+               把 running 抹掉，否则 remember() 会把被 transform 挪过的矩形记成布局真值。 */
+            animation.onfinish = function () { if (running === animation) running = null; schedule() }
+            animation.oncancel = function () { if (running === animation) running = null }
         }
 
         function enter(next) {
@@ -152,6 +167,8 @@
             if (prev === null || prev === next) { schedule(); return }
             if (next === 'active') { play(heroAt); heroAt = null }
             else if (next === 'hero') { play(dockAt); dockAt = null }
+            /* 中间相（settling 等）不是翻页：旧起点作废，免得下一次 active 从过期位置飞来。 */
+            else { heroAt = null; dockAt = null }
             schedule()
         }
 
