@@ -1013,7 +1013,7 @@ checks.check('cli.11c', 'the client half writes browser storage only for the nam
 checks.check('cli.11d', 'the client half owns exactly nine effects including the black-hole renderer', () => {
   const effects = client.match(/ctx\.effect\(/g) ?? []
   if (effects.length !== 9) return `${effects.length} ctx.effect() calls, expected exactly 9`
-  if (!/UniverseBlackHole\.mount\(\)/.test(client)) return 'missing ASCII black-hole lifecycle mount'
+  if (!/UniverseAccretionDisk\.mount\(\)/.test(client)) return 'missing ASCII black-hole lifecycle mount'
   if (!/tag\.dataset\.pluginCss = PLUGIN_ID \+ '\/theme\.css'/.test(client)) {
     return 'the paint layer is not namespaced'
   }

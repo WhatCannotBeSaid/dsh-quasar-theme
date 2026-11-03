@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
 import { performance } from 'node:perf_hooks'
-const source = readFileSync(new URL('../src/runtime/black-hole.js', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/runtime/geodesic.js', import.meta.url), 'utf8') + '\n' +
+  readFileSync(new URL('../src/runtime/accretion-disk.js', import.meta.url), 'utf8')
+const holeSource = readFileSync(new URL('../src/runtime/hole.js', import.meta.url), 'utf8')
+/* 分包后物理在 geodesic.js、字符层在 accretion-disk.js；测试要往测地线闭包里补名字时，
+   锚点必须落在前者的导出上，否则补进去的标识符在另一个闭包里不存在。 */
+const GEO_EXPORT = "    ringAt: function (u, v, angle) { return launch(u, v, angle).ring } }"
 function fixture(patched, size, opts) {
   let id=0
   const box=size||{width:320,height:200}
@@ -15,11 +20,16 @@ function fixture(patched, size, opts) {
      这样既有用例仍然走「没有 offscreen canvas → 纯 ASCII」的那条路，行为一点不变。
      putImageData 记下每一张真正被提交的遮罩，测试据此数 alpha 像素。 */
   if(opts&&opts.canvas2d){
+    /* 遮罩画布与洞层画布共用这一份替身：putImageData 记遮罩，arc/fill 记阴影圆，
+       两者都进 fixture 的共享数组，旧用例的断言口径不用改。 */
     document.createElement=()=>{
-      const off={width:0,height:0}
+      const off={width:0,height:0,dataset:{},getBoundingClientRect:()=>({width:box.width,height:box.height})}
       const octx={createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4),width:w,height:h}),
         putImageData:img=>{(off.images||(off.images=[])).push(img);bakes.push(img)},
-        drawImage(){},fillRect(){},setTransform(){},save(){},restore(){},clearRect(){},fillStyle:'',globalCompositeOperation:''}
+        beginPath(){},arc(x,y,r){arcs.push({x,y,r})},
+        fill(){fills.push(1);if(octx.fillStyle!==undefined)inks.push(String(octx.fillStyle))},
+        drawImage(){},fillText(){},fillRect(){},setTransform(){},save(){},restore(){},clearRect(){},
+        fillStyle:'',globalCompositeOperation:'',globalAlpha:1,font:'',textAlign:'',textBaseline:''}
       off.getContext=()=>octx
       return off
     }
@@ -30,14 +40,20 @@ function fixture(patched, size, opts) {
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:fn=>{timers.set(++id,fn);return id},clearTimeout:n=>timers.delete(n),
     requestAnimationFrame:fn=>{frames.set(++id,fn);return id},cancelAnimationFrame:n=>frames.delete(n)})
   Object.assign(context,opts&&opts.globals) /* 仅测试替换：覆盖 VM 里的 Math 等 */
-  vm.runInContext(patched||source,context)
+  vm.runInContext((patched||source) + (opts&&opts.hole ? '\n' + holeSource : ''), context)
+  /* 阴影与光子环住在 hole.js：要测它们就得显式 opts.hole 加载，再用 makeHole() 建一层。
+     替身画布直接复用 createElement 的记录器，arc/fill 仍然记进同一组数组。 */
+  const makeHole=()=>context.UniverseHole.create(document.createElement('canvas'))
   /* inks 记的是每枚圆 fill() 时用的 fillStyle：两档差异只允许出现在墨色上，
      所以测试要能把墨色和几何分开断言。 */
   const ctx={setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(glyph,x,y){painted.push(glyph);placed.push({glyph,x,y})},drawImage(){},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1);if(ctx.fillStyle!==undefined)inks.push(String(ctx.fillStyle))},fillStyle:''}
   const canvas={dataset:{},width:0,height:0,getContext:()=>ctx,getBoundingClientRect:()=>({width:box.width,height:box.height})}
   function drain(){let count=0;while(timers.size){assert.ok(count++<1000);const tasks=[...timers.values()];timers.clear();tasks.forEach(fn=>fn())}}
   function frame(t){const tasks=[...frames.values()];frames.clear();tasks.forEach(fn=>fn(t))}
-  return {api:context.UniverseBlackHole,canvas,context,timers,frames,listeners,observers,painted,placed,arcs,fills,inks,bakes,motion,document,drain,frame,box}
+  /* 分包后物理在 UniverseGeodesic、字符层在 UniverseAccretionDisk：测试关心的「生产源
+     导出了什么」是两者之和，盘那一半的 trace/shade 转口会覆盖同名的物理项，口径不变。 */
+  const api=Object.assign({},context.UniverseGeodesic,context.UniverseAccretionDisk)
+  return {api,canvas,context,timers,frames,listeners,observers,painted,placed,arcs,fills,inks,bakes,motion,document,drain,frame,box,makeHole}
 }
 test('ASCII parameters clamp angle, cell budget and speed; glyph alphabet is printable ASCII',()=>{
   const {api}=fixture()
@@ -64,11 +80,10 @@ test('null-path cache contains dark captured rays and finite emitting disk inter
   }
 })
 test('both themes fill the shadow disc first: same centre and radius, only the ink differs',()=>{
-  const f=fixture(),r=f.api.create(f.canvas)
-  f.drain();assert.equal(r.stats().ready,true)
-  /* 暗档也必须铺这枚圆：被捕获的格子没有 glyph，draw() 的循环会跳过它们，画布又每帧
-     clearRect 成全透明 —— 不铺就把整个洞心让给页面底纹，洞变成一张静止的纹理。
-     旧的断言正好相反（暗档 arcs 必须为 0），那是在把缺陷写成契约。 */
+  /* 阴影圆随洞层搬到 hole.js：这块画布只铺阴影与光子环，盘的字符层不再碰它。 */
+  const f=fixture(null,null,{canvas2d:true,hole:true}),hole=f.makeHole()
+  /* 暗档也必须铺这枚圆：环层之外什么都没有，画布又不透明 —— 不铺就把整个洞心让给页面底纹，
+     洞变成一张静止的纹理。旧的断言正好相反（暗档 arcs 必须为 0），那是在把缺陷写成契约。 */
   assert.equal(f.arcs.length,1,`dark paint must fill the shadow disc, got ${f.arcs.length} arcs`)
   assert.equal(f.fills.length,1)
   const [dark]=f.arcs
@@ -77,17 +92,17 @@ test('both themes fill the shadow disc first: same centre and radius, only the i
      320x200 短边 200 → 34.12392424668435。旧值 34 是小角近似，偏小 0.3645%。 */
   assert.ok(Math.abs(dark.r-34.12392424668435)<1e-9,`horizon radius ${dark.r} should be rho_c*min(w,h)/2`)
   const darkInk=f.inks[0]
-  r.setMode('light')
+  hole.setMode('light')
   assert.equal(f.arcs.length,2,`light paint must also fill a shadow disc, got ${f.arcs.length} arcs`)
   assert.equal(f.fills.length,2)
   const [,light]=f.arcs
   /* 两档只有墨色不同，圆心与半径逐位相同 —— 换档不该让阴影挪窝或换大小。 */
   assert.deepEqual(light,dark)
   assert.notEqual(f.inks[1],darkInk,'light and dark must not use the same shadow ink')
-  r.setMode('dark')
+  hole.setMode('dark')
   assert.equal(f.arcs.length,3)
   assert.equal(f.inks[2],darkInk,'switching back must restore the dark ink')
-  r.dispose()
+  hole.dispose()
 })
 
 test('mount spans the whole frame and hands the sidebar line to the mask variable',()=>{
@@ -109,7 +124,7 @@ test('mount spans the whole frame and hands the sidebar line to the mask variabl
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:()=>0,clearTimeout(){},
     requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
   vm.runInContext(source,context)
-  const dispose=context.UniverseBlackHole.mount()
+  const dispose=context.UniverseAccretionDisk.mount()
   assert.equal(typeof dispose,'function')
   /* 框固定在视口左缘、整窗宽、frame 高：换页不改尺寸，也就不会重建网格。 */
   assert.equal(canvas.style.left,'0px');assert.equal(canvas.style.top,'0px')
@@ -149,7 +164,7 @@ test('换页与右栏展开都不改取景框：宽高恒等于 frame，只有 -
       getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:()=>0,clearTimeout(){},
       requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
     vm.runInContext(source,context)
-    const dispose=context.UniverseBlackHole.mount()
+    const dispose=context.UniverseAccretionDisk.mount()
     const box={left:style.left,top:style.top,width:style.width,height:style.height,edge:style['--uni-hole-edge']}
     dispose()
     return box
@@ -186,7 +201,7 @@ test('mount publishes the canvas clear colour the sidebar is painted with',()=>{
       getComputedStyle:()=>({colorScheme:scheme}),setTimeout:()=>0,clearTimeout(){},
       requestAnimationFrame:()=>0,cancelAnimationFrame(){}})
     vm.runInContext(source,context)
-    return {props,dispose:context.UniverseBlackHole.mount()}
+    return {props,dispose:context.UniverseAccretionDisk.mount()}
   }
   const dark=mountWith('dark')
   assert.equal(dark.props['--cp-void'],'#030509')
@@ -398,7 +413,10 @@ test('字符层：环层就绪后环上的盘格全部让位，环外照常落�
      读成一圈零散杂点。这里在 shade 之前跳过环带里的盘格。
      边界不能是固定像素：环峰随方位在 140..215px 之间移动，下方被前景盘拉出一段外扩。
      生产按 bakeRing 记下的方位包络 edge[方位] 查表，只清环真有像素的方向。 */
-  const f=fixture(null,{width:640,height:360},{canvas2d:true}),r=f.api.create(f.canvas)
+  const f=fixture(null,{width:640,height:360},{canvas2d:true,hole:true})
+  /* 环层现在由洞层提供：先建洞，再把洞交给字符层查让位包络。 */
+  const hole=f.makeHole()
+  const r=f.api.create(f.canvas,undefined,hole)
   f.drain();assert.equal(r.stats().ready,true)
   const ring=r.stats().ring
   assert.ok(ring,'环层必须烘出来，否则这条用例测不到让位逻辑')
@@ -498,10 +516,11 @@ test('消费者契约：环缓存只要有耗尽射线就整张不发布', () =>
      ceil(34.1239*1.75)*2 都取 120），变化来自 plot 的两条像素阈值——rad<horizon+.5
      跳过、rad<horizon+1.5 淡入——随半径一起外移 0.124px，窗口内被判为可绘的像素因此
      减少约 9%，alpha>0 的计数按预期变成 304（不是回归），此后同一尺寸下逐位可复现。 */
-  const ok = fixture(null, { width: 320, height: 200 }, { canvas2d: true })
-  const r1 = ok.api.create(ok.canvas)
+  const ok = fixture(null, { width: 320, height: 200 }, { canvas2d: true, hole: true })
+  const h1 = ok.makeHole()
+  ok.api.create(ok.canvas, undefined, h1)
   ok.drain()
-  const s1 = r1.stats()
+  const s1 = h1.stats()
   assert.equal(s1.ring.state, 'ready')
   assert.ok(s1.ring.attempted > 0)
   assert.equal(s1.ring.exhausted, 0)
@@ -514,10 +533,11 @@ test('消费者契约：环缓存只要有耗尽射线就整张不发布', () =>
 
   /* 翻倍预算救得回来的情形：整张遮罩必须救回来，而不是因为一条近临界射线就整层消失。
      这条同时验证「重算走的是同一条落笔判据」—— 救回来的遮罩与默认预算逐像素相同。 */
-  const saved = fixture(injectBudget(120), { width: 320, height: 200 }, { canvas2d: true })
-  const rs = saved.api.create(saved.canvas)
+  const saved = fixture(injectBudget(120), { width: 320, height: 200 }, { canvas2d: true, hole: true })
+  const hs = saved.makeHole()
+  saved.api.create(saved.canvas, undefined, hs)
   saved.drain()
-  const ss = rs.stats()
+  const ss = hs.stats()
   assert.equal(ss.ring.state, 'ready')
   assert.ok(ss.ring.exhausted > 0, '120 步预算下确实有射线首轮算不完')
   assert.equal(ss.ring.retried, ss.ring.exhausted, '每个耗尽像素只重算一次')
@@ -530,10 +550,11 @@ test('消费者契约：环缓存只要有耗尽射线就整张不发布', () =>
 
   /* 耗尽注入：修复前这张遮罩照样提交，320×200 上留下 340 个非零 alpha 像素
      （现基线 304，原因同上） */
-  const bad = fixture(injectBudget(4), { width: 320, height: 200 }, { canvas2d: true })
-  const r2 = bad.api.create(bad.canvas)
+  const bad = fixture(injectBudget(4), { width: 320, height: 200 }, { canvas2d: true, hole: true })
+  const hb = bad.makeHole()
+  bad.api.create(bad.canvas, undefined, hb)
   bad.drain()
-  const s2 = r2.stats()
+  const s2 = hb.stats()
   assert.equal(s2.ring.state, 'incomplete', '有射线没算完，遮罩状态必须显式不完整')
   assert.ok(s2.ring.exhausted > 0)
   assert.equal(s2.ring.retried, s2.ring.exhausted)
@@ -544,10 +565,11 @@ test('消费者契约：环缓存只要有耗尽射线就整张不发布', () =>
   /* 低预算下一条射线都走不到落像素那一步，discarded 自然是 0；预算抬到 100 步才真会
      「已经画出来了、之后才发现有射线没算完」。这时必须把丢掉的数量报出来，
      否则从 stats 上看不出整张遮罩是被丢弃的。 */
-  const part = fixture(injectBudget(100), { width: 320, height: 200 }, { canvas2d: true })
-  const r3 = part.api.create(part.canvas)
+  const part = fixture(injectBudget(100), { width: 320, height: 200 }, { canvas2d: true, hole: true })
+  const hp = part.makeHole()
+  part.api.create(part.canvas, undefined, hp)
   part.drain()
-  const s3 = r3.stats()
+  const s3 = hp.stats()
   assert.equal(s3.ring.state, 'incomplete')
   assert.ok(s3.ring.exhausted > 0)
   assert.ok(s3.ring.unresolved > 0)
@@ -558,7 +580,7 @@ test('消费者契约：环缓存只要有耗尽射线就整张不发布', () =>
 test('精确端点事件：y=0 落在步端只算一次，不会与上一步重复计数', () => {
   /* crossFraction 是生产私有函数，不为了测试把它挂进公开导出：这里在内存源码里
      只给导出行补一个名字，生产文件一个字都不改。 */
-  const exposed = source.replace("debugSource: 'v3' }", "debugSource: 'v3', crossFraction: crossFraction }")
+  const exposed = source.replace(GEO_EXPORT, "    ringAt: function (u, v, angle) { return launch(u, v, angle).ring }, crossFraction: crossFraction }")
   assert.notEqual(exposed, source, '导出行必须还能被找到')
   const { api } = fixture(exposed)
   assert.equal(typeof api.crossFraction, 'function')
@@ -661,7 +683,7 @@ const A1_SAME=1e-12,A1_SHIFT=1e-6,A1_RADIUS=1e-5
    内存源码副本里补回来，生产文件不多一个字段，也没有测试专用的生产 API。 */
 const A1_G4_LINE='g4: g4,'
 const A1_G4_CALC='var g4 = g * g * g * g'
-const A1_EXPORT_LINE="debugSource: 'v3' }"
+const A1_EXPORT_LINE=GEO_EXPORT
 function a1Source(src){
   /* 不只是「找得到」，还要「只有一处」：replace 命中首个匹配，若将来出现第二个相同的字段行，
      注入可能落进别的函数而断言仍然碰巧变绿。 */
@@ -669,7 +691,7 @@ function a1Source(src){
   assert.equal(src.split(A1_EXPORT_LINE).length,2,'列出 debugSource 的那一行必须恰好一处')
   const withG=src.replace(A1_G4_LINE,A1_G4_LINE+' g: g, axialB: axialB,')
   assert.notEqual(withG,src,'diskHit 的 g4 行必须还认得出（注入点找不到说明生产源变了）')
-  const withExport=withG.replace(A1_EXPORT_LINE,"debugSource: 'v3', diskHit: diskHit }")
+  const withExport=withG.replace(A1_EXPORT_LINE,"    ringAt: function (u, v, angle) { return launch(u, v, angle).ring }, diskHit: diskHit }")
   assert.notEqual(withExport,withG,'导出行必须还认得出；若只是 debugSource 版本号变了，改这里的锚点常量，不要放宽断言')
   return withExport
 }
@@ -1055,16 +1077,21 @@ test('g⁴ 契约的负向注入：g³ 与夹限权重都被真实断言抓住�
 /* 计数只插在测试 VM 里：格子几何的调用点换成先记账再调原函数，Math.sqrt/atan2 也在源码里换成
    计数包装（见 countedSource）。两边合起来才说明「已访问格子的静态几何」真的少算了。 */
 function countedSource(src){
-  const patched=src.replace(/var g0 = geomFor\(/, 'var g0 = (function () { geoHits++; return geomFor.apply(null, arguments) }).call(null, ')
+  /* 扇区几何在吸积盘那一半，测地线那半的 Math.sqrt 也一起计：计数函数挂在脚本顶层，
+     两边的闭包都能解析到同一个绑定，重建时 trace 的开方因此仍算进总量。
+     计数函数只在 VM 里，生产文件一个字都不改。 */
+  const prefix = 'var sqrtCalls = 0, atanCalls = 0\n' +
+    'function __sqrt(v) { sqrtCalls++; return Math.sqrt(v) }\n' +
+    'function __atan2(y, x) { atanCalls++; return Math.atan2(y, x) }\n' +
+    'globalThis.__geoCount = { sqrt: function () { return sqrtCalls }, atan: function () { return atanCalls } }\n'
+  const patched=prefix+src.replace(/var g0 = geomFor\(/, 'var g0 = (function () { geoHits++; return geomFor.apply(null, arguments) }).call(null, ')
     .replace(/function geomFor\(cache, cols, i, cw, ch, baseX, baseY\) \{/, 'var geoHits = 0\n  function geomFor(cache, cols, i, cw, ch, baseX, baseY) {')
     /* VM 的 %Math% 是内建对象，宿主侧拿到的是副本，从外面替换 context.Math 拦不住模块里已经
        闭包住的 Math 绑定。所以几何计数只替换源码里的调用点，被调用的仍是内建函数本身，
        返回值逐位相同，宿主 Math 与 VM 内在 Math 都不变。 */
     .replace(/Math\.sqrt\(/g, '__sqrt(')
     .replace(/Math\.atan2\(/g, '__atan2(')
-    /* 生产源码是 \r\n：/m 的 ^ 只认 \n 之前的位置，锚不住缩进，所以这里按「缩进 + 换行」定位。 */
-    .replace(/  var geoHits = 0\r?\n/g, '  var geoHits = 0, sqrtCalls = 0, atanCalls = 0\n  function __sqrt(v) { sqrtCalls++; return Math.sqrt(v) }\n  function __atan2(y, x) { atanCalls++; return Math.atan2(y, x) }\n  globalThis.__geoCount = { sqrt: function () { return sqrtCalls }, atan: function () { return atanCalls } }\n')
-    .replace(/(debugSource: 'v3')/, "$1, geoHits: function () { return geoHits }")
+    .replace(/(debugSource: 'v4')/, "$1, geoHits: function () { return geoHits }")
   assert.notEqual(patched,src,'几何计数插桩必须命中 geomFor 与对外接口')
   assert.ok(patched.includes('return geoHits'),'几何计数插桩必须挂到对外接口上')
   assert.ok(patched.includes('__geoCount'),'几何计数插桩必须把计数函数交出来')
@@ -1085,7 +1112,7 @@ test('静态几何缓存：同一生产绘制器分别走参考几何与缓存�
     if (k === 1) return gy0
     if (k === 2) return gd2
     if (k === 3) return exact ? d : (exact = 1, d = Math.sqrt(gd2))
-    if (k === 4) return bin >= 0 ? bin : (bin = (((Math.atan2(gy0, gx0) + Math.PI) / (Math.PI * 2) * RING_BINS) | 0) % RING_BINS)
+    if (k === 4) return bin >= 0 ? bin : (bin = (((Math.atan2(gy0, gx0) + Math.PI) / (Math.PI * 2) * ringBins) | 0) % ringBins)
     return 0
   }, set: function (k, v) { if (k === 3) d = v; else if (k === 4) bin = v } }
 }`
@@ -1095,7 +1122,7 @@ test('静态几何缓存：同一生产绘制器分别走参考几何与缓存�
   function build(name){
     /* VM 里被全局替换的 Math 未必能穿透到模块闭包，所以覆盖范围的判据是下面逐帧比较的
        Canvas 调用序列，不指望在这里数调用次数。 */
-    const f=fixture(name==='cache'?source:patchedSource,{width:160,height:100},{canvas2d:true})
+    const f=fixture(name==='cache'?source:patchedSource,{width:160,height:100},{canvas2d:true,hole:true})
     const calls=[]
     const ctx=f.canvas.getContext()
     for(const key of ['fillText','fill','drawImage','arc','clearRect','beginPath','save','restore'])
@@ -1104,7 +1131,7 @@ test('静态几何缓存：同一生产绘制器分别走参考几何与缓存�
         ctx[key]=function(){calls.push({op:key,args:[].slice.call(arguments).map(v=>typeof v==='object'&&v?`<${v.width}x${v.height}>`:v),fillStyle:String(ctx.fillStyle),font:String(ctx.font),textAlign:String(ctx.textAlign),textBaseline:String(ctx.textBaseline),globalAlpha:ctx.globalAlpha});return orig.apply(ctx,arguments)}
       }
     const props=()=>({fillStyle:String(ctx.fillStyle),font:ctx.font,align:ctx.textAlign,baseline:ctx.textBaseline,alpha:ctx.globalAlpha})
-    const r=f.api.create(f.canvas)
+    const r=f.api.create(f.canvas,undefined,f.makeHole())
     f.drain()
     f.ticks=0
     function tick(){
@@ -1156,7 +1183,7 @@ test('静态几何缓存：同一生产绘制器分别走参考几何与缓存�
   const nocur=fixture(patchedSource,{width:160,height:100})
   const nr=noref.api.create(noref.canvas),nc=nocur.api.create(nocur.canvas)
   noref.drain();nocur.drain()
-  assert.equal(nr.stats().ring.state,'unavailable');assert.equal(nc.stats().ring.state,'unavailable')
+  assert.equal(nr.stats().ring,null,'没有洞层就没有环层');assert.equal(nc.stats().ring,null)
   assert.deepEqual(nocur.placed,noref.placed,'环不可用时的 ASCII 落字也必须逐字相同')
   assert.ok(noref.placed.length>50,'无环路径几乎没有落字，比不出来')
   cur.r.dispose();ref.r.dispose()
@@ -1169,15 +1196,16 @@ test('静态几何缓存：隔离 VM 计数证明暖缓存不再重复算已访�
      不要求「整个 draw 的 sqrt 为零」——盘面每帧本来就有一枚清屏用的 sqrt，不在格子几何分支里。
      尺寸取 640×360：环的方位包络 edgeMax 约 64px，大于 short/2，环外确有盘格落在环带里，
      所以「阴影圆外、环带内」这一支与扇区桶在固定输入下真的会被走到（160×100 时环整圈落在盘外）。 */
-  const f=fixture(countedSource(source),{width:640,height:360},{canvas2d:true})
+  const f=fixture(countedSource(source),{width:640,height:360},{canvas2d:true,hole:true})
   /* create() 返回的控制器只有公开方法：几何访问口挂在模块的 api 上，Math 计数口挂在 VM 全局上。
      不挂到 api 上是因为 geoSrc 只替换过一次 api 尾行，替换表必须逐条命中。 */
   const geoHits=f.api.geoHits
   const sqrtCalls=f.context.__geoCount.sqrt, atanCalls=f.context.__geoCount.atan
-  const r=f.api.create(f.canvas)
+  const ho=f.makeHole()
+  const r=f.api.create(f.canvas,undefined,ho)
   f.drain()
   assert.ok(r.stats().cells>0)
-  assert.equal(r.stats().ring.state,'ready','环层必须就绪，否则环带分支根本不进')
+  assert.equal(ho.stats().ring.state,'ready','环层必须就绪，否则环带分支根本不进')
   function frame(n){
     const g0=geoHits(),s0=sqrtCalls(),a0=atanCalls()
     f.frame(n)

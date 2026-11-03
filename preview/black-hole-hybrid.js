@@ -2,10 +2,10 @@
  * bloom under an ASCII accretion disk.
  *
  * Reuses the existing renderer instead of re-deriving the physics:
- *   - UniverseBlackHole.trace(u, v, angle)  geodesic march, disk crossings,
+ *   - UniverseAccretionDisk.trace(u, v, angle)  geodesic march, disk crossings,
  *     Doppler boost, photon-sphere ring weight, capture flag.
- *   - UniverseBlackHole.shade(ray, time, brightness)  disk flux model.
- * Both come from src/runtime/black-hole.js, loaded by the page before this file.
+ *   - UniverseAccretionDisk.shade(ray, time, brightness)  disk flux model.
+ * Both come from src/runtime/accretion-disk.js, loaded by the page before this file.
  *
  * What is added here (art direction, not new physics):
  *   - The critical curve (impact parameter 3*sqrt(3) M) is solved analytically
@@ -14,15 +14,15 @@
  *   - A blurred copy of the traced disk supplies the soft halo.
  *   - Time is frozen: the orbital phase is a constant.
  *
- * The camera constants below mirror src/runtime/black-hole.js. If that module
+ * The camera constants below mirror src/runtime/accretion-disk.js. If that module
  * changes DISTANCE or SHADOW_SHARE, the ring and the traced disk drift apart.
  */
 (function () {
   'use strict'
-  var U = window.UniverseBlackHole
-  if (!U) throw new Error('UniverseBlackHole missing: load src/runtime/black-hole.js first')
+  var U = window.UniverseAccretionDisk
+  if (!U) throw new Error('UniverseAccretionDisk missing: load src/runtime/accretion-disk.js first')
 
-  var DISTANCE = 60              // observer radius, mirrors src/runtime/black-hole.js
+  var DISTANCE = 60              // observer radius, mirrors src/runtime/accretion-disk.js
   var B_CRIT = 3 * Math.sqrt(3)  // critical impact parameter
   var SHADOW_SHARE = 0.40        // shadow spans this share of the short side
   var TAN_HALF = B_CRIT / DISTANCE / SHADOW_SHARE
@@ -272,6 +272,6 @@
     }
   }
 
-  window.UniverseBlackHoleHybrid = { create: create, impactAt: impactAt, constants: {
+  window.UniverseAccretionDiskHybrid = { create: create, impactAt: impactAt, constants: {
     DISTANCE: DISTANCE, B_CRIT: B_CRIT, TAN_HALF: TAN_HALF, INCLINATION: INCLINATION } }
 })()

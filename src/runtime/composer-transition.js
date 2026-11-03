@@ -18,9 +18,9 @@
      * 为 reduce 时不播。
      *
      * 时长与曲线跟黑洞的那次运镜对齐（用户 2026-11-01：「跟黑洞的转场同步好不。」）：同 1000ms，
-     * 同 easeInOutCubic —— 曲线照抄 black-hole.js 的做法烘焙成 12 段关键帧、每段标 linear，
+     * 同 easeInOutCubic —— 曲线照抄 accretion-disk.js 的做法烘焙成 12 段关键帧、每段标 linear，
      * 不用 cubic-bezier 近似（两边一起看会差出半帧，读作「没同步」）。两个数字与
-     * src/client.js 的 MOVE_MS、black-hole.js 的 STEPS 是配套的，改一个就要改另一个。
+     * src/client.js 的 MOVE_MS、accretion-disk.js 的 STEPS 是配套的，改一个就要改另一个。
      *
      * 为什么是 FLIP 的矩形差而不是 CSS 关键帧：两个位置由宿主的 flex / sticky 决定，两页的
      * 卡片尺寸也不一样，关键帧写不出「从上一页的实际位置出发」。所以只读矩形，把差值当起始
@@ -51,7 +51,7 @@
 
         var CARD = '[data-composer-card]'
         var PHASE = '[data-phase]'
-        /* 与黑洞运镜同步：src/client.js 的 MOVE_MS = 1000，black-hole.js 的 12 段 easeInOutCubic。 */
+        /* 与黑洞运镜同步：src/client.js 的 MOVE_MS = 1000，accretion-disk.js 的 12 段 easeInOutCubic。 */
         var DURATION = 1000
         var STEPS = 12
         /* 小于这个像素差视为没动：不排动画，避免一次亚像素抖动也起一段过渡。 */
@@ -84,7 +84,7 @@
             return { top: box.top, left: box.left }
         }
 
-        /* 与 black-hole.js 里那条 e 逐字同式：中点才到半程，两端都慢。 */
+        /* 与 accretion-disk.js 里那条 e 逐字同式：中点才到半程，两端都慢。 */
         function ease(k) {
             return k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2
         }

@@ -7,7 +7,7 @@ export const LOCAL_WALLPAPERS = 'out/wallpapers.local.json'
  * `--cp-brand-mark` 里（tools/build-client.mjs 从 build/brand-mark-black-hole.png 内嵌）。
  * 原来的矢量几何文件 src/runtime/brand-logo-geometry.js 已不再被组件引用，也不再进包；
  * 文件本身留在盘上，需要回退到矢量方案时把这一行加回来即可。 */
-export const CLIENT_FILES = ['src/runtime/black-hole.js', 'src/runtime/page-mode.js', 'src/runtime/brand-logo.js', 'src/runtime/mutation-records.js', 'src/runtime/glass.js', 'src/runtime/lens.js', 'src/runtime/pins.js', 'src/runtime/panels.js', 'src/runtime/gravity.js', 'src/runtime/selection.js', 'src/runtime/accretion.js', 'src/runtime/kepler.js', 'src/runtime/composer-transition.js', 'src/runtime/composer-typed.js', 'src/runtime/brand-routing.js', 'src/client.js']
+export const CLIENT_FILES = ['src/runtime/geodesic.js', 'src/runtime/accretion-disk.js', 'src/runtime/hole.js', 'src/runtime/page-mode.js', 'src/runtime/brand-logo.js', 'src/runtime/mutation-records.js', 'src/runtime/glass.js', 'src/runtime/lens.js', 'src/runtime/pins.js', 'src/runtime/panels.js', 'src/runtime/gravity.js', 'src/runtime/selection.js', 'src/runtime/accretion.js', 'src/runtime/kepler.js', 'src/runtime/composer-transition.js', 'src/runtime/composer-typed.js', 'src/runtime/brand-routing.js', 'src/client.js']
 
 /* 品牌标的样式（遮罩 + currentColor）。它不在 src/theme.css 里，因为 paint layer 只接受
  * 「body/:root/#root + data-* 契约选择器」（selfcheck css.7），而组件自己的类是主题的内部

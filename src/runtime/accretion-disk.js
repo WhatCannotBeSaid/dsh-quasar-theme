@@ -1,48 +1,22 @@
-/* Original ASCII thin-disk renderer. No third-party code or font copied.
- * Geometry: Schwarzschild null geodesics in Cartesian form, x'' = -3 L^2 x / r^5,
- * G=M=c=1, from a fixed 60M observer. Capture is decided by the integration
- * (r < CAPTURE_R); it is not an analytic impact-parameter test, and the traced
- * capture edge only matches b = 3*sqrt(3) to the tolerances pinned in the tests.
- * The disk terminates at the first crossing of the y=0 plane inside 6M..16M.
- * The bright ring is a separate Canvas layer: a narrow Gaussian on the flat
- * impact parameter |o x v| (RING_CORE, expressed in impact units), not radiation
- * summed from higher-order disk images.
- * The camera keeps a fixed vertical field of view, so the shadow always spans
- * the same share of the viewport and the disk can be composed around it.
- * On light paper the shadow is painted as solid ink before the disk, because an
- * unpainted Schwarzschild shadow on a light page reads as empty space rather
- * than a hole; the disk's near side is then drawn with the luminous ramp on top.
- * Cells are traced once per geometry change; only the orbital phase is
- * recalculated per frame. */
-var UniverseBlackHole = (function () {
+/* Accretion disk — the ASCII cell layer over the geodesic kernel
+ * ---------------------------------------------------------------------------------
+ * What this file owns: the glyph alphabet, the grid, the 11-step tone mapping, the
+ * per-frame animation of the disk (differential rotation, brightness knots, the slow
+ * global breath) and the two canvases' mount/teardown on the page.
+ *
+ * What it does NOT own: the geodesics. trace and shade's physics come from
+ * UniverseGeodesic; this file only decides how a returned ray is turned into a
+ * character. The hole (shadow disc + photon ring) is a separate canvas entirely
+ * (src/runtime/hole.js) and is only consulted here for the ring-band keep-out.
+ */
+var UniverseAccretionDisk = (function () {
+  /* 物理常量从测地线内核借：本层不再重算任何度规量。 */
+  var INNER = UniverseGeodesic.inner, OUTER = UniverseGeodesic.outer
+  var CRIT_RATIO = UniverseGeodesic.ratio, STEP_BUDGET = UniverseGeodesic.budget
+  var trace = UniverseGeodesic.trace
   var GLYPHS = ' .-:;+*o#%@' /* 11 档，索引 0..10；lastGlyph = length - 1 */
   var STROKES = '|-/\\'
   var defaults = { angle: 15, fps: 30, maxCells: 16000, cellWidth: 6, brightness: 1, speed: 1 }
-  var DISTANCE = 60
-  var INNER = 6, OUTER = 16
-  var B_CRIT = 3 * Math.sqrt(3)
-  var SHADOW_SHARE = 0.34
-  var HORIZON_INK = '#101725'
-  /* 暗档的阴影底色。html 底部是 rgb(12,17,26) = '#0c111a'，阴影要压得比它还深，
-     洞心才有一个可辨认的暗面；'#030509' 与 --cp-void 同值，是这套主题里最深的墨。 */
-  var SHADOW_INK = '#030509'
-  /* 光子环精细层的墨色（第十五阶段）。环是热的，不是灯光：
-     暗档取暖白香槟金（亮，但偏奶油而非纯白），亮档取深暖金铜（压在浅纸上够黑）。
-     两档都避开纯白/纯黑，环才读成「金属加热」而不是描边。 */
-  var RING_INK_DARK = '#f3dcae'
-  var RING_INK_LIGHT = '#6b3f14'
-  var TAN_HALF = B_CRIT / DISTANCE / SHADOW_SHARE
-  /* 阴影在屏幕上的半径比例：有限距离临界光线的真实投影，不是 SHADOW_SHARE 的取整。
-     b_c = 3√3 处的平嵌坐标满足 tanψ_c = b_c/√(D² − (1−2/D)·b_c²)，rho_c = tanψ_c/TAN_HALF。
-     SHADOW_SHARE 从此只定视场（TAN_HALF），不再决定阴影画多大。 */
-  var CRIT_RATIO = B_CRIT / Math.sqrt(DISTANCE * DISTANCE - (1 - 2 / DISTANCE) * B_CRIT * B_CRIT) / TAN_HALF
-  /* 有限距离观察者的 √(1−2/D)：只用来把 r 处的频移换算成观察者测到的总频移。 */
-  var SQRT_FD = Math.sqrt(1 - 2 / DISTANCE)
-  /* 光子环的可见性（第八阶段）：几何照旧，只收紧映射。
-     RING_CORE 是 impact 参数空间里的高斯 σ（与 |o x v| 同单位，M），不是屏幕半径的比例，
-     也不随视口缩放；高斯峰值仍为 1（exp(0)），所以临界线上的环还是那么亮。
-     环权重只喂 Canvas 层：它既不是完整的辐射输运，也不参与 ASCII 盘的亮度。 */
-  var RING_CORE = 0.15
   var SWIRL = 16
   /* 静止态的自转：盘相位是「角向位置 - time * SWIRL / r^1.5」，只有这一项时整盘是一张固定
      的花纹在滑行，读不出「洞在转」。这里补三件逐帧便宜的事：
@@ -70,15 +44,11 @@ var UniverseBlackHole = (function () {
      压在 index 3 附近，左上角只剩稀疏的点和短横。.45 把左右两半的平均档位从 3.0 / 6.1
      抬到 4.1 / 6.9，落字率 99.3% → 100%，满档 @ 只从 2.7% 升到 4.1%。 */
   var TONE_GAMMA = .45
-  /* 光子环让位：环层已经把环画成一条连续细线，ASCII 字符压在上面就成了一圈零散杂点。
-     环外沿随方位在 140..215px 之间移动（下方被前景盘拉出一段外扩），整圈用一个半径
-     会把没有环的上方连同前景盘一起挖空，所以烘焙时按方位扇区记下「环可见区的最外半径」，
-     绘制时逐格查表，只跳过环真的有像素的那一段。
-     RING_BINS 是扇区数：环半径约 140px 处 1° 弧长 2.4px，比字符格宽（6px）还细，360 格够用。 */
-  var RING_BINS = 360
-  /* 环可见像素的权重门槛：alpha = 255 * weight^1.7，0.12 对应 alpha 约 15，
-     再淡的像素肉眼读不出是环，不该为它清掉盘面。 */
-  var RING_VISIBLE = .12
+  /* 光子环让位：环由 hole.js 那块画布画成一条连续细线，ASCII 字符压在上面就成了一圈
+     零散杂点。环外沿随方位在 140..215px 之间移动（下方被前景盘拉出一段外扩），整圈用一个
+     半径会把没有环的上方连同前景盘一起挖空，所以洞那层烘焙时按方位扇区记下「环可见区的
+     最外半径」（edge 数组），这里逐格查表，只跳过环真的有像素的那一段。
+     扇区数不在这里另定义：直接用洞那层返回的 edge.length，两边永远不会数错。 */
   /* 取景位移：每帧把画布整体平移这么多像素再画，洞心就离开视图中心。
      默认 0 = 居中（新会话页）。对话页背景要的是「洞向右走出画面、只留盘左半边的镜环弧」，
      x 由 viewXFor() 从视口宽度和半径反算。y 在两个页面都是 0，只有转场途中抬起来走弧线
@@ -125,191 +95,6 @@ var UniverseBlackHole = (function () {
     var t = Math.min(1, Math.max(0, (x - lo) / (hi - lo)))
     return t * t * (3 - 2 * t)
   }
-  /* 相机初值与光子环权重。trace() 与环层烘焙共用这一份公式：烘焙先用它筛掉不可能
-     达到 ring > .004 的像素，再去积分，算出来的权值仍是 trace() 里那一个。
-     初速度按欧氏范数归一（|v|=1），所以 L=|o×v| 是角动量模长，不是 L/E。能量归一化
-     E0=√(1−2L²/D³) 放到 trace 入口算一次，不放进这里 —— 环预筛要为每个被丢弃的像素
-     调用 launch，这里多一次开方就多一份白算。b=Jy0/E0 才是无量纲的轴向角动量比。 */
-  function launch(u, v, angle) {
-    var a = angle * Math.PI / 180, sa = Math.sin(a), ca = Math.cos(a)
-    var ox = 0, oy = DISTANCE * sa, oz = DISTANCE * ca
-    var vx = u * TAN_HALF, vy = -sa + v * TAN_HALF * ca, vz = -ca - v * TAN_HALF * sa
-    var len = Math.sqrt(vx * vx + vy * vy + vz * vz); vx /= len; vy /= len; vz /= len
-    var lx = oy * vz - oz * vy, ly = oz * vx - ox * vz, lz = ox * vy - oy * vx
-    var l2 = lx * lx + ly * ly + lz * lz
-    var impact = Math.sqrt(l2)
-    /* 光子环权重：impact 空间的窄高斯，峰值仍为 1；σ 是 RING_CORE，见上方说明。 */
-    return { x: ox, y: oy, z: oz, px: vx, py: vy, pz: vz, l2: l2, impact: impact,
-      ring: Math.exp(-Math.pow((impact - B_CRIT) / RING_CORE, 2)) }
-  }
-  /* 积分与事件参数。原来的变步长 velocity-Verlet 只有二阶精度、盘面交点用线性插值、
-     420 步耗尽与正常逃逸返回同一个结果，近临界光线（临界曲线两侧约 1e-3 的屏幕带）
-     因此既漏盘也误判终态。这里换成自适应 DP5(4)：局部位移误差按分量相对量控制，
-     盘面交点用三次 Hermite 求根，资源耗尽单独成为一种终态。 */
-  /* 单步相对误差上限：6 个分量各自除以 1+|状态| 后取最大。1e-9 是实测选的：再用 1e-7 时
-     (0,.34125) 的首个盘内交点偏 4.25e-3M，1e-8 偏 5.7e-4M，1e-9 偏 3.0e-5M，1e-11 偏
-     9.0e-7M。误差随 tol 收紧而单调下降，说明那 4e-3 是可复现的容差不足、不是临界混沌；
-     但收敛**不是**严格的线性关系 —— 相邻两档的误差比在 7.5 / 19 / 33 之间变动，所以不能拿
-     「tol 小一个量级就准一个量级」去外推别的目标或别的角度。1e-9 的步数只比 1e-7 多三成。 */
-  var STEP_TOL = 1e-9
-  var STEP_MAX = 2.6       /* 单步上限，与原来的 h 上限一致 */
-  var STEP_BUDGET = 2400   /* 单条射线的步数预算（含被拒绝的尝试） */
-  /* 单步方位角上限。它只是在步首按当时的 r 估计一步该走多少：h·L/r² ≤ 0.4 时取整步。
-     r 在步内继续下降时，实际扫过的方位角会比这个估计值大，所以它不是「一步内最多一个
-     y=0 交点」的保证 —— 那个保证没有证明过，事件检测也不依赖它。 */
-  var ANGLE_CAP = .4
-  var CAPTURE_R = 2.05     /* 落到 2.05M 以内：必然继续下落 */
-  var ESCAPE_R = 108       /* 已远且仍在向外 */
-  var DP_A = [
-    [1 / 5],
-    [3 / 40, 9 / 40],
-    [44 / 45, -56 / 15, 32 / 9],
-    [19372 / 6561, -25360 / 2187, 64448 / 6561, -212 / 729],
-    [9017 / 3168, -355 / 33, 46732 / 5247, 49 / 176, -5103 / 18656],
-    [35 / 384, 0, 500 / 1113, 125 / 192, -2187 / 6784, 11 / 84]
-  ]
-  var DP_B = [35 / 384, 0, 500 / 1113, 125 / 192, -2187 / 6784, 11 / 84, 0]
-  var DP_E = [-71 / 57600, 0, 71 / 16695, -71 / 1920, 17253 / 339200, -22 / 525, 1 / 40]
-  /* 7 个阶段的导数缓冲与工作向量。trace() 不重入（网格与环层都是串行调用），
-     复用同一块内存，免得每条射线都扔一堆短命数组给 GC。 */
-  var K = [], S = [0, 0, 0, 0, 0, 0], NEXT = [0, 0, 0, 0, 0, 0], ERR = [0, 0, 0, 0, 0, 0]
-  var HV = [0, 0]
-  for (var kInit = 0; kInit < 42; kInit++) K.push(0)
-  /* 一步 DP5(4)：s 是 6 维状态 [x,y,z,px,py,pz]，结果写进 out，局部位移误差写进 err。 */
-  function dpStep(s, h, l2, out, err) {
-    var i, j, c, w, x, y, z, px, py, pz, r2, k, sum, esum
-    for (i = 0; i < 7; i++) {
-      x = s[0]; y = s[1]; z = s[2]; px = s[3]; py = s[4]; pz = s[5]
-      if (i > 0) {
-        var row = DP_A[i - 1]
-        for (j = 0; j < row.length; j++) {
-          w = h * row[j]; c = j * 6
-          if (w === 0) continue
-          x += w * K[c]; y += w * K[c + 1]; z += w * K[c + 2]
-          px += w * K[c + 3]; py += w * K[c + 4]; pz += w * K[c + 5]
-        }
-      }
-      r2 = x * x + y * y + z * z
-      k = -3 * l2 / (r2 * r2 * Math.sqrt(r2))
-      c = i * 6
-      K[c] = px; K[c + 1] = py; K[c + 2] = pz
-      K[c + 3] = k * x; K[c + 4] = k * y; K[c + 5] = k * z
-    }
-    for (i = 0; i < 6; i++) {
-      sum = 0; esum = 0
-      for (j = 0; j < 7; j++) { sum += DP_B[j] * K[j * 6 + i]; esum += DP_E[j] * K[j * 6 + i] }
-      out[i] = s[i] + h * sum; err[i] = h * esum
-    }
-  }
-  /* 三次 Hermite：用两端的位置与切向插值 y=0 的穿越位置。切线取 h*y'，
-     于是插值在两端与积分器的高阶解同值同导，比线性插值少一个量级的定位误差。 */
-  function hermite(t, h, p0, m0, p1, m1, out) {
-    var t2 = t * t, t3 = t2 * t
-    var h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t
-    var h01 = -2 * t3 + 3 * t2, h11 = t3 - t2
-    out[0] = h00 * p0 + h10 * h * m0 + h01 * p1 + h11 * h * m1
-    out[1] = ((6 * t2 - 6 * t) * p0 + (3 * t2 - 4 * t + 1) * h * m0 +
-      (-6 * t2 + 6 * t) * p1 + (3 * t2 - 2 * t) * h * m1) / h
-  }
-  /* 二分求 y=0 的穿越时刻。端点约定：y1 恰为 0 时交点就是本步终点，返回 1；y0 恰为 0 时交点
-     属于上一步终点（那一步已经计过），返回 -1；其余只有严格异号才有根。
-     这里只认「异号」或「端点恰为 0」，因此一步内同号的多个根（偶数个）不会被发现，
-     一步内奇数次穿越时二分也只收敛到其中一个。ANGLE_CAP 让实际扫过角通常小于 π，
-     实践中很难落到这些情形，但代码没有证明它不会发生，也不做多根拆分。 */
-  function crossFraction(y0, m0, y1, m1, h) {
-    if (y0 === 0) return -1
-    if (y1 === 0) return 1
-    if (!(y0 * y1 < 0)) return -1
-    var lo = 0, hi = 1, t, f
-    for (var i = 0; i < 48; i++) {
-      t = (lo + hi) * .5
-      hermite(t, h, y0, m0, y1, m1, HV)
-      f = HV[0]
-      if (f * y0 > 0) lo = t; else hi = t
-    }
-    return (lo + hi) * .5
-  }
-  /* 盘面交点：落在 6M..16M 环带里才算命中，否则这条射线继续往外走。
-     频移按圆形轨道物质的引力红移＋多普勒算：
-       g = √(1−3/r) / [√(1−2/D) · (1 − r^−1.5 · b)]
-     b 是初始轴向角动量比 Jy0/E0（有符号，随盘面旋转方向），不是事件处的坐标切向；
-     √(1−3/r) 里已经含了轨道时间膨胀 √(1−β²)，不必再乘 √(1−2/r)。
-     命中记录只存未夹限的 g⁴（第二十九阶段）：发射项的频移权重就是 g⁴，在构建命中记录时
-     用四次乘法算一次，逐帧不再出现 pow/sqrt，也没有积分。旧的 ^1.8 显示映射与 [0.4,1.7]
-     限幅已整体移除，不保留 boost 兼容字段 —— 盘亮度随 g⁴ 走，不再为复刻旧亮度二次归一。 */
-  function diskHit(qx, qz, ring, impact, steps, axialB) {
-    var dr = Math.sqrt(qx * qx + qz * qz)
-    if (!(dr >= INNER && dr <= OUTER)) return null
-    var g = Math.sqrt(1 - 3 / dr) / (SQRT_FD * (1 - Math.pow(dr, -1.5) * axialB))
-    var g4 = g * g * g * g
-    return { radius: dr, phi: Math.atan2(qz, qx),
-      g4: g4,
-      ring: ring, impact: impact, captured: false, terminal: 'disk', steps: steps }
-  }
-  /* Trace one ray. The disk terminates at the first crossing of the y=0 plane
-     that falls inside 6M..16M; a crossing outside that band does not stop the
-     ray, so a higher-order image can still be reached later. Only a ray that
-     actually falls inside CAPTURE_R becomes shadow. The flat-coordinate impact
-     parameter |o x v| is kept as the ring weight for the Canvas layer, whose
-     crisp edge is painted separately; it is not a sky glow.
-     返回的 terminal 区分四种结局：'disk' 命中首个盘内交点、'capture' 落入、
-     'escape' 逃逸、'exhausted' 步数预算耗尽 —— 耗尽不是逃逸，它只说明这次没算完，
-     调用方据此既不能把它当成物理终态，也不该静默当成成功。
-     budget 可覆盖单条射线的步数预算（不传或非正数＝STEP_BUDGET）。它只给耗尽注入与
-     网格的有限重试用，不改变初值、容差与任何几何。 */
-  function trace(u, v, angle, budget) {
-    var cam = launch(u, v, angle)
-    var ring = cam.ring, impact = cam.impact, l2 = cam.l2
-    /* 首个守恒量：初速度按 |v|=1 归一，故 E0=√(1−2L²/D³)；轴向角动量 Jy0 就是 launch
-       里的 ly = oz·vx − ox·vz。b=Jy0/E0 无量纲，有符号，符号随盘面旋转方向。 */
-    var energy0 = Math.sqrt(1 - 2 * l2 / (DISTANCE * DISTANCE * DISTANCE))
-    var axialB = energy0 > 0 ? (cam.z * cam.px - cam.x * cam.pz) / energy0 : 0
-    var inverse = l2 > 0 ? 1 / Math.sqrt(l2) : 0
-    var limit = budget > 0 ? budget : STEP_BUDGET
-    var s = S
-    s[0] = cam.x; s[1] = cam.y; s[2] = cam.z
-    s[3] = cam.px; s[4] = cam.py; s[5] = cam.pz
-    var h = .25, tries = 0
-    for (;;) {
-      var x = s[0], y = s[1], z = s[2], px = s[3], py = s[4], pz = s[5]
-      var r2 = x * x + y * y + z * z, r = Math.sqrt(r2)
-      if (r < CAPTURE_R) return { captured: true, terminal: 'capture', ring: ring, impact: impact, steps: tries }
-      if (r > ESCAPE_R && x * px + y * py + z * pz > 0) {
-        return { captured: false, terminal: 'escape', ring: ring, impact: impact, steps: tries }
-      }
-      if (tries >= limit) {
-        return { captured: false, terminal: 'exhausted', ring: ring, impact: impact, steps: tries }
-      }
-      var hh = h
-      if (inverse && hh > ANGLE_CAP * r2 * inverse) hh = ANGLE_CAP * r2 * inverse
-      if (hh > STEP_MAX) hh = STEP_MAX
-      dpStep(s, hh, l2, NEXT, ERR)
-      tries++
-      /* 误差范数：分量相对量（1+|状态| 作尺度）取最大，只有全部达标才接受这一步。 */
-      var scale = 0
-      for (var i = 0; i < 6; i++) {
-        var err = Math.abs(ERR[i]) / (STEP_TOL * (1 + Math.max(Math.abs(s[i]), Math.abs(NEXT[i]))))
-        if (err > scale) scale = err
-      }
-      if (!(scale <= 1)) { h = hh * Math.max(.1, .9 * Math.pow(scale, -.2)); continue }
-      /* 事件判定：严格异号，或这一步恰好落在 y=0 上（NEXT[1] === 0）而本步起点不在盘面上。
-         端点交点交给 crossFraction 的端点约定处理（y1===0 → 1），下一步从 y=0 起步时
-         y0===0 返回 -1，同一个交点不会被相邻两步各计一次。 */
-      if (y * NEXT[1] < 0 || (NEXT[1] === 0 && y !== 0)) {
-        var f = crossFraction(y, py, NEXT[1], NEXT[4], hh)
-        var hit = null
-        if (f > 0) {
-          hermite(f, hh, x, px, NEXT[0], NEXT[3], HV); var qx = HV[0]
-          hermite(f, hh, z, pz, NEXT[2], NEXT[5], HV); var qz = HV[0]
-          hit = diskHit(qx, qz, ring, impact, tries, axialB)
-        }
-        if (hit) return hit
-      }
-      s[0] = NEXT[0]; s[1] = NEXT[1]; s[2] = NEXT[2]
-      s[3] = NEXT[3]; s[4] = NEXT[4]; s[5] = NEXT[5]
-      h = hh * (scale > 0 ? Math.min(4, Math.max(.2, .9 * Math.pow(scale, -.2))) : 4)
-    }
-  }
   /* Brightness is a flux in [0,1): a smooth radial profile times a slow two-arm
      spiral, so neighbouring cells stay close in value and the glyphs read as a
      surface instead of noise. The artificial ring weight does not enter this
@@ -349,122 +134,10 @@ var UniverseBlackHole = (function () {
     return 1 - Math.exp(-flux * brightness)
   }
   function lit(cell) { return cell ? !!(cell.radius || cell.ring) : false }
-  /* 光子环的精细层（第十五阶段）。环的几何宽度只有 2px 上下（RING_CORE=0.15 换算到屏幕），
-     而字符格高将近 10px —— ASCII 网格再密也表达不出一条连续细环，只会读成断续的亮点。
-     这里不再走字符，改为在「环可能出现的那一圈」里按像素采样 trace() 的 impact，
-     把 ring 权重烘成一张透明遮罩，逐帧只贴这张遮罩。
-     烘焙只在初始化 / 视口变化 / 相关配置变化时做一次，逐帧零测地线积分。
-     返回的 state 只有 'ready' 与 'incomplete'：只要有一条参与烘焙的射线步数耗尽，
-     整张遮罩就不发布（canvas 为 null、drawn 计数保留），由调用方决定怎么处理。 */
-  function bakeRing(w, h, angle) {
-    /* 测试桩与精简 DOM 里可能没有 createElement / getContext / createImageData：
-       没有精细环层就退回纯 ASCII，不能让整个渲染器挂掉。 */
-    if (!document || typeof document.createElement !== 'function') return null
-    var short = Math.max(1, Math.min(w, h))
-    var horizon = CRIT_RATIO * short / 2
-    /* 采样窗口：环峰随方位角在 140..215px 之间移动（下方被前景盘拉出一段外扩），
-       窗口必须按实测最外环峰留余量，不能只贴阴影半径。
-       映射与网格构建（chunk 里那次 trace 调用）完全一致：分母是 short，不是本窗口边长。 */
-    var outer = horizon * 1.75
-    var size = Math.ceil(outer) * 2
-    if (!(size > 0) || size > 4096) return null
-    var off = document.createElement('canvas')
-    if (!off || typeof off.getContext !== 'function') return null
-    off.width = size; off.height = size
-    var octx = off.getContext('2d')
-    if (!octx || typeof octx.createImageData !== 'function') return null
-    var image = octx.createImageData(size, size)
-    if (!image || !image.data) return null
-    var data = image.data
-    var cx = size / 2, cy = size / 2
-    /* 环可见区的方位包络：edge[bin] 记该扇区里最外一枚「肉眼可见」像素的半径。
-       绘制时逐格按方位查这张表，决定要不要为环让位。 */
-    var edge = new Float32Array(RING_BINS), edgeMax = 0
-    var start = performance.now()
-    var peak = 0, attempted = 0, drawn = 0, exhausted = 0, retried = 0, unresolved = 0
-    var pending = []
-    /* 一个像素的落笔：终态未定、被捕获、权重不够的一律不写。抽成函数是为了让
-       「首轮」与「有限重试」共用同一段判据，重试不会因为漏抄一个条件而写出不同的像素。 */
-    function plot(row, col, rad, ray) {
-      if (ray.terminal === 'exhausted') return false
-      if (ray.captured) return false
-      var weight = ray.ring
-      if (!(weight > .004)) return false
-      /* 跨越内切边缘的一像素做线性淡入，避免硬切出一道新的圆边。 */
-      if (rad < horizon + 1.5) weight *= (rad - horizon - .5)
-      if (weight > peak) peak = weight
-      var i4 = (row * size + col) * 4
-      data[i4] = 255; data[i4 + 1] = 255; data[i4 + 2] = 255
-      data[i4 + 3] = 255 * Math.pow(weight, 1.7)
-      /* 只把肉眼能读出的像素记进方位包络：alpha 才 2、3 的边缘像素如果也参与，
-         包络会被拉到理论上限 1.75 倍半径，等于整圈都清空。 */
-      if (weight >= RING_VISIBLE) {
-        /* row 向下增长，屏幕 y 是 row + .5 - cy；与 draw() 里 atan2(gy, gx) 同一套方向。 */
-        var bin = (((Math.atan2(row + .5 - cy, col + .5 - cx) + Math.PI) / (Math.PI * 2) * RING_BINS) | 0) % RING_BINS
-        if (rad > edge[bin]) edge[bin] = rad
-        if (rad > edgeMax) edgeMax = rad
-      }
-      drawn++
-      return true
-    }
-    for (var row = 0; row < size; row++) {
-      var sy = cy - row - .5
-      for (var col = 0; col < size; col++) {
-        var sx = col + .5 - cx
-        var rad = Math.sqrt(sx * sx + sy * sy)
-        /* 环只画在阴影之外。ring 权重在 impact 逼近 B_CRIT 时对「即将被捕获」的光线
-           同样给高值 —— 那是光子环在数学上的位置，但它落在阴影半径以内约 9px，
-           直接贴上去等于给阴影描了一圈边，与「阴影完整深黑」冲突。这里从阴影半径起
-           画：形状、粗细与径向外沿仍完全由 trace() 的 ring 值决定，切掉的只是被判为
-           已经进入阴影的那部分。 */
-        if (rad < horizon + .5 || rad > outer) continue
-        var u = (2 * sx) / short, v = (2 * sy) / short
-        /* 先用同一份 launch() 公式筛掉注定 ring ≤ .004 的像素，再审积分：环峰只占这一圈
-           里约 1/14 的面积，其余像素的积分结果最后都会被这一个判定丢掉。判定顺序没变
-           （先 captured 后权重），输出与逐像素全积分逐位相同。 */
-        if (!(launch(u, v, angle).ring > .004)) continue
-        attempted++
-        var ray = trace(u, v, angle)
-        /* 步数耗尽的射线没有终态：既不能当成「逃逸所以环在这里」，也不能静默丢掉像素 ——
-           丢掉的像素会在遮罩上留下空洞，而调用方完全看不到这件事。 */
-        if (ray.terminal === 'exhausted') { exhausted++; pending.push([row, col, rad, u, v]); continue }
-        plot(row, col, rad, ray)
-      }
-    }
-    /* 与网格同一条有限恢复策略：只重算耗尽的那几格，预算翻倍一次，不做第二次。
-       网格能在翻倍预算下救回的射线，环层也不该因为同一条射线整张作废；
-       仍然算不完才整张不发布。 */
-    if (pending.length) {
-      for (var pi = 0; pi < pending.length; pi++) {
-        var p = pending[pi]
-        retried++
-        var again = trace(p[3], p[4], angle, STEP_BUDGET * 2)
-        if (again.terminal === 'exhausted') unresolved++
-        else plot(p[0], p[1], p[2], again)
-      }
-    }
-    var ms = performance.now() - start
-    /* 有射线没算完，遮罩就整体不发布：state 与计数一起返回，调用方据此知道环层为什么缺，
-       而不是拿到一张看着正常、实际上缺了像素的图。 */
-    if (unresolved) return { canvas: null, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak,
-      edge: edge, edgeMax: edgeMax,
-      ms: ms, state: 'incomplete', attempted: attempted, drawn: drawn, exhausted: exhausted,
-      retried: retried, unresolved: unresolved }
-    octx.putImageData(image, 0, 0)
-    return { canvas: off, size: size, cx: cx, cy: cy, horizon: horizon, peak: peak,
-      edge: edge, edgeMax: edgeMax,
-      ms: ms, state: 'ready', attempted: attempted, drawn: drawn, exhausted: exhausted,
-      retried: retried, unresolved: 0 }
-  }
-  /* 阴影描边曾在这里给被捕获格写 stroke 字符。第十五阶段已整体移除：
-     它既不随时间动（只在 buildGrid 里算一次），也不属于吸积盘，
-     却正好压在阴影边缘与光子环的起点上，读成一圈静止的杂字。 */
-  function silhouette(grid, cols, rows) {
-    for (var i = 0; i < cols * rows; i++) {
-      if (grid[i] && grid[i].stroke) grid[i].stroke = ''
-    }
-  }
-  function create(canvas, input) {
+  /* holeLayer 是洞那层（hole.js）的渲染器：阴影圆、光子环与它的方位包络都由那边负责，
+     这里只读它的半径与环包络给盘字让位。不传就是纯字符模式（测试桩、精简 DOM、拆分前的
+     旧调用点），此时没有让位可做，落字照旧。 */
+  function create(canvas, input, holeLayer) {
     var config = options(input), ctx = canvas.getContext('2d', { alpha: true })
     if (!ctx) throw Error('Canvas 2D unavailable')
     var disposed = false, raf = 0, buildTimer = 0, generation = 0, elapsed = 0, previous = 0, lastDraw = -Infinity
@@ -476,9 +149,6 @@ var UniverseBlackHole = (function () {
     /* dpr 必须在 create() 这一层：draw() 用它算位移变换，resize() 用它定缓冲区尺寸，
        以前它只活在 resize() 里，位移那行一跑到就是 ReferenceError。 */
     var dpr = 1
-    /* 环遮罩缓存：只在视口尺寸或仰角变化时重烘一次，逐帧零成本。
-       ringDiag 是环层的诊断：bakeRing 返回 incomplete / 不可用时不发布遮罩，原因留在这里。 */
-    var bakedRing = null, bakedFor = '', ringDiag = null
     /* 静态几何缓存：只留当前这一份。键是「这份缓存按哪一次取景算的」，任一输入直接比不等
        就整份作废重算 —— 不快照 grid 内容、不哈希环包络。grid / w / h / cols 用全等，
        cw / ch / baseX / baseY / horizon 用 Object.is：同尺寸 resize 短路、只改时间/亮度/速度/
@@ -493,54 +163,13 @@ var UniverseBlackHole = (function () {
       geo = []; geoGrid = grid; geoW = w; geoH = h; geoCols = cols
       geoCw = cw; geoCh = ch; geoX = baseX; geoY = baseY; geoHZ = horizon
     }
-    function ensureRing() {
-      var key = w + 'x' + h + '@' + config.angle
-      if (bakedRing && bakedFor === key) return
-      bakedFor = key
-      var baked = w > 0 && h > 0 ? bakeRing(w, h, config.angle) : null
-      /* 只有完整烘完的遮罩才进缓存。incomplete 的遮罩整张作废：贴上去等于静默发布缺像素的环。 */
-      if (baked && baked.state === 'ready' && baked.canvas) {
-        bakedRing = baked
-        ringDiag = { state: 'ready', size: baked.size, attempted: baked.attempted,
-          drawn: baked.drawn, exhausted: baked.exhausted, retried: baked.retried,
-          unresolved: baked.unresolved, peak: baked.peak, ms: baked.ms,
-          edge: baked.edge, edgeMax: baked.edgeMax }
-      } else {
-        bakedRing = null
-        /* drawn 记的是「真正发布出去」的像素数，所以失败分支永远是 0；
-           烘到一半才被作废的那些像素记在 discarded 上，两个数分开，
-           否则从 stats 上看不出整张遮罩是被丢弃的、也看不出丢了多少。 */
-        ringDiag = baked
-          ? { state: baked.state, size: baked.size, attempted: baked.attempted, drawn: 0,
-            discarded: baked.drawn, exhausted: baked.exhausted, retried: baked.retried,
-            unresolved: baked.unresolved, peak: baked.peak, ms: baked.ms }
-          : { state: 'unavailable' }
-      }
-      tintedRing = {}
-    }
-    /* 遮罩是白色 + alpha，贴图前按档染一次色：同一张遮罩只染一次，逐帧不再重绘。
-       染色用 'source-in' 换成纯色，alpha 通道原样保留 —— 环的粗细与形状完全来自
-       trace() 的 ring 值，没有任何硬编码圆环。 */
-    var tintedRing = {}
-    function ringImage(ink) {
-      if (!bakedRing) return null
-      var key = bakedRing.size + ':' + ink
-      if (tintedRing[key]) return tintedRing[key]
-      var c = document.createElement('canvas')
-      c.width = bakedRing.size; c.height = bakedRing.size
-      var x = c.getContext('2d')
-      x.drawImage(bakedRing.canvas, 0, 0)
-      x.globalCompositeOperation = 'source-in'
-      x.fillStyle = ink
-      x.fillRect(0, 0, c.width, c.height)
-      tintedRing[key] = c
-      return c
-    }
     var motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     function draw() {
       if (disposed || !w || !h || !ready) return
       var start = performance.now(), light = mode === 'light'
-      var horizon = CRIT_RATIO * Math.min(w, h) / 2
+      /* 半径与环包络都来自洞那层：两边各算一次必然漂移（拆分前阴影圆与盘内缘就是这么差的
+         0.2px）。holeLayer 缺席时退回本地公式，纯字符模式仍要一个半径判亮档内外。 */
+      var horizon = holeLayer ? holeLayer.radius() : CRIT_RATIO * Math.min(w, h) / 2
       /* 圆心从 viewOf() 拿：它已经含了位移，而位移要靠 setTransform 生效，所以下面画字之前
          必须把「含位移的圆心」减去位移换回未平移的画布坐标。直接拿 view.x 当画布坐标只在
          viewX = 0 时成立 —— 对话页一让洞出画，整个盘的格子就会被再推一次位移，整片跑到右边去。 */
@@ -570,47 +199,19 @@ var UniverseBlackHole = (function () {
          末段又被 easeInOutCubic 压平，落地补画一次就读成「快到位时突然定档」。
          整块画布一层 opacity 则与位移共用同一份关键帧、同一条缓动，盘字、阴影圆、
          光子环按同一比例一起变薄，也不再看主线程这一帧有没有出。 */
-      /* 阴影底色两档都要先铺（此前只有亮档铺，暗档靠透明把整块地露给页面底纹，洞心因此
-         是一张静止的纹理而不是洞）：
-           - 被捕获的格子没有 glyph，draw() 下面的循环直接跳过它，这一块就没有任何不透明像素；
-           - 画布每帧 clearRect 成全透明，暗档洞心于是整块透出 html 的底色与它的纹理。
-         所以这里在盘字之前补一枚实心圆，把阴影先把地占住；盘字随后照常画在上面，穿过盘的
-         前景一半（y=0 平面在观察者与洞之间的那半）就落在圆上，遮挡关系不变。
-         圆心取未平移坐标（baseX/baseY）而不是视图圆心：位移由上面那句 setTransform 施加，
-         这里再按视图坐标画就会把洞推第二遍。半径沿用同一个 horizon 公式；1256×821 的
-         网格里 capture 格的最大格心半径 139.88px，与本阶段 horizon 140.0787px 相差约
-         0.20px（旧取整半径 139.57px 时约 0.31px），阴影圆与网格判据仍对齐在 1px 内。
-         颜色按档分开：暗档 SHADOW_INK 比 html 底色再深一档，才读得出是「洞」而不是底色；
-         亮档维持 HORIZON_INK，浅纸上不铺墨的阴影会被当成空白。 */
-      ctx.beginPath()
-      ctx.arc(baseX, baseY, horizon, 0, Math.PI * 2)
-      ctx.fillStyle = light ? HORIZON_INK : SHADOW_INK
-      ctx.fill()
-      /* 光子环（第十五阶段）：夹在阴影与盘字之间。盘的前景臂随后压在环上，
-         所以「盘穿过洞前方」的遮挡关系不变，环只是把阴影外沿那一圈补连续。
-         遮罩是设备无关位图，按 shadow 半径等比缩放后贴到 baseX/baseY 上。
-         两档用各自的环比色而不是一律纯白：暗底的环是发光，亮纸上的环是墨，
-         一律贴白会在亮档把阴影边缘烧掉一圈。 */
-      if (bakedRing) {
-        var ringSize = bakedRing.size, scale = horizon / bakedRing.horizon
-        var img = ringImage(light ? RING_INK_LIGHT : RING_INK_DARK)
-        ctx.save()
-        /* 环色与 alpha 一起决定「亮到什么程度」：暗档要清晰明亮（环芯接近高光但不到纯白），
-           亮档要压在浅纸上有足够反差（环芯接近深金铜）。两者都只覆盖 r128–160 那一圈，
-           吸积盘的 ASCII 层完全不动。 */
-        /* 这里只给环自己的相对亮度，不再乘转场系数：整张画布的 opacity 已经把环和盘
-           一起带上，再乘一次会让环比盘多淡一层（暗档对话页读起来像环单独发光）。 */
-        ctx.globalAlpha = light ? .74 : .86
-        if (img) ctx.drawImage(img, baseX - ringSize / 2 * scale,
-          baseY - ringSize / 2 * scale, ringSize * scale, ringSize * scale)
-        ctx.restore()
-      }
-      /* 环带让位的三个量在帧内不变，提到循环外。ringScale 通常正好是 1：烘焙与绘制用的是
-         同一个 short 与同一个 horizon 公式；只有取景尺寸在 resize 与重烘之间错开时才会偏离。 */
-      var ringEdge = bakedRing && bakedRing.edge ? bakedRing.edge : null
-      var ringScale = bakedRing ? horizon / bakedRing.horizon : 1
+      /* 阴影圆与光子环不在这里画：洞那层（hole.js）有自己一块画布，实心阴影与烘好的
+         环在同一张纸上，盘字的遮挡关系靠 DOM 顺序（洞在下、盘在上）而不是绘制顺序。
+         这一层的角色因此只剩「落盘的字」，而字要绕着环让位 —— 半径与方位包络仍从洞那层读，
+         不能各算一份：拆分前阴影圆与盘内缘就是这么漂开 0.2px 的。 */
+      /* 让位要用的量在帧内不变，提到循环外。ring 是洞那层的烘焙结果：edge 是方位包络，
+         edgeMax 是最外半径，horizon 是烘焙时的阴影半径 —— ringScale 通常正好是 1，只有取景
+         尺寸在 resize 与重烘之间错开时才会偏离。扇区数直接用 edge.length，不另设常数。 */
+      var ring = holeLayer ? holeLayer.ring() : null
+      var ringEdge = ring && ring.edge ? ring.edge : null
+      var ringScale = ring ? horizon / ring.horizon : 1
       var ringClear = Math.sqrt(cw * cw + ch * ch) / 2 + 1
-      var ringOuter = ringEdge ? bakedRing.edgeMax * ringScale + ringClear : 0
+      var ringOuter = ringEdge ? ring.edgeMax * ringScale + ringClear : 0
+      var ringBins = ringEdge ? ringEdge.length : 0
       ctx.font = '600 ' + Math.round(ch * .95) + 'px ui-monospace, Consolas, monospace'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -641,7 +242,7 @@ var UniverseBlackHole = (function () {
               /* 阴影圆内那几格是近侧盘面压在洞前，不属于环，照常落字。 */
               if (gd > horizon) {
                 var rb = g0[BIN]
-                if (rb < 0) rb = g0[BIN] = (((Math.atan2(g0[GY], g0[GX]) + Math.PI) / (Math.PI * 2) * RING_BINS) | 0) % RING_BINS
+                if (rb < 0) rb = g0[BIN] = (((Math.atan2(g0[GY], g0[GX]) + Math.PI) / (Math.PI * 2) * ringBins) | 0) % ringBins
                 if (gd <= ringEdge[rb] * ringScale + ringClear) continue
               }
             }
@@ -703,7 +304,6 @@ var UniverseBlackHole = (function () {
       if (nw === w && nh === h && ready) return
       w = nw; h = nh; ready = false; stop(); generation++
       var mine = generation
-      ensureRing()
       /* 环烘完才动手铺格子：draw 会在构建期同步跑一遍，缓存若在环就绪之前先冷启动，
          那批格子的扇区桶会按「环未就绪」的路子留下未算状态，等环层就绪后白白多算一轮。
          挪到烘完再失效，缓存键仍按当前 grid 与取景判定，构建期命中照常。 */
@@ -762,7 +362,7 @@ var UniverseBlackHole = (function () {
           ctx.clearRect(0, 0, w, h)
           return
         }
-        silhouette(next, cols, rows); grid = next; ready = true
+        grid = next; ready = true
         canvas.dataset.blackHoleState = 'ready'; sync()
       }
       if (w > 0 && h > 0) buildTimer = setTimeout(chunk, 0)
@@ -830,7 +430,7 @@ var UniverseBlackHole = (function () {
       onMode: function (fn) { modeHook = typeof fn === 'function' ? fn : null },
       stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, rAFGapMs: rAFGap, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config), alpha: arcAlpha,
         build: buildDiag ? Object.assign({}, buildDiag) : null,
-        ring: ringDiag ? Object.assign({}, ringDiag) : null } },
+        ring: holeLayer ? holeLayer.stats().ring : null } },
       resize: function () { resize() },
       dispose: function () {
         if (disposed) return
@@ -873,9 +473,42 @@ var UniverseBlackHole = (function () {
     canvas.style.cssText = 'position:fixed;z-index:-1;pointer-events:none;'
     var renderer, column = null, frame = null
     canvas.dataset.uniBlackHole = ''
+    /* 洞那层（拆分第一阶段）：自己一块画布、自己的渲染器，只画阴影与光子环。
+       属性名必须是 data-uni-hole-body —— client.js 的 HOLE_SELECTOR 是
+       'canvas[data-uni-black-hole]' 且只取第一个匹配，两块画布若同属性，页面切换会
+       拿到洞那层去冻结/恢复，盘那层就不动了。
+       顺序：先 prepend 盘、再 prepend 洞 → 洞在前、盘在后；两个 z-index 都是 -1，
+       同层的顺序决定堆叠，后画的盘于是压在光子环与阴影上，与拆分前同一块画布里的层次一致。 */
+    var holeCanvas = null, holeLayer = null
+    if (typeof UniverseHole !== 'undefined' && UniverseHole) {
+      holeCanvas = document.createElement('canvas')
+      holeCanvas.setAttribute('aria-hidden', 'true')
+      holeCanvas.style.cssText = 'position:fixed;z-index:-1;pointer-events:none;'
+      holeCanvas.dataset.uniHoleBody = ''
+    }
     document.body.prepend(canvas)
-    try { renderer = create(canvas); document.body.setAttribute('data-uni-black-hole', '') }
-    catch (error) { canvas.remove(); console.warn('Universe ASCII black hole fallback:', error.message); return }
+    if (holeCanvas) document.body.prepend(holeCanvas)
+    /* 洞那层挂不上不该连累盘：降级成纯字符模式（没有环让位，其余照旧）。 */
+    try { holeLayer = holeCanvas ? UniverseHole.create(holeCanvas) : null }
+    catch (error) {
+      console.warn('Universe hole layer fallback:', error.message)
+      holeLayer = null
+      if (holeCanvas) { holeCanvas.remove(); holeCanvas = null }
+    }
+    try { renderer = create(canvas, undefined, holeLayer); document.body.setAttribute('data-uni-black-hole', '') }
+    catch (error) {
+      if (holeLayer) holeLayer.dispose()
+      if (holeCanvas) holeCanvas.remove()
+      canvas.remove()
+      console.warn('Universe ASCII black hole fallback:', error.message)
+      return
+    }
+    /* 两块画布共用同一套位置、遮罩界线与转场关键帧，所以凡是逐块写 inline style 的地方
+       都过这一张表，不重复写两遍（漏一块就是洞留在原地、盘飞走）。 */
+    var layers = holeCanvas ? [canvas, holeCanvas] : [canvas]
+    function setStyle(key, value) {
+      for (var i = 0; i < layers.length; i++) layers[i].style[key] = value
+    }
     /* 页背景转场要冻结/恢复渲染循环、读 ready，所以在画布上挂一个驱动句柄，
        和 deep-space 的 canvas.__uniDeepSpace 同一形状。 */
     canvas.__uniBlackHole = renderer
@@ -906,10 +539,15 @@ var UniverseBlackHole = (function () {
          一帧。现在框不动，位置全交给 viewX 表达；左栏的隔离改由 mask 的 alpha 斜坡负责
          （setEdge() 推 --uni-hole-edge），所以洞不会漏进左栏。 */
       var edge = frame ? frame.getBoundingClientRect() : null
-      canvas.style.left = '0px'
-      canvas.style.top = (edge ? edge.top : 0) + 'px'
-      canvas.style.width = (typeof window === 'undefined' ? 0 : window.innerWidth) + 'px'
-      canvas.style.height = (edge ? edge.height : (typeof window === 'undefined' ? 0 : window.innerHeight)) + 'px'
+      var top = (edge ? edge.top : 0) + 'px'
+      var width = (typeof window === 'undefined' ? 0 : window.innerWidth) + 'px'
+      var height = (edge ? edge.height : (typeof window === 'undefined' ? 0 : window.innerHeight)) + 'px'
+      for (var i = 0; i < layers.length; i++) {
+        layers[i].style.left = '0px'
+        layers[i].style.top = top
+        layers[i].style.width = width
+        layers[i].style.height = height
+      }
       setEdge()
     }
     /* 左栏隔离的界线：斜坡起点压在对话列左缘，新会话页左栏那一侧 alpha 为 0；
@@ -921,7 +559,7 @@ var UniverseBlackHole = (function () {
          「没赋值」和 false 同义（还没出画），所以这里显式跟 true 比，别写成 !arcSide。 */
       var left = 0
       if (arcSide !== true && column) left = column.getBoundingClientRect().left || 0
-      canvas.style.setProperty('--uni-hole-edge', left + 'px')
+      for (var i = 0; i < layers.length; i++) layers[i].style.setProperty('--uni-hole-edge', left + 'px')
     }
     function sized() { place(); resize() }
     var observer = new ResizeObserver(sized)
@@ -931,7 +569,8 @@ var UniverseBlackHole = (function () {
        'w / h' 清成 0 并 'stop()'，而构造时对已观察元素的首次回调各家引擎给不给不保证，
        画布会停在 ready=false 上再也不动。所以这里自己先走一次 place + resize。
        resize 只能走渲染器入口，'create()' 内部那个 'resize' 是闭包，挂载侧看不见。 */
-    function resize() { renderer.resize() }
+    /* 两块画布一起量：盘要重建网格，洞要重烘阴影圆与环。 */
+    function resize() { renderer.resize(); if (holeLayer) holeLayer.resize() }
     follow()
     resize()
     observer.observe(canvas)
@@ -972,7 +611,7 @@ var UniverseBlackHole = (function () {
     var ARC_FADE_DARK = 0.341
     var ARC_FADE_LIGHT = 0.252
     var arcRaf = 0
-    var arcAnim = null
+    var arcAnim = null, arcAnims = []
     var arcSide = false
     var live = { viewX: 0, viewY: 0, brightness: defaults.brightness, speed: defaults.speed, alpha: 1 }
 
@@ -990,7 +629,8 @@ var UniverseBlackHole = (function () {
       var next = arcAlphaFor()
       live.alpha = next
       renderer.setAlpha(next)
-      canvas.style.opacity = String(next)
+      setStyle('opacity', String(next))
+      if (holeLayer) holeLayer.setMode(renderer.isLight() ? 'light' : 'dark')
       renderer.update({})
     })
 
@@ -1008,6 +648,8 @@ var UniverseBlackHole = (function () {
       }
       renderer.setAlpha(live.alpha)
       renderer.pose({ viewX: live.viewX, viewY: live.viewY, brightness: live.brightness, speed: live.speed })
+      /* 洞那层不吃亮度/速度：静止图，只有取景位移会让它重画一次。 */
+      if (holeLayer) holeLayer.pose({ viewX: live.viewX, viewY: live.viewY })
     }
     /* 立刻落定，并且保证这一帧被画出来：瞬时路径与转场收尾用它。 */
     function apply(next) {
@@ -1017,7 +659,9 @@ var UniverseBlackHole = (function () {
     function arcStop() {
       if (arcRaf) cancelAnimationFrame(arcRaf)
       arcRaf = 0
-      if (arcAnim) { arcAnim.cancel(); arcAnim = null; canvas.style.transform = '' }
+      for (var i = 0; i < arcAnims.length; i++) arcAnims[i].cancel()
+      arcAnims = []; arcAnim = null
+      setStyle('transform', '')
     }
     /* 两页洞心的横向差：一整段位移的行程。交给合成器平移时它就是全部运动量。 */
     function travelX() {
@@ -1065,8 +709,8 @@ var UniverseBlackHole = (function () {
       /* 不能动的时候就只能瞬移：时长 0（reduced motion）、浏览器没有 WAAPI、或者两页的洞心
          本来就在同一处。 */
       if (!(ms > 0) || !(travel > 0) || typeof canvas.animate !== 'function') {
-        canvas.style.transform = ''
-        canvas.style.opacity = String(toAlpha)
+        setStyle('transform', '')
+        setStyle('opacity', String(toAlpha))
         apply({ viewX: toX, viewY: 0, brightness: toBright, speed: toSpeed, alpha: toAlpha })
         return
       }
@@ -1076,11 +720,11 @@ var UniverseBlackHole = (function () {
          中间那段只是平移，洞的形状一个字都不变，所以不需要重建、也不需要逐帧重画。 */
       var from = arcSide ? 0 : travel
       var end = arcSide ? travel : 0
-      canvas.style.transform = 'translate3d(' + from + 'px, 0px, 0)'
+      setStyle('transform', 'translate3d(' + from + 'px, 0px, 0)')
       /* 起点浓度写进内联样式：动画被取消就回到这个值，不会弹回上一档的残留。
          真正会取消它的只有下一次 arcTo 开头的 arcStop() 和 teardown —— onResize
          在运镜期间直接 return，并不打断动画（那时的兜底是 finish 的落点）。 */
-      canvas.style.opacity = String(fromAlpha)
+      setStyle('opacity', String(fromAlpha))
       pose({ viewX: homeX, viewY: 0 })
       renderer.update({})
       /* 弧线与缓动拆成 12 段关键帧交给合成器：easeInOutCubic + sin(π·e) 的抬升，
@@ -1101,7 +745,13 @@ var UniverseBlackHole = (function () {
           easing: 'linear',
         })
       }
-      arcAnim = canvas.animate(keys, { duration: ms, easing: 'linear', fill: 'forwards' })
+      /* 两块画布各自一份同参数动画：合成器上两层的 transform 与 opacity 逐点同值，
+         屏幕上就是同一个洞在移动、同比例变淡。arcAnim 只留盘那份给 arcStop 之外的地方看。 */
+      arcAnims = []
+      for (var li = 0; li < layers.length; li++) {
+        if (typeof layers[li].animate === 'function') arcAnims.push(layers[li].animate(keys, { duration: ms, easing: 'linear', fill: 'forwards' }))
+      }
+      arcAnim = arcAnims[0] || null
       /* 亮度、转速还在主线程上插值 —— 它们不参与位移、也不进合成器关键帧，卡一下看不出来；
          浓淡已经挪进上面的 opacity，与位置同源。主线程再堵也影响不到这两样。 */
       var start = 0
@@ -1123,13 +773,14 @@ var UniverseBlackHole = (function () {
         finish()
       }
       function finish() {
-        if (arcAnim) { arcAnim.cancel(); arcAnim = null }
-        canvas.style.transform = ''
+        for (var ci = 0; ci < arcAnims.length; ci++) arcAnims[ci].cancel()
+        arcAnims = []; arcAnim = null
+        setStyle('transform', '')
         /* 落点按「此刻的档」重算：转场途中切亮/暗档时 toAlpha 是起飞时捕获的旧值，
            照它写会把 onMode 刚算对的值覆盖回去，对话页此后一直停错档。 */
         var landed = arcSide ? arcAlphaFor() : 1
         /* 取消动画会撤掉 fill:forwards，落点得写回内联样式，否则画布弹回起点浓度。 */
-        canvas.style.opacity = String(landed)
+        setStyle('opacity', String(landed))
         /* 出画落地：内容得从「新会话页取景 + 平移」换成「对话页取景 + 无平移」，两者在屏幕上
            完全重合 —— 洞的位置连续，只有取景写对了；星点按格子落位，不随 viewX 动。
            回程落地不用换：内容本来就已经是新会话页的取景。 */
@@ -1141,7 +792,7 @@ var UniverseBlackHole = (function () {
     canvas.__uniArc = function (side, ms) { arcTo(!!side, Number(ms) || 0) }
     canvas.__uniSkyMode = function () { arcTo(true, 0) }
     canvas.__uniSkyModeOff = function () { arcTo(false, 0) }
-    canvas.style.opacity = '1'
+    setStyle('opacity', '1')
     apply({ viewX: viewXFor(false), viewY: 0 })
 
     /* 冷启动时主题可能比对话列早一步挂上：那一次取景只能拿到视口中心的兜底值，
@@ -1164,14 +815,20 @@ var UniverseBlackHole = (function () {
 
     return function () {
       arcStop(); if (settleRaf) cancelAnimationFrame(settleRaf)
-      renderer.dispose(); shell.disconnect()
+      renderer.dispose(); if (holeLayer) holeLayer.dispose(); shell.disconnect()
       if (column) observer.unobserve(column)
       if (frame) observer.unobserve(frame)
       observer.disconnect(); canvas.remove()
+      if (holeCanvas) holeCanvas.remove()
       window.removeEventListener('resize', onResize)
       document.body.removeAttribute('data-uni-sky-mode')
       document.body.removeAttribute('data-uni-black-hole')
     }
   }
-  return { create: create, mount: mount, options: options, viewOf: viewOf, trace: trace, shade: shade, glyphs: GLYPHS + STROKES, debugSource: 'v3' }
+  /* 导出面：trace / ratio / budget / ringAt 是测地线内核的转口，本层真正拥有的是
+     字符层与挂载；测试按同一组名字取物理，口径不变。 */
+  return { create: create, mount: mount, options: options, viewOf: viewOf,
+    trace: UniverseGeodesic.trace, shade: shade, glyphs: GLYPHS + STROKES,
+    ratio: CRIT_RATIO, budget: STEP_BUDGET, ringAt: UniverseGeodesic.ringAt,
+    debugSource: 'v4' }
 })()

@@ -104,5 +104,5 @@ test('startup animation is absent from source wiring and the shipped artifact', 
   for (const text of [glue, build, shipped]) {
     assert.doesNotMatch(text, /mountBootScreen|destroyBoot|BOOT_CSS|BOOT_MARK|data-uni-boot|boot-screen[.](?:js|css)|boot=1/)
   }
-  assert.match(glue, /UniverseBlackHole[.]mount[(][)]/)
+  assert.match(glue, /UniverseAccretionDisk[.]mount[(][)]/)
 })

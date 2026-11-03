@@ -21,7 +21,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { performance } from 'node:perf_hooks'
 import { CLIENT_FILES } from './build-contract.mjs'
 
-const HOLE = readFileSync(new URL('../src/runtime/black-hole.js', import.meta.url), 'utf8')
+const HOLE = readFileSync(new URL('../src/runtime/geodesic.js', import.meta.url), 'utf8') + '\n' +
+  readFileSync(new URL('../src/runtime/accretion-disk.js', import.meta.url), 'utf8')
 const CLIENT = readFileSync(new URL('../src/client.js', import.meta.url), 'utf8')
 const CSS = readFileSync(new URL('../src/theme.css', import.meta.url), 'utf8')
 const BUILT_PATH = new URL('../client.js', import.meta.url)
@@ -41,7 +42,7 @@ const RADIUS = RHO_C * Math.min(VIEWPORT.width, VIEWPORT.height) / 2
 const ARC_X = VIEWPORT.width / 2
 /* 甲：路径走弧线 + 飞行期盘自转（用户 m02685「向右旋转到达 / 向左旋转放回」）。
    倾角动不得（会整格重建），所以旋转拆成 viewY 起伏与 speed 脉冲两件逐帧的事。
-   两个数字要和 src/runtime/black-hole.js 里的 ARC_BOW / ARC_SPIN 一致。 */
+   两个数字要和 src/runtime/accretion-disk.js 里的 ARC_BOW / ARC_SPIN 一致。 */
 const ARC_BOW = 64
 const ARC_SPIN = 1.05
 /* 两页洞心的横向差：出画时整段位移就是这个数（视口宽 - 对话列中心）。 */
@@ -56,7 +57,7 @@ function paintedCenter(painted) {
   return (Math.min(...xs) + Math.max(...xs)) / 2
 }
 
-/* 真跑 src/runtime/black-hole.js：取景、运镜、重建都在这里判。 */
+/* 真跑 src/runtime/accretion-disk.js：取景、运镜、重建都在这里判。 */
 function holeFixture({ reduced = false } = {}) {
   let id = 0
   const timers = new Map(), frames = new Map(), listeners = new Map(), attrs = {}, states = []
@@ -175,7 +176,7 @@ function holeFixture({ reduced = false } = {}) {
     frames.clear()
     tasks.forEach(fn => fn(time))
   }
-  return { api: context.UniverseBlackHole, canvas, attrs, states, painted, arcs, anims, listeners, frames, frameAt, drain }
+  return { api: context.UniverseAccretionDisk, canvas, attrs, states, painted, arcs, anims, listeners, frames, frameAt, drain }
 }
 
 test('取景框固定成整个 frame：洞心仍落在对话列中心，左栏交给 mask 斜坡隔离', () => {
@@ -525,7 +526,14 @@ function clientHarness({ reduced = false, home = false } = {}) {
   const frame = { getBoundingClientRect: () => ({ left: 0, top: 0, width: VIEWPORT.width, height: VIEWPORT.height }) }
   const body = {
     dataset: {},
-    prepend(child) { child.isConnected = true; hole = child; mounted += 1; calls.push('mountHole') },
+    /* 洞拆成两块画布后 prepend 两次（先盘后洞，DOM 里洞在前）。真页面上 client.js 的
+       HOLE_SELECTOR 只认 data-uni-black-hole，所以替身也按属性筛：带 data-uni-hole-body
+       的那块只是背景层，不参与转场，也不算第二次挂载。 */
+    prepend(child) {
+      child.isConnected = true
+      if (child.dataset && 'uniHoleBody' in child.dataset) return
+      hole = child; mounted += 1; calls.push('mountHole')
+    },
     setAttribute() {}, removeAttribute() {},
   }
   const document = {

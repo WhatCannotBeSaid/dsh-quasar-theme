@@ -324,7 +324,7 @@ body[data-uni-black-hole] canvas[data-black-hole-state='building'] {
 }
 /* 对话页背景（2026-10-29 定稿）：洞在对话页里走到视口右缘出画，弧贴右边，左栏那片只剩背景，
    所以这里把壳层与左栏的漆一起清空，才不会露出官方底纱。
-   属性的切换由 black-hole.js 的 arcTo() 在同一拍负责，回新会话页时一起撤。 */
+   属性的切换由 accretion-disk.js 的 arcTo() 在同一拍负责，回新会话页时一起撤。 */
 body[data-uni-sky-mode]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
 body[data-uni-sky-mode]:has([data-black-hole-state='ready']) [data-slot='sidebar'],
 body[data-uni-sky-mode]:has([data-black-hole-state='ready']) [data-slot='sidebar'] > div {
@@ -333,7 +333,7 @@ body[data-uni-sky-mode]:has([data-black-hole-state='ready']) [data-slot='sidebar
 /* 2026-10-28：黑洞只画在「主区 + 右栏」，左栏恢复成一张纸。
    原因：画布以前是 `position: fixed; inset: 0` 铺满视口，黑洞连左栏一起画，
    左栏只是靠自己的漆把它盖住；上面的壳层清空段把左栏漆成透明之后，洞就漏进来了。
-   现在画布由 `src/runtime/black-hole.js` 的 mount() 按容器 rect 摆位、按容器尺寸取景，
+   现在画布由 `src/runtime/accretion-disk.js` 的 mount() 按容器 rect 摆位、按容器尺寸取景，
    这里只管接住它、并把左栏漆回去。
 
    为什么不是把画布改到 z-index: 1 再给主区垫纸：画布的底是**不透明**清屏色（暗 `#030509`
@@ -355,13 +355,13 @@ body[data-uni-sky-mode]:has([data-black-hole-state='ready']) [data-slot='sidebar
    m00648「我的意思是让左边栏透明！！！」。所以左栏不刷任何颜色，而是把自己（连同外层
    容器与官方那层 `--dsw-specific-sidebar-fill`）清成 transparent，透出整窗同一个底。
 
-   这条路能成的关键是画布也不再不透明（src/runtime/black-hole.js 的 `clearRect`）：
+   这条路能成的关键是画布也不再不透明（src/runtime/accretion-disk.js 的 `clearRect`）：
    画布一旦是不透明清屏色，主区就是「画布 + 外壳纱」的合成色，左栏透出的底怎么都差
    一档 —— 前两次失败都是在猜这个合成值。画布透明之后，主区透出的同样是那一层底，
    两区逐像素相等，不需要任何颜色匹配，也不改整窗原有的明度（不再把 body 刷成画布色，
    那会把整个窗口压黑一档）。
 
-   `--cp-void` 仍由绘制方发布（src/runtime/black-hole.js 的 `applyMode()`），留给画布与
+   `--cp-void` 仍由绘制方发布（src/runtime/accretion-disk.js 的 `applyMode()`），留给画布与
    将来需要精确对齐的场合；本表不消费它。 */
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='root'] > * > div:has(> [data-slot='sidebar']),
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sidebar'],
@@ -382,16 +382,23 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-slot='sideb
   inherits: false;
   initial-value: 0px;
 }
-canvas[data-uni-black-hole] {
+canvas[data-uni-black-hole],
+canvas[data-uni-hole-body] {
   --uni-hole-edge: 0px;
   transition: --uni-hole-edge 1000ms linear;
-  /* 转场时 canvas 靠 transform 平移（见 black-hole.js 的 arcTo）：直接声明 will-change
+  /* 转场时 canvas 靠 transform 平移（见 accretion-disk.js 的 arcTo）：直接声明 will-change
      让这一层提前升成合成层，位移才能整段跑在合成器上，主线程卡住也不抖。 */
   will-change: transform;
   -webkit-mask-image: linear-gradient(to right, transparent 0, transparent var(--uni-hole-edge), currentColor calc(var(--uni-hole-edge) + 72px));
   mask-image: linear-gradient(to right, transparent 0, transparent var(--uni-hole-edge), currentColor calc(var(--uni-hole-edge) + 72px));
 }
+/* 洞与盘是两块画布（拆分第一阶段），上面这套遮罩、过渡与合成层三样必须同时覆盖两块：
+   只给盘会漏左栏，只给洞会让转场时盘的位移掉回主线程。 */
 body[data-uni-motion='reduced'] canvas[data-uni-black-hole] {
+  transition: none;
+}
+/* 洞是第二块画布，边界推进与减动效的口径必须与吸积盘那块完全一致。 */
+body[data-uni-motion='reduced'] canvas[data-uni-hole-body] {
   transition: none;
 }
 
@@ -1160,7 +1167,7 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='
  * 2026-10-07 点名要回来的「65% 透出」。①②在上面的清空段里补掉，③由本节删除。
  * 现在本表不再声明 `--cp-side-scrim`，`body[data-ds-dark-theme]` 里那条 `transparent`
  * 覆写也一并删除：底纱的 α 与底色全部由令牌层按档发布（亮 `#eff2f5` / 暗 `#111720`，第五轮 2026-10-25 换族；第六轮纸白曾短暂上线，2026-10-27 已整体回退，
- * 黑洞画布清屏色 `src/runtime/black-hole.js` 同值）。
+ * 黑洞画布清屏色 `src/runtime/accretion-disk.js` 同值）。
  *
  * 2026-10-08（第二十五轮，用户口径更正）：亮暗**不再要求共用同一套方案**，两者各自独立
  * 演进，不再朝「亮暗统一」对齐；唯一仍需共同坚守的是**无边界（borderless）理念本身** ——

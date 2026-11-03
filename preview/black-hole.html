@@ -6,9 +6,9 @@
 <canvas aria-hidden="true"></canvas>
 <aside class="sample"><strong>主题可读性试片</strong><p>黑洞是暗影，不是发光球。背景不抢占输入、选择与滚动。</p><p>这只是预览试片，不代表 DSH 真机验收。</p></aside>
 <section class="panel"><h1>Universe · ASCII 黑洞初版</h1><div>视线相对盘面仰角；相对盘法线为 <span id="normalAngle">60</span>°。</div><label>仰角 <input id="angle" type="range" min="25" max="35" value="30" step="1"> <output id="angleValue">30°</output></label><label>亮度 <input id="brightness" type="range" min=".15" max="2" step=".05" value="1"></label><button id="pause">暂停</button> <button id="theme">明暗试片</button><p id="stats">构建字符光路中</p><small>几何光路近似 + 程序化发射；非 Kerr / GRMHD 模拟。</small></section>
-<script src="../src/runtime/black-hole.js"></script><script>
+<script src="../src/runtime/geodesic.js"></script><script src="../src/runtime/accretion-disk.js"></script><script>
 var renderer, paused=false;
-try { renderer=UniverseBlackHole.create(document.querySelector('canvas')); window.blackHole=renderer;
+try { renderer=UniverseAccretionDisk.create(document.querySelector('canvas')); window.blackHole=renderer;
 document.querySelector('#angle').oninput=function(e){renderer.update({angle:+e.target.value});document.querySelector('#angleValue').textContent=e.target.value+'°';document.querySelector('#normalAngle').textContent=90-e.target.value;};
 document.querySelector('#brightness').oninput=function(e){renderer.update({brightness:+e.target.value});};
 document.querySelector('#pause').onclick=function(e){paused=!paused;renderer.update({speed:paused?0:1});e.target.textContent=paused?'继续':'暂停';};

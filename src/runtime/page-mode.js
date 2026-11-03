@@ -1,6 +1,6 @@
 /* Which page the shell is showing.
  *
- * The theme draws one backdrop now: the ASCII black hole (src/runtime/black-hole.js).
+ * The theme draws one backdrop now: the ASCII black hole (src/runtime/accretion-disk.js).
  * It is mounted for the whole session and only changes its framing, so all that is
  * left here is the part that belongs to the SHELL rather than to the artwork --
  * whether the new-session page is up.
