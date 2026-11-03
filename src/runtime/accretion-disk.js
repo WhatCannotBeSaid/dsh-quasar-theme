@@ -142,8 +142,10 @@ var UniverseAccretionDisk = (function () {
       var eddington = 1
         + .022 * Math.sin(time * .21 - r * .55)
         + .016 * Math.sin(time * .13 + r * .31 + 2.1)
-      /* 四、垂直结构：内缘收口放宽到 1.6R_g，读起来是一段有厚度的边，不是刀片。 */
-      var edge = smooth(INNER - .2, INNER + 1.6, r) * (1 - smooth(14.5, 16.2, r))
+      /* 四、垂直结构：内缘收口放宽到 2.2R_g。真正的几何厚度（|y|<H 求交）会把
+         三十多个独立物理参考值作废，而 155×96 的网格下 H/R=0.05 只有 3 格厚 ——
+         收益是「边缘毛糙」不是「体积感」。这里只用收口宽度换同样的观感，几何不动。 */
+      var edge = smooth(INNER - .2, INNER + 2.2, r) * (1 - smooth(14.5, 16.2, r))
       flux += edge * Math.pow(INNER / r, 2) * arms * band * turb * eddington * ray.g4 * 3.2
     }
     if (!(flux > 0)) return 0

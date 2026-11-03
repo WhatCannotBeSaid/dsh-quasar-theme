@@ -1002,7 +1002,7 @@ function shadeReference(ray,time,brightness,spin){
     const band=1+.03*Math.sin(3*pattern-6*logR)
     const turb=1+turbulence(epoch,drifted/INNER,phase)
     const eddington=1+.022*Math.sin(time*.21-r*.55)+.016*Math.sin(time*.13+r*.31+2.1)
-    const edge=smooth(INNER-.2,INNER+1.6,r)*(1-smooth(14.5,16.2,r))
+    const edge=smooth(INNER-.2,INNER+2.2,r)*(1-smooth(14.5,16.2,r))
     return 1-Math.exp(-(edge*Math.pow(INNER/r,2)*arms*band*turb*eddington*ray.g4*3.2)*brightness)
   }
   return 0
