@@ -9,11 +9,9 @@ the sidebar brand row, a live accretion disk behind the app, and one removable
 override layer of 53 measured tokens whose translucent surfaces are solved
 against a contrast budget rather than picked by eye.
 
-The name is the one the interface has carried all along — the sidebar reads
-`QUASAR CORE` — and the package now follows it: `dsh-quasar-theme`. A quasar is a
-black hole with an accretion disk and a jet, which is what the canvas layer
-draws. Until 2026-11-04 the package was called `dsh-universe-theme`; saved pins
-and popover state migrate on first read (see [What it is](#what-it-is)).
+The name is the one the interface carries — the sidebar reads `QUASAR CORE` — and
+the package follows it: `dsh-quasar-theme`. A quasar is a black hole with an
+accretion disk and a jet, which is what the canvas layer draws.
 
 **This repository ships no background picture.** The paint layer is here, the
 artwork is not — the tracked wallpaper manifest is empty, so a fresh clone draws
@@ -91,14 +89,9 @@ The theme installs one layer and can be removed as one. It ships **no settings
 panel of its own** — the look is fixed, not a preference — and the only thing it
 persists is the workspace pin set and the composer's collapsed-popover state,
 under `quasar-theme/workspace-pins` and `quasar-theme/model-groups-collapsed`.
-Both are read from their earlier `uni-theme/` keys once and rewritten under the
-new name, so upgrading does not reset either. It does hide
-and move a few official entries, so read
+It does hide and move a few official entries, so read
 [What it changes in the interface](#what-it-changes-in-the-interface) before you
 install it.
-
-No boot animation, no non-official-plugin switch, no wallpaper picker: those were
-part of the earlier build and are gone.
 
 ## What it changes in the interface
 
@@ -194,7 +187,7 @@ its controls.
 
 - A **pin button** on every workspace and session row (置顶工作区 / Pin workspace,
   following the host's language). The pinned set lives in browser storage under
-  `uni-theme/workspace-pins`; the order it produces is written through the host's
+  `quasar-theme/workspace-pins`; the order it produces is written through the host's
   own insert-before API, so it survives a restart — and, unlike the pin set, it
   also survives removing the theme.
 - The **session status rail**: blue and breathing while a session waits for you
@@ -312,11 +305,3 @@ from `@fontsource`, embedded in `client.js` as data URLs.
 **No other artwork.** No wallpaper, no character illustration and no third-party
 image is distributed with this package, and nothing is fetched from a third-party
 host at paint time.
-
-**History.** Earlier versions of this package were an EVA-inspired theme with two
-hotlinked wallpapers, a boot mask and a non-official-plugin switch. The wallpapers
-were removed on 2026-10-27, the boot mask and the switch on 2026-10-31, and the
-package was renamed from `dsh-universe-theme` to `dsh-quasar-theme` on 2026-11-04
-to match the `QUASAR` wordmark the interface had shown since it was built. Nothing
-in the current build depends on khara, inc., its characters, or any other rights
-holder named in earlier copies of this file.

@@ -1,7 +1,7 @@
 {
   "name": "dsh-quasar-theme",
-  "version": "0.1.0",
-  "description": "Universe / 宇宙 — a space-themed skin for DeepSeek Harness: 53 tokens over one removable override layer, no wallpaper, contrast solved against a WCAG budget rather than picked by eye.",
+  "version": "0.1.1",
+  "description": "QUASAR — a space-themed skin for DeepSeek Harness: 53 tokens over one removable override layer, no wallpaper, contrast solved against a WCAG budget rather than picked by eye.",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -9,7 +9,7 @@
     "plugin",
     "theme",
     "skin",
-    "universe",
+    "quasar",
     "space",
     "dsh-quasar-theme"
   ],
