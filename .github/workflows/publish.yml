@@ -7,7 +7,7 @@ name: publish
 # 前提：npm 包设置 → Trusted Publisher 里登记
 #   Publisher            GitHub Actions
 #   Organization / User  WhatCannotBeSaid
-#   Repository           eva-inspired-theme
+#   Repository           dsh-universe-theme
 #   Workflow filename    publish.yml
 #   Environment          （留空）
 # 登记本身需要一次通行密钥，之后发布就不再需要人工批准。
@@ -41,19 +41,22 @@ jobs:
             exit 1
           fi
 
-      - name: 校验提交里的 client.js 与源码同步
-        run: node tools/build-client.mjs --check
+      - name: 构建 client.js
+        # client.js 是 .gitignore 里的构建产物，干净 checkout 上没有这个文件，
+        # 所以这里构建而不是 --check。--check 只适用于本地已构建的工作区。
+        run: node tools/build-client.mjs
 
       - name: 校验 registry 上这个版本还没被占
         run: |
+          name="$(node -e "process.stdout.write(require('./package.json').name)")"
           pkg="$(node -e "process.stdout.write(require('./package.json').version)")"
-          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
-            "https://registry.npmjs.org/eva-inspired-theme/$pkg")"
-          if [ "$code" = "200" ]; then
-            echo "eva-inspired-theme@$pkg 已在 registry 上，拒绝重复发布" >&2
+          url="https://registry.npmjs.org/$name/$pkg"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url")"
+          if [ "$code" != "404" ]; then
+            echo "无法确认 $name@$pkg 是新的（HTTP $code），拒绝发布" >&2
             exit 1
           fi
-          echo "registry 上 $pkg 尚不存在（HTTP $code），继续"
+          echo "registry 上 $name@$pkg 尚不存在，继续"
 
       - name: 发布到 npm
         run: npm publish --provenance --access public
