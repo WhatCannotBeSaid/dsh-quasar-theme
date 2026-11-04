@@ -33,7 +33,8 @@
 #
 # So the built-in `session-title-llm` provider was in charge the whole time, and
 # removing the row changes no behaviour. The earlier reasoning for mounting rather
-# than vendoring — see docs/design.md D27 — still stands as a reason NOT to vendor
+# than vendoring — see D27 in the design record, which is kept outside this
+# repository — still stands as a reason NOT to vendor
 # a companion into a removable visual layer.
 #
 # One row, and only one: a theme is one removable layer, and a layer that mounts
