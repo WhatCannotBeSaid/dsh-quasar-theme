@@ -452,6 +452,7 @@ test('主线程卡住不再冻住洞：位置在合成器上，主线程只补�
   const f = holeFixture()
   const dispose = f.api.mount()
   f.drain()
+  f.frameAt(0) /* 挂载的冷启动 settle 补帧先落地，下面「一个 rAF 都不跑」的空档才从干净状态起算 */
   const hole = f.canvas.__uniBlackHole
   const home = hole.stats().config.viewX
 
@@ -478,6 +479,7 @@ test('reduced motion：交给 __uniArc 的时长为 0 时瞬时落点，不申�
   const f = holeFixture({ reduced: true })
   const dispose = f.api.mount()
   f.drain()
+  f.frameAt(0) /* 同上：消费掉挂载的 settle 补帧，否则「不运镜就不出帧」会数到那一帧 */
   const hole = f.canvas.__uniBlackHole
   f.canvas.__uniArc(true, 0)
   assert.ok(Math.abs(hole.stats().config.viewX - ARC_X) < 0.01, '瞬时端点')
