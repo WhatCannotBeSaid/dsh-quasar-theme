@@ -1,6 +1,6 @@
 {
   "name": "dsh-quasar-theme",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "QUASAR — a space-themed skin for DeepSeek Harness: 53 tokens over one removable override layer, no wallpaper, contrast solved against a WCAG budget rather than picked by eye.",
   "keywords": [
     "deepseek-harness",
@@ -13,7 +13,7 @@
     "space",
     "dsh-quasar-theme"
   ],
-  "license": "(MIT AND CC-BY-NC-SA-4.0)",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/WhatCannotBeSaid/dsh-quasar-theme.git"
@@ -46,7 +46,6 @@
     "client.js",
     "cordis.patch.yml",
     "LICENSE",
-    "LICENSE-CC-BY-NC-SA-4.0.txt",
     "NOTICE",
     "README.md",
     "README.zh.md",

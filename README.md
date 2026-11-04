@@ -1,6 +1,6 @@
 # QUASAR — dsh-quasar-theme
 
-[![Licence: MIT + CC BY-NC-SA 4.0](https://img.shields.io/badge/licence-MIT%20%2B%20CC--BY--NC--SA%204.0-yellow.svg)](#licence)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](#licence)
 
 English | [中文](README.zh.md)
 
@@ -217,13 +217,12 @@ src/tokens.json       the token layer's source of truth for the build
 src/runtime/          glass, black hole, geodesic lens, pins, brand routing, panels
 src/model-effort-picker.js  the composer's two model/effort controls
 cordis.patch.yml      the bundle-patch mount declaration
-build/                shipped assets: brand marks, the two OFL fonts, fonts.json
+build/                shipped assets: the brand mark, the two OFL fonts, fonts.json
 build/wallpapers.json the TRACKED wallpaper manifest — empty in this repository
 tools/                build, self-check, token audit, tests
 docs/                 design log, recon, audits, render reports
 NOTICE                upstream licences and third-party credits
-LICENSE               this package's layered licence
-LICENSE-CC-BY-NC-SA-4.0.txt  the CC licence text for the brand marks
+LICENSE               MIT, plus the font carve-out
 ```
 
 `client.js` is generated from `src/` and carries a banner saying so. Edit `src/`
@@ -262,41 +261,23 @@ for limitations and rollback.
 
 ## Licence
 
-This package uses **tiered licensing**. Each licence applies only to the part it is
-named against; none of them is an alternative licence for the whole repository.
-Catalogue data (`build/*.json`) describes assets without licensing them. No
-trademark rights are granted here.
+**MIT**, with one carve-out for the two font files. Nothing in the package is
+non-commercial, and no third-party artwork ships — the only image is the brand
+mark drawn for this theme.
 
 | Part | Licence | What it asks of you |
 |---|---|---|
-| Our code — `index.js`, `src/`, `tools/`, `client.js` | MIT | Keep the copyright and licence notice. Commercial use of the code is fine. |
-| Project text — this README, `docs/`, `NOTICE`, `LICENSE` | CC BY-NC-SA 4.0 | Credit, link the licence, note changes, keep it non-commercial, share alike. |
-| Fonts — `build/cinzel-latin-700.woff2`, `build/eb-garamond-latin-500.woff2` | SIL OFL 1.1 | Keep the licence with the font; the texts ship beside them as `build/cinzel-OFL.txt` and `build/eb-garamond-OFL.txt`. |
-| The earlier brand marks still in the tree — `build/whale-maid-small-monochrome-diagonal.svg`, `build/brand-mark*.png`, `build/brand-mark.jpg` | CC BY-NC-SA 4.0 | Same terms as the project text, and this is third-party artwork: see below. |
+| Everything else — `index.js`, `src/`, `tools/`, `client.js`, `docs/`, both READMEs, `build/*.json`, the brand mark | MIT | Keep the copyright and licence notice. Commercial use is fine. |
+| Fonts — `build/cinzel-latin-700.woff2`, `build/eb-garamond-latin-500.woff2` | SIL OFL 1.1 | Keep the licence with the font, and do not sell the fonts on their own. The texts ship beside them as `build/cinzel-OFL.txt` and `build/eb-garamond-OFL.txt`. |
 
-Because those third-party marks carry a non-commercial term and still ship in the
-package, **the package as a whole may not be used commercially**. The MIT code on
-its own is not restricted; drop the marks if you need a commercial-use build.
-
-Full terms: [LICENSE](LICENSE). Upstream texts and per-file credits:
-[NOTICE](NOTICE). The CC BY-NC-SA 4.0 legal text ships as
-[LICENSE-CC-BY-NC-SA-4.0.txt](LICENSE-CC-BY-NC-SA-4.0.txt) and is also at
-<https://creativecommons.org/licenses/by-nc-sa/4.0/>.
+Full terms: [LICENSE](LICENSE). Per-file credits: [NOTICE](NOTICE).
 
 ## Third-party marks and credits
 
-**Current brand mark.** `build/brand-mark-black-hole.png`, the ink black hole the
-sidebar draws, was supplied for this theme. It is not character artwork and names
-no third party.
-
-**Earlier brand mark.** Character 溟月 by 上善无形 (original character,
-<https://space.bilibili.com/4456176>). DeepSeek-elements second pass by ZipZipPipe
-(GPT Image 2, <https://space.bilibili.com/4168597>). Refined repair by QYQCAMIAO.
-Licensed CC BY-NC-SA 4.0 — credit, non-commercial, share alike. The illustration
-ships as the supplied SVG, `build/whale-maid-small-monochrome-diagonal.svg`, drawn
-unmodified. The earlier cropped 256×256 PNGs stay in the tree for rollback only,
-under the same terms. This theme no longer draws any of them; commercial use of
-this artwork would need permission from the rights holders above.
+**Brand mark.** `build/brand-mark-black-hole.png`, the ink black hole the sidebar
+draws, was supplied for this theme and is redistributed under the same MIT grant
+as the code. It is not character artwork, it is not derived from anyone else's
+picture, and it names no third party. No other image ships.
 
 **Fonts.** Cinzel, Copyright 2020 The Cinzel Project Authors; EB Garamond,
 Copyright 2017 The EB Garamond Project Authors. Both SIL OFL 1.1, latin subset,

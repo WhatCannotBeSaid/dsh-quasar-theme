@@ -1,33 +1,23 @@
-EVA-Inspired-Theme — licence
-============================
+QUASAR — dsh-quasar-theme — licence
+===================================
 
-This package is NOT covered by a single licence. It is a layer of our own code
-wrapped around third-party material, and the two do not share terms. Read this
-file together with NOTICE, which carries the full upstream texts.
+Two licences split this package, by what each file is. Both travel with it, and
+NOTICE carries the attribution each one asks for.
 
-The short version, in the order that decides what you may do:
+  * Our own code and documentation ....... MIT — use it, change it, ship it.
+  * The two font files in build/ ......... SIL Open Font License 1.1.
 
-  * Our own code ......... MIT — use it, change it, ship it.
-  * Brand marks .......... CC BY-NC-SA 4.0 — credit, NO commercial use, share alike.
-  * Fonts ................ none redistributed — see 2.1.
-  * The wallpaper pair ... NOT distributed and NOT licensed here. Since 2026-10-09
-                           the two background images are third-party artwork that
-                           this repository does not carry; the tracked manifest
-                           links to them instead (D81), so a build paints them
-                           from wallhaven; see 2.3.
-
-Because the brand marks forbid commercial use, THE PACKAGE AS A WHOLE IS NOT
-COMMERCIAL-USE. That restriction comes from section 2.2, not from the MIT grant
-in section 1. If you need a commercial-use build, remove the brand marks.
+Everything else in this package is MIT. Nothing in it is non-commercial, and no
+third-party artwork is redistributed — the only image shipped is the brand mark
+drawn for this theme (NOTICE).
 
 
 1. Our own code — MIT
 ---------------------
 
-Everything in this package that we wrote ourselves — the host half (index.js),
-the client token and paint layers (src/), the build and check tooling (tools/),
-the vendored glue that assembles them, and the documentation in docs/ — is
-released under the MIT licence below.
+This covers index.js, everything under src/, tools/, docs/, build/ (except the
+two .woff2 files named in section 2), cordis.patch.yml, the generated client.js,
+and both READMEs.
 
   Copyright (c) 2026 WhatCannotBeSaid
 
@@ -49,113 +39,40 @@ released under the MIT licence below.
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
-This MIT grant does not extend to any file described in section 2. Where a file
-is listed in section 2, that file's own terms govern it.
+This grant does not extend to the two font files in section 2. Those keep their
+own terms.
 
 
-2. Bundled third-party material
--------------------------------
+2. Fonts — SIL Open Font License 1.1
+------------------------------------
 
-2.1 Font — none redistributed (removed 2026-10-31)
-    Earlier versions bundled Great Vibes, SIL Open Font License 1.1, at
-    build/great-vibes-latin.woff2 together with its licence text at
-    build/great-vibes-OFL.txt. Both files were removed on 2026-10-31 with the
-    rest of the theme's font changes, so no OFL material ships here any more and
-    none of the OFL conditions attach to this package. No other font is
-    redistributed either: every family named in src/theme.css (Bahnschrift, DIN
-    Alternate, DIN Next, Eurostile Extended, Helvetica Neue, Inter, Arial,
-    sans-serif) is referenced by name only and is never shipped.
+2.1 build/cinzel-latin-700.woff2
+    Cinzel, Copyright 2020 The Cinzel Project Authors.
+    Latin subset taken from @fontsource, unmodified.
 
-2.2 Brand marks — build/brand-mark.png, build/brand-mark-dark.png,
-    build/brand-mark.jpg
-    CC BY-NC-SA 4.0. Credits and the list of changes we made are in NOTICE
-    section 2. Three consequences you must respect:
+2.2 build/eb-garamond-latin-500.woff2
+    EB Garamond, Copyright 2017 The EB Garamond Project Authors.
+    Latin subset taken from @fontsource, unmodified.
 
-      BY — keep the credits. Attribution goes to the character's author 上善无形
-           (original character 溟月), the DeepSeek-element second pass by
-           ZipZipPipe (GPT Image 2), and the refined repair by QYQCAMIAO.
-      NC — no commercial use. Ads, sponsorship, paid distribution and paid
-           products all count, whether or not you charge for this package.
-      SA — share alike. brand-mark-dark.png is a derivative (see NOTICE), and any
-           adaptation or derivative you distribute must carry the same licence.
+Both files are embedded in the generated client.js as base64 data URLs, so they
+reach anyone who receives the bundle. The OFL text for each ships beside it, as
+build/cinzel-OFL.txt and build/eb-garamond-OFL.txt; the canonical copy is
+https://openfontlicense.org/open-font-license-official-text/
 
-2.3 Wallpapers — NOT distributed, hotlinked
-    Since 2026-10-09 (D79) this repository distributes no wallpaper
-    image, and since D81 the tracked manifest names the pictures by URL rather than
-    leaving the layer empty. Both background images are third-party artwork, not
-    ours, and we grant no licence in them. What this repository holds is an address
-    and a credit, in two files:
-
-      build/wallpapers.json      TRACKED. Two entries, each with a `direct:` URL
-                                 and the `page:` its credit belongs on. The build
-                                 emits url("https://…"), so a theme built from
-                                 this file paints two pictures the browser fetches,
-                                 at paint time, from the host each entry names. No
-                                 image bytes travel with it, and an offline machine
-                                 simply has no background.
-      out/wallpapers.local.json  LOCAL, ignored by git. The same shape with
-                                 `dataUrl:` entries; when it exists the build
-                                 embeds those local copies instead, which is how
-                                 the maintainer's own machine keeps its look.
-                                 `--public` ignores it.
-      client.js                  GENERATED, ignored by git. `npm run selfcheck`
-                                 asserts that the tracked manifest carries no
-                                 `dataUrl:` (wall.6) and that a bundle built from
-                                 it resolves every `direct:` URL (wall.8). An empty
-                                 manifest is still legal: it publishes
-                                 `--cp-pick-light: none; --cp-pick-dark: none;`.
-
-    Provenance, recorded because it is the maintainer's own record and because it
-    is what a takedown request would be about:
-
-      og33jl — wallhaven.cc/w/og33jl, 2560x1440, credited there to the artist YOTA
-               SAKI; the entry's source link is pixiv.net/en/artworks/133258822.
-               Uploaded to wallhaven by "Elisban". Not licensed to us.
-      eva01city — haowallpaper.com/homeViewLook/18703364605463936, 1100x775, the
-                  light-mode default. The page credits no artist, only its
-                  uploader; the same artwork also circulates on wallhaven as
-                  x85po3, uploaded there by "BachoWilson". haowallpaper serves this
-                  preview to anonymous visitors, so the 3066x2160 original — which
-                  the maintainer holds, and which this file does not point at — is
-                  behind a signed-in download. Not licensed to us.
-
-    We have no permission from either artist. If you are one of them and want the
-    entry gone, ask and it will be dropped from the manifest. See README, "Fan work
-    and attribution", which also keeps the maintainer's standing notice about images
-    taken from the web.
+The OFL conditions, in short: the fonts may be used, studied, modified and
+redistributed freely, including inside a commercial product, as long as they are
+not sold by themselves, any derivative carries the same licence, and the
+copyright notice and licence travel with them. This theme does not modify them.
 
 
 3. What comes from where
 ------------------------
 
   index.js, src/, tools/, docs/, cordis.patch.yml ... MIT (section 1)
-  client.js ......................................... MIT (generated from src/, not tracked)
-  build/brand-mark*.png, build/brand-mark.jpg ....... CC BY-NC-SA 4.0 (2.2)
-  the wallpaper pair ................................ NOT distributed, hotlinked (2.3)
-
-Vendored code. Two files are byte-for-byte copies of code from other plugins, not
-written for this theme:
-
-  build/plugin-toggle.js ....... dsh-disable-unofficial-plugins, MIT
-                                 https://github.com/WhatCannotBeSaid/dsh-disable-unofficial-plugins
-  build/session-eva-status.js .. dsh-session-eva-status v0.1.0, MIT
-                                 https://github.com/WhatCannotBeSaid/dsh-session-eva-status
-
-Both upstreams are MIT, whose notice has to travel with copies and substantial
-portions. NOTICE section 3 carries both entries, and the MIT text with its
-copyright line is section 1 of this file. The two files are also inlined into the
-generated client.js, so that notice belongs with the bundle and not only with the
-two source files. Keep it if you redistribute either file or the bundle.
-
-The CC BY-NC-SA 4.0 legal text for section 2.2 ships with this repository as
-LICENSE-CC-BY-NC-SA-4.0.txt; the canonical copy is
-https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
-
-No `EVA`, `NERV`, `Evangelion` or Arknights artwork owned by khara, inc. or
-Hypergryph is distributed in this package. The only images this repository
-carries are the brand marks in 2.2 — both wallpapers are absent as bytes by
-construction (2.3), which keeps only their addresses and their credits. The theme
-is an unofficial, non-commercial fan work, published under
-khara's fan-work guideline (https://www.khara.co.jp/guideline/), which permits
-non-commercial fan works and licenses neither the characters nor the brand. See
-README, "Fan work and attribution".
+  build/brand-mark-black-hole.png ................... MIT (drawn for this theme)
+  build/brand-mark-black-hole.png is the only image; NOTICE records its origin.
+  build/cinzel-latin-700.woff2,
+  build/eb-garamond-latin-500.woff2 ................. SIL OFL 1.1 (section 2)
+  build/fonts.json, build/veil-budget.json,
+  build/wallpapers.json ............................. MIT (section 1)
+  client.js ......................................... MIT, generated from src/

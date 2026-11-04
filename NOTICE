@@ -1,140 +1,53 @@
-EVA-Inspired-Theme — third-party notices
-========================================
+QUASAR — dsh-quasar-theme — third-party notices
+==============================================
 
-This package redistributes the third-party components listed below. Each one
-keeps its own license. Nothing here is relicensed as MIT.
-
-The license in package.json covers this project's own code and styling only.
-The components below are carved out of it, and the brand marks in section 2
-carry a non-commercial term that applies to anyone redistributing or reusing
-them together with this package.
+This package redistributes two third-party font files. They keep their own
+licence; nothing here is relicensed as MIT. Everything else in the package is our
+own work, MIT, and no third-party artwork ships — see section 2 for the single
+image that does.
 
 
-1. Fonts — none redistributed
------------------------------
+1. Fonts — build/cinzel-latin-700.woff2, build/eb-garamond-latin-500.woff2
+--------------------------------------------------------------------------
 
-Earlier versions of this package carried Great Vibes, Copyright 2015 The Great
-Vibes Pro Project Authors, under the SIL Open Font License 1.1: the Latin subset
-at build/great-vibes-latin.woff2 with the license text at
-build/great-vibes-OFL.txt. Both files were removed on 2026-10-31 together with
-the theme's font changes, unmodified to the end. This package no longer
-redistributes any font, so no OFL obligation attaches to it.
+  build/cinzel-latin-700.woff2
+    Font:      Cinzel, weight 700
+    Copyright: Copyright 2020 The Cinzel Project Authors
+    Licence:   SIL Open Font License 1.1
+               https://openfontlicense.org/open-font-license-official-text/
+    Text:      build/cinzel-OFL.txt
 
+  build/eb-garamond-latin-500.woff2
+    Font:      EB Garamond, weight 500
+    Copyright: Copyright 2017 The EB Garamond Project Authors
+    Licence:   SIL Open Font License 1.1
+               https://openfontlicense.org/open-font-license-official-text/
+    Text:      build/eb-garamond-OFL.txt
 
-2. Brand marks — build/brand-mark.png, build/brand-mark-dark.png, build/brand-mark.jpg
---------------------------------------------------------------------------------------
+Both are latin subsets taken unmodified from @fontsource, where they are
+distributed under the same OFL. This theme changes nothing in them: it embeds the
+files as base64 data URLs inside the generated client.js and paints
+`QUASAR` with Cinzel and the `CORE` chip with EB Garamond.
 
-Character "溟月" (Mingyue):        上善无形 — original character
-                                   https://space.bilibili.com/4456176
-DeepSeek-element derivative art:   ZipZipPipe (GPT Image 2)
-                                   https://space.bilibili.com/4168597
-Restoration and fixes:             QYQCAMIAO
-License:                           Creative Commons
-                                   Attribution-NonCommercial-ShareAlike 4.0 International
-                                   (CC BY-NC-SA 4.0)
-                                   https://creativecommons.org/licenses/by-nc-sa/4.0/
-
-The license above is the one stated by the work's distribution chain, not by
-this project. The legal text ships with this package as
-LICENSE-CC-BY-NC-SA-4.0.txt; the canonical copy is at
-https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
-
-Changes made here, and therefore flagged as required by section 3(a)(1)(B) of
-that license: the illustration was cropped and resized to 256x256 for
-build/brand-mark.png, and a darkened variant was derived with
-tools/make-brand-mark-dark.py for build/brand-mark-dark.png. Both derived images
-are offered under the same CC BY-NC-SA 4.0 terms, and both stay non-commercial.
-
-What this means in practice for anyone reusing this package:
-
-  Attribution  Keep the three credits above with their links, the license name
-               and its link, and the note that the images were changed.
-  NonCommercial
-               You may not use these images, or this package as distributed,
-               for commercial purposes. Selling it, bundling it into a paid
-               product and using it to promote a product all count as
-               commercial.
-  ShareAlike   If you adapt the images, you must release your adaptation under
-               CC BY-NC-SA 4.0 or a compatible license.
-
-This license grants no trademark rights, and nothing here implies endorsement by
-khara, inc., Hypergryph or DeepSeek.
+OFL obligations, in short: keep the copyright notice and the licence with the
+fonts, do not sell the fonts on their own, and put any derivative you distribute
+under the same licence. Commercial use of a larger work that contains them is
+allowed. The full text is in the two files named above.
 
 
-3. Vendored client half — build/session-eva-status.js
-------------------------------------------------------------------------------
+2. Brand mark — build/brand-mark-black-hole.png
+-----------------------------------------------
 
-The file started as a byte-for-byte copy of code from another plugin, not written
-for this theme (see the caveats at the end of this section). The upstream is MIT and
-by the same author as this theme:
-
-  build/session-eva-status.js
-    Upstream: dsh-session-eva-status v0.1.0
-    Source:   https://github.com/WhatCannotBeSaid/dsh-session-eva-status
-    License:  MIT
-
-MIT requires its copyright notice and license text to travel with copies and
-substantial portions. The upstream repository carries them in its own LICENSE
-file; the full MIT text and the copyright line are section 1 of this
-repository's LICENSE. The file carries no notice of its own, and it is inlined into
-the generated client.js, so if you redistribute the file or the bundle, carry this
-section with it.
-
-One caveat, added 2026-10-09.
-build/session-eva-status.js (D78) is no longer a byte-for-byte copy: this repository
-patches spots in its hot path — a frame-coalesced schedule, a
-compare-then-write pin attribute, and cancelling the pending frame on dispose —
-because the upstream checkout is not available here to fix and re-vendor.
-The list is at the top of the file; the original contract tripwires remain in
-cli.23, cli.24 and cli.27 of tools/selfcheck.mjs. Current patch inventory is
-maintained in the file header and docs/optimization-s1-s10.md: status rail a-f
-(including scoped lookup, compositor breathing and fallback mutation wakeups). New
-behavior is covered by tools/runtime.test.mjs. No pristine upstream checkout/hash
-was available for this change; this does not claim byte equivalence to upstream.
-Refreshing the file from upstream must re-apply and test the listed patches.
-
-Removed 2026-10-31: build/session-eva-status.js was taken out of this repository at
-the user's request (moved to the recycle bin; it is not shipped anywhere and no part
-of it reaches client.js any more). The theme now paints no session status of its own;
-a replacement is designed separately. What went with the file: the slice and IIFE in
-tools/build-client.mjs, the applySessionEvaStatus call in src/client.js, and the four
-gates that guarded the copy in tools/selfcheck.mjs (cli.23, cli.24, vend.2, cli.27).
-The paragraphs above stay as the record of what was vendored while it was here.
-
-Removed 2026-10-25 (eva-inspired-theme 1.3.0): build/plugin-toggle.js was dropped
-from this repository. dsh-disable-unofficial-plugins is published on its own now,
-so the theme no longer vendors, patches or ships any part of it; install it
-separately to get the switch.
-
-D82's host-bundle exclusion went with it: that protection only existed because the
-vendored copy sat inside the theme's own client bundle, so it is now the standalone
-plugin's business, not the theme's.
+The ink black hole the sidebar draws, 1254x1254, was supplied for this theme and
+is redistributed here under the MIT licence in LICENSE section 1. It is not
+character artwork, it is not derived from anyone else's picture, and it names no
+third party.
 
 
-4. Background wallpapers — NOT redistributed, linked by URL
------------------------------------------------------------
+3. No other third-party material
+--------------------------------
 
-This repository carries no image bytes for a background. `build/wallpapers.json`
-(tracked) names two third-party pictures by URL; the build turns those into CSS
-`url()` values, and the browser fetches each one from the host its entry names
-(haowallpaper.com for the light default, wallhaven for the dark one) when the
-theme paints. Nothing here is a copy of either picture, and this project licenses
-nothing in them.
-
-  og33jl — https://wallhaven.cc/w/og33jl
-    Artist:            YOTA SAKI (credited on that page)
-    Original posting:  https://www.pixiv.net/en/artworks/133258822
-    Uploaded there by: Elisban
-    2560x1440. Dark-mode default.
-
-  eva01city — https://haowallpaper.com/homeViewLook/18703364605463936
-    Artist:            unknown — the page credits only its uploader
-    Also on wallhaven: https://wallhaven.cc/w/x85po3 (uploaded there by BachoWilson)
-    1100x775. Light-mode default. Anonymous visitors are served only this preview;
-    the artwork's own file is 3066x2160.
-
-Neither artist has licensed this use, and neither has been asked. If you are one
-of them and object to the link, ask and the entry will be dropped from the
-manifest; this repository holds no copy of either picture either way.
-
-本仓库图片来自网络流传，具体作者未确认；如原作者认为不妥，请联系删除。
+This package ships no wallpaper, no character illustration and no other external
+image. `build/wallpapers.json` is tracked and empty: a build from it emits
+`--cp-pick-light: none; --cp-pick-dark: none;` and paints no background. Nothing
+is fetched from a third-party host at paint time.

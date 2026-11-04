@@ -1,6 +1,6 @@
 # QUASAR —— dsh-quasar-theme
 
-[![Licence: MIT + CC BY-NC-SA 4.0](https://img.shields.io/badge/licence-MIT%20%2B%20CC--BY--NC--SA%204.0-yellow.svg)](#许可)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](#许可)
 
 [English](README.md) | 中文
 
@@ -146,8 +146,7 @@ build/wallpapers.json 被跟踪的壁纸清单 —— 本仓库里为空
 tools/                构建、自检、令牌审计、测试
 docs/                 设计日志、勘察、审计、渲染报告
 NOTICE                上游许可与第三方署名
-LICENSE               本包的分层许可
-LICENSE-CC-BY-NC-SA-4.0.txt  品牌标所用 CC 许可全文
+LICENSE               MIT，另加字体的例外条款
 ```
 
 `client.js` 由 `src/` 生成，文件头有说明。改 `src/` 后跑 `npm run build`；两者漂移会被检查闸门拦下。
@@ -170,24 +169,18 @@ npm run verify
 
 ## 许可
 
-本包采用**分层许可**。每份许可只作用于它被指明的那部分；它们不是针对整个仓库的备选许可。目录数据（`build/*.json`）描述资源，不构成许可。此处不授予任何商标权。
+本包是 **MIT**，只有两款字体文件例外。包里没有任何非商业条款，也不含第三方画作——唯一的图片是为本主题绘制的品牌标。
 
 | 部分 | 许可 | 对你的要求 |
 |---|---|---|
-| 代码 —— `index.js`、`src/`、`tools/`、`client.js` | MIT | 保留版权与许可声明。代码可商用。 |
-| 项目文字 —— 本 README、`docs/`、`NOTICE`、`LICENSE` | CC BY-NC-SA 4.0 | 署名、给出许可链接、标注改动、保持非商业、相同方式共享。 |
-| 字体 —— `build/cinzel-latin-700.woff2`、`build/eb-garamond-latin-500.woff2` | SIL OFL 1.1 | 字体随许可一起走；许可全文就在旁边：`build/cinzel-OFL.txt`、`build/eb-garamond-OFL.txt`。 |
-| 仍在树里的早期品牌标 —— `build/whale-maid-small-monochrome-diagonal.svg`、`build/brand-mark*.png`、`build/brand-mark.jpg` | CC BY-NC-SA 4.0 | 同项目文字条款，且这是第三方画作：见下。 |
+| 其余全部 —— `index.js`、`src/`、`tools/`、`client.js`、`docs/`、两份 README、`build/*.json`、品牌标 | MIT | 保留版权与许可声明。可商用。 |
+| 字体 —— `build/cinzel-latin-700.woff2`、`build/eb-garamond-latin-500.woff2` | SIL OFL 1.1 | 字体随许可一起走，不得单独售卖字体；许可全文就在旁边：`build/cinzel-OFL.txt`、`build/eb-garamond-OFL.txt`。 |
 
-由于这些第三方标记带非商业条款且仍随包发出，**整个包不得用于商业用途**。单看 MIT 那部分代码没有这个限制；需要商用构建就把这些标记去掉。
-
-完整条款：[LICENSE](LICENSE)。上游文本与逐文件署名：[NOTICE](NOTICE)。CC BY-NC-SA 4.0 法律文本随包发出为 [LICENSE-CC-BY-NC-SA-4.0.txt](LICENSE-CC-BY-NC-SA-4.0.txt)，亦见 <https://creativecommons.org/licenses/by-nc-sa/4.0/>。
+完整条款：[LICENSE](LICENSE)。逐文件署名：[NOTICE](NOTICE)。
 
 ## 第三方标记与署名
 
-**当前品牌标。** `build/brand-mark-black-hole.png`——侧栏画的那颗墨色黑洞——是专为本主题提供的。它不是角色画作，不指向任何第三方。
-
-**早期品牌标。** 角色 溟月 by 上善无形（原创角色，<https://space.bilibili.com/4456176>）。DeepSeek-elements 二改 by ZipZipPipe（GPT Image 2，<https://space.bilibili.com/4168597>）。修复 by QYQCAMIAO。许可 CC BY-NC-SA 4.0 —— 署名、非商业、相同方式共享。插画以所交付的 SVG 形式随包（`build/whale-maid-small-monochrome-diagonal.svg`），未作修改地绘制。早期裁切的 256×256 PNG 仅为回滚留在树里，同条款。本主题已不再绘制其中任何一张；商用这些画作需取得上述权利人许可。
+**品牌标。** `build/brand-mark-black-hole.png`——侧栏画的那颗墨色黑洞——是专为本主题提供的，与代码同用 MIT 授权。它不是角色画作，不是由他人图片改来，不指向任何第三方。本包不含其他图片。
 
 **字体。** Cinzel，Copyright 2020 The Cinzel Project Authors；EB Garamond，Copyright 2017 The EB Garamond Project Authors。均为 SIL OFL 1.1、latin 子集，取自 `@fontsource`，以 data URL 内嵌在 `client.js`。
 
