@@ -842,7 +842,28 @@ var UniverseAccretionDisk = (function () {
     }
     window.addEventListener('resize', onResize)
 
+    /* 交互降频：滚动/打字/拖拽/触摸的瞬间把出帧率压到 ACTIVE_FPS，静置 IDLE_MS 后回到
+       defaults.fps。update({fps}) 只走 sync()、不重建网格，所以分辨率/颜色/位置一律不变，
+       静止态观感与改动前完全相同。依据：单帧 2D canvas 绘制约 16ms 在主线程同步发生，
+       30fps 约占半个核，交互时与输入抢主线程正是持续掉帧的主因。fps 下限在 options() 里是 10。 */
+    var IDLE_FPS = defaults.fps, ACTIVE_FPS = 10, IDLE_MS = 250
+    var idleTimer = 0, throttled = false
+    function relax() {
+      idleTimer = 0
+      if (throttled) { throttled = false; renderer.update({ fps: IDLE_FPS }) }
+    }
+    function burst() {
+      if (!throttled) { throttled = true; renderer.update({ fps: ACTIVE_FPS }) }
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(relax, IDLE_MS)
+    }
+    /* scroll 不冒泡，靠 capture 在 window 上收；一律 passive，不干预输入。 */
+    var burstEvents = ['wheel', 'scroll', 'pointerdown', 'keydown', 'touchmove']
+    for (var bi = 0; bi < burstEvents.length; bi++) window.addEventListener(burstEvents[bi], burst, { passive: true, capture: true })
+
     return function () {
+      if (idleTimer) clearTimeout(idleTimer)
+      for (var ri = 0; ri < burstEvents.length; ri++) window.removeEventListener(burstEvents[ri], burst, { capture: true })
       arcStop(); if (settleRaf) cancelAnimationFrame(settleRaf)
       renderer.dispose(); if (holeLayer) holeLayer.dispose(); shell.disconnect()
       if (column) observer.unobserve(column)
