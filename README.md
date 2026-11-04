@@ -1,13 +1,19 @@
-# dsh-quasar-theme
+# QUASAR — dsh-quasar-theme
 
 [![Licence: MIT + CC BY-NC-SA 4.0](https://img.shields.io/badge/licence-MIT%20%2B%20CC--BY--NC--SA%204.0-yellow.svg)](#licence)
 
 English | [中文](README.zh.md)
 
-A space-themed skin for **DeepSeek Harness**: an ink black hole in the sidebar
-brand row, a live accretion disk behind the app, and one removable override layer
-of 53 measured tokens whose translucent surfaces are solved against a contrast
-budget rather than picked by eye.
+**QUASAR** is a space-themed skin for **DeepSeek Harness**: an ink black hole in
+the sidebar brand row, a live accretion disk behind the app, and one removable
+override layer of 53 measured tokens whose translucent surfaces are solved
+against a contrast budget rather than picked by eye.
+
+The name is the one the interface has carried all along — the sidebar reads
+`QUASAR CORE` — and the package now follows it: `dsh-quasar-theme`. A quasar is a
+black hole with an accretion disk and a jet, which is what the canvas layer
+draws. Until 2026-11-04 the package was called `dsh-universe-theme`; saved pins
+and popover state migrate on first read (see [What it is](#what-it-is)).
 
 **This repository ships no background picture.** The paint layer is here, the
 artwork is not — the tracked wallpaper manifest is empty, so a fresh clone draws
@@ -83,7 +89,10 @@ Drop the entry from `dsh.profile.bundles` too if you added it there.
 
 The theme installs one layer and can be removed as one. It ships **no settings
 panel of its own** — the look is fixed, not a preference — and the only thing it
-persists is the workspace pin set, under `uni-theme/workspace-pins`. It does hide
+persists is the workspace pin set and the composer's collapsed-popover state,
+under `quasar-theme/workspace-pins` and `quasar-theme/model-groups-collapsed`.
+Both are read from their earlier `uni-theme/` keys once and rewritten under the
+new name, so upgrading does not reset either. It does hide
 and move a few official entries, so read
 [What it changes in the interface](#what-it-changes-in-the-interface) before you
 install it.
@@ -305,8 +314,9 @@ image is distributed with this package, and nothing is fetched from a third-part
 host at paint time.
 
 **History.** Earlier versions of this package were an EVA-inspired theme with two
-hotlinked wallpapers, a boot mask and a non-official-plugin switch. Those were
-removed on 2026-10-27 and 2026-10-31 — the last of the wallpapers first, the boot
-mask and the switch with the rename to `dsh-quasar-theme`. Nothing in the
-current build depends on khara, inc., its characters, or any other rights holder
-named in earlier copies of this file.
+hotlinked wallpapers, a boot mask and a non-official-plugin switch. The wallpapers
+were removed on 2026-10-27, the boot mask and the switch on 2026-10-31, and the
+package was renamed from `dsh-universe-theme` to `dsh-quasar-theme` on 2026-11-04
+to match the `QUASAR` wordmark the interface had shown since it was built. Nothing
+in the current build depends on khara, inc., its characters, or any other rights
+holder named in earlier copies of this file.
