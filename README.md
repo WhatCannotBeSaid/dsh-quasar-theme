@@ -96,10 +96,10 @@ install it.
 ## What it changes in the interface
 
 Removing the package takes the layer away again and every official element comes
-back. In between, the theme **hides six official entries, rewrites the sidebar
-identity line, replaces one page's heading, and reshapes the composer's control
-row**. All of it is CSS plus a few client effects — the official DOM is never
-rewritten.
+back. In between, the theme **hides seven official entries, rewrites the sidebar
+identity line, removes the new-session page's title row, and reshapes the
+composer's control row**. All of it is CSS plus a few client effects — the
+official DOM is never rewritten.
 
 ### The brand row is three click zones
 
@@ -158,12 +158,14 @@ layout stays the one the host draws.
 
 ### The new session page (hero)
 
-That page is the composer and nothing else. Three things are gone, on that page
-only: the headline and its fixed German line, the 「预览版」/ “Preview” badge, and
-the whale logo above them. The whole row goes, not just its text: an empty flex
-row still holds the HeroShell's gap, which reads as a stray blank band rather than
-as the composer having moved up. With the row `display: none` the composer sits
-where the headline used to be.
+The host draws one title row above the composer on that page: the whale mark, the
+headline 「探索未至之境」 / "Into the Unknown", and a 「预览版」/ "Preview" badge —
+the `hero.headline` and `hero.preview` strings of the official locale dictionary.
+The theme hides that row, so the page is the composer and nothing else. The row
+goes entirely rather than having its text emptied: an empty flex row still holds
+the HeroShell's gap, which reads as a stray blank band rather than as the composer
+having moved up. With the row `display: none` the composer sits where the headline
+used to be. Nothing is put in its place — the theme writes no copy there.
 
 ### The composer's control row
 
