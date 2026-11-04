@@ -1,4 +1,4 @@
-# dsh-universe-theme
+# dsh-quasar-theme
 
 [![Licence: MIT + CC BY-NC-SA 4.0](https://img.shields.io/badge/licence-MIT%20%2B%20CC--BY--NC--SA%204.0-yellow.svg)](#许可)
 
@@ -8,8 +8,8 @@
 
 **本仓库不提供任何背景画作。** 涂装层在这里，画作不在——被跟踪的壁纸清单是空的，所以全新克隆画的是「无画作」这一明示状态，并且在绘制时不向任何第三方主机发起请求。
 
-![dsh-universe-theme 深色](docs/preview-dark.jpg)
-![dsh-universe-theme 浅色](docs/preview-light.jpg)
+![dsh-quasar-theme 深色](docs/preview-dark.jpg)
+![dsh-quasar-theme 浅色](docs/preview-light.jpg)
 
 两张都是当前版本的实拍，深色与浅色各一，1600×1000。两张都隐藏了会话列表，其余未作改动。
 
@@ -23,13 +23,13 @@
 从 npm 安装 —— 版本化 tarball，浏览器包已构建好一并发出：
 
 ```
-dsh plugin --profile <profile> add dsh-universe-theme
+dsh plugin --profile <profile> add dsh-quasar-theme
 ```
 
 直接从公开仓库安装（跟踪默认分支）：
 
 ```
-dsh plugin --profile <profile> add github:WhatCannotBeSaid/dsh-universe-theme
+dsh plugin --profile <profile> add github:WhatCannotBeSaid/dsh-quasar-theme
 ```
 
 包里带一个 `prepare` 脚本，跑的就是那次构建，所以从 Git URL 安装会在包被链接之前把浏览器包产出来；npm tarball 直接带成品 `client.js`，不执行构建。从本地检出安装：
@@ -41,12 +41,12 @@ dsh plugin --profile <profile> add link:<本检出的路径>
 
 克隆后先构建一次：`client.js` 是生成物，且刻意不进版本库（见[目录结构](#目录结构)）。普通 `git clone` 需要一次构建——`npm run build`，或在检出任一目录内跑 `npm install`（会触发 `prepare`）。
 
-包声明了 `dsh.bundle.patch`，profile 会据此把 bundle 栈与已安装包对账并挂载主题。若重启后没出现，把 `dsh-universe-theme` 追加到 profile 的 `package.json` 里 `dsh.profile.bundles` —— 只是依赖、没有进 bundles 的包不会被挂载。
+包声明了 `dsh.bundle.patch`，profile 会据此把 bundle 栈与已安装包对账并挂载主题。若重启后没出现，把 `dsh-quasar-theme` 追加到 profile 的 `package.json` 里 `dsh.profile.bundles` —— 只是依赖、没有进 bundles 的包不会被挂载。
 
 ## 卸载
 
 ```
-dsh plugin --profile <profile> remove dsh-universe-theme
+dsh plugin --profile <profile> remove dsh-quasar-theme
 ```
 
 如果你手动往 `dsh.profile.bundles` 里加过条目，一并删掉。
@@ -193,4 +193,4 @@ npm run verify
 
 **没有其他画作。** 本包不发行任何壁纸、角色插画或第三方图片，绘制时不向任何第三方主机抓取内容。
 
-**历史。** 更早的版本是一个 EVA 同人主题，带两张热链壁纸、一个启动遮罩和一个非官方插件开关。这些已在 2026-10-27 与 2026-10-31 移除——先是最末一批壁纸，随后是随改名 `dsh-universe-theme` 一并去掉的启动遮罩与开关。当前构建不依赖 khara, inc.、其角色，或本文件早先副本里提到的任何其他权利人。
+**历史。** 更早的版本是一个 EVA 同人主题，带两张热链壁纸、一个启动遮罩和一个非官方插件开关。这些已在 2026-10-27 与 2026-10-31 移除——先是最末一批壁纸，随后是随改名 `dsh-quasar-theme` 一并去掉的启动遮罩与开关。当前构建不依赖 khara, inc.、其角色，或本文件早先副本里提到的任何其他权利人。

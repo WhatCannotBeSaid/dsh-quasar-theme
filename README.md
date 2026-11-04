@@ -1,4 +1,4 @@
-# dsh-universe-theme
+# dsh-quasar-theme
 
 [![Licence: MIT + CC BY-NC-SA 4.0](https://img.shields.io/badge/licence-MIT%20%2B%20CC--BY--NC--SA%204.0-yellow.svg)](#licence)
 
@@ -13,8 +13,8 @@ budget rather than picked by eye.
 artwork is not — the tracked wallpaper manifest is empty, so a fresh clone draws
 the documented no-art state and makes no third-party request.
 
-![dsh-universe-theme, dark](docs/preview-dark.jpg)
-![dsh-universe-theme, light](docs/preview-light.jpg)
+![dsh-quasar-theme, dark](docs/preview-dark.jpg)
+![dsh-quasar-theme, light](docs/preview-light.jpg)
 
 Both captures are the current build, dark and light, at 1600×1000. The
 conversation list is hidden in both; nothing else is edited.
@@ -30,13 +30,13 @@ conversation list is hidden in both; nothing else is edited.
 From npm — a versioned tarball with the browser bundle already built in:
 
 ```
-dsh plugin --profile <profile> add dsh-universe-theme
+dsh plugin --profile <profile> add dsh-quasar-theme
 ```
 
 Straight from the public repository, which tracks its default branch:
 
 ```
-dsh plugin --profile <profile> add github:WhatCannotBeSaid/dsh-universe-theme
+dsh plugin --profile <profile> add github:WhatCannotBeSaid/dsh-quasar-theme
 ```
 
 The package carries a `prepare` script that runs exactly that build, so an
@@ -55,13 +55,13 @@ build`, or any `npm install` inside the checkout, which triggers `prepare`.
 
 The package declares `dsh.bundle.patch`, so the profile reconciles its bundle
 stack against the installed package and mounts the theme. If it does not appear
-after a restart, append `dsh-universe-theme` to `dsh.profile.bundles` in the
+after a restart, append `dsh-quasar-theme` to `dsh.profile.bundles` in the
 profile's `package.json` — a package that is merely a dependency is not mounted.
 
 ## Remove
 
 ```
-dsh plugin --profile <profile> remove dsh-universe-theme
+dsh plugin --profile <profile> remove dsh-quasar-theme
 ```
 
 Drop the entry from `dsh.profile.bundles` too if you added it there.
@@ -307,6 +307,6 @@ host at paint time.
 **History.** Earlier versions of this package were an EVA-inspired theme with two
 hotlinked wallpapers, a boot mask and a non-official-plugin switch. Those were
 removed on 2026-10-27 and 2026-10-31 — the last of the wallpapers first, the boot
-mask and the switch with the rename to `dsh-universe-theme`. Nothing in the
+mask and the switch with the rename to `dsh-quasar-theme`. Nothing in the
 current build depends on khara, inc., its characters, or any other rights holder
 named in earlier copies of this file.

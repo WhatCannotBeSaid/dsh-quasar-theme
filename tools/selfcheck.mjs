@@ -1,5 +1,5 @@
 /**
- * Structural self-check for dsh-universe-theme.
+ * Structural self-check for dsh-quasar-theme.
  *
  * Pure Node, no dependencies, no network, no side effects: it reads the package and
  * fails loudly. It exists because every claim this package makes about itself —
@@ -117,7 +117,7 @@ const canonicalCss = (text) => (text.match(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|
 
 checks.group('package')
 checks.check('pkg.1', 'package.json parses and declares the agreed name', () => {
-  if (pkg.name !== 'dsh-universe-theme') return `name is ${pkg.name}`
+  if (pkg.name !== 'dsh-quasar-theme') return `name is ${pkg.name}`
   return true
 })
 checks.check('pkg.2', 'main points at index.js', () => pkg.main === 'index.js')

@@ -1,5 +1,5 @@
 {
-  "name": "dsh-universe-theme",
+  "name": "dsh-quasar-theme",
   "version": "0.1.0",
   "description": "Universe / 宇宙 — a space-themed skin for DeepSeek Harness: 53 tokens over one removable override layer, no wallpaper, contrast solved against a WCAG budget rather than picked by eye.",
   "keywords": [
@@ -11,12 +11,12 @@
     "skin",
     "universe",
     "space",
-    "dsh-universe-theme"
+    "dsh-quasar-theme"
   ],
   "license": "(MIT AND CC-BY-NC-SA-4.0)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/WhatCannotBeSaid/dsh-universe-theme.git"
+    "url": "git+https://github.com/WhatCannotBeSaid/dsh-quasar-theme.git"
   },
   "main": "index.js",
   "exports": {

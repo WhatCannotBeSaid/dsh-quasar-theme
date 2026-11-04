@@ -95,7 +95,7 @@ var UniModelEffortPicker = (function () {
    * Both directions are guarded. A blocked store (private mode, an embedding host that
    * denies storage) must degrade to in-memory state for this session, not throw from
    * inside a dropdown. */
-  var MEP_KEY = 'uni-theme/model-groups-collapsed'
+  var MEP_KEY = 'quasar-theme/model-groups-collapsed'
   var collapseStore = null
 
   function collapsedMap() {
@@ -103,6 +103,9 @@ var UniModelEffortPicker = (function () {
     var parsed = null
     try {
       var raw = localStorage.getItem(MEP_KEY)
+      /* the key was renamed with the plugin; fall back to the old one so a collapsed
+         popover does not spring open on upgrade -- the next write migrates it */
+      if (!raw) raw = localStorage.getItem('uni-theme/model-groups-collapsed')
       if (raw) parsed = JSON.parse(raw)
     } catch (err) { parsed = null }
     collapseStore = parsed && typeof parsed === 'object' && !(parsed instanceof Array) ? parsed : {}

@@ -1,5 +1,5 @@
 /**
- * dsh-universe-theme — installed (bundle) HOST half.
+ * dsh-quasar-theme — installed (bundle) HOST half.
  *
  * One job, and the file says what it is.
  *
@@ -62,7 +62,7 @@
 
 'use strict'
 
-const PLUGIN_ID = 'dsh-universe-theme'
+const PLUGIN_ID = 'dsh-quasar-theme'
 
 /**
  * Mount the plugin.

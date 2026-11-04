@@ -41,7 +41,7 @@ function effectRunner(label, bindings) {
   const effects = new Map()
   const context = { get: () => ({}), inject() {}, effect(fn, name) { effects.set(name, fn) } }
   const exports = vm.runInNewContext(`(function () { var module = {exports:{}}; var exports = module.exports; ${clientSource()} })()`, {
-    PLUGIN_ID: 'dsh-universe-theme', TOKENS: {}, MANIFEST: {}, ...bindings,
+    PLUGIN_ID: 'dsh-quasar-theme', TOKENS: {}, MANIFEST: {}, ...bindings,
   })
   exports.apply(context)
   assert.ok(effects.has(label), label)
@@ -51,9 +51,9 @@ test('S10: built artifact registers one loader with unchanged public exports', (
   const registrations=[]
   vm.runInNewContext(read('client.js'), {window:{__ModuleLoader__:{load:value=>registrations.push(value)}}})
   assert.equal(registrations.length,1)
-  assert.equal(registrations[0].id,'dsh-universe-theme')
+  assert.equal(registrations[0].id,'dsh-quasar-theme')
   const exported=registrations[0].factory(name=>{throw Error('unexpected eager require: '+name)})
-  assert.equal(exported.name,'dsh-universe-theme')
+  assert.equal(exported.name,'dsh-quasar-theme')
   assert.equal(typeof exported.apply,'function')
   /* 2026-10-31: 'uiSession' came with the session-row state markers and left with
      them; the theme asks for the five services it always had. */
@@ -1332,7 +1332,7 @@ test('C2: both extracted effects are still deferred, and disposal cancels the pe
     const effects = new Map()
     const context = { get: () => ({}), inject() {}, effect(fn, name) { effects.set(name, fn) } }
     const exports = vm.runInNewContext(`(function () { var module = {exports:{}}; var exports = module.exports; ${clientSource()} })()`, {
-      PLUGIN_ID: 'dsh-universe-theme', TOKENS: {}, MANIFEST: {}, document, KeyboardEvent: function () {},
+      PLUGIN_ID: 'dsh-quasar-theme', TOKENS: {}, MANIFEST: {}, document, KeyboardEvent: function () {},
       requestIdleCallback: () => 1, cancelIdleCallback() {},
       setTimeout() { scheduled++; return scheduled }, clearTimeout() { cleared++ },
       requestAnimationFrame: () => 1, cancelAnimationFrame() {},
@@ -1379,7 +1379,7 @@ function brandFixture(invoke) {
   }
   const idles = []
   const exports = vm.runInNewContext(`(function () { var module = {exports:{}}; var exports = module.exports; ${clientSource()} })()`, {
-    PLUGIN_ID: 'dsh-universe-theme', TOKENS: {}, MANIFEST: {}, document,
+    PLUGIN_ID: 'dsh-quasar-theme', TOKENS: {}, MANIFEST: {}, document,
     KeyboardEvent: function (type, init) { this.init = init },
     setTimeout: () => 1, clearTimeout() {},
     requestIdleCallback(fn) { idles.push(fn); return 1 }, cancelIdleCallback() {},

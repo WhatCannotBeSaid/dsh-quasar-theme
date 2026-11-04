@@ -7,7 +7,7 @@ name: publish
 # 前提：npm 包设置 → Trusted Publisher 里登记
 #   Publisher            GitHub Actions
 #   Organization / User  WhatCannotBeSaid
-#   Repository           dsh-universe-theme
+#   Repository           dsh-quasar-theme
 #   Workflow filename    publish.yml
 #   Environment          （留空）
 # 登记本身需要一次通行密钥，之后发布就不再需要人工批准。

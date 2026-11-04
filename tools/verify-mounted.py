@@ -33,8 +33,8 @@ from probe_baseline_lib import open_page, VIEWPORT  # noqa: E402
 from PIL import Image  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-OUTDIR = Path(r"<plugins>\tmp\dsh-universe-theme-render")
-PLUGIN_ID = "dsh-universe-theme"
+OUTDIR = Path(r"<plugins>\tmp\dsh-quasar-theme-render")
+PLUGIN_ID = "dsh-quasar-theme"
 
 spec = importlib.util.spec_from_file_location("verify_render", ROOT / "tools" / "verify-render.py")
 vr = importlib.util.module_from_spec(spec)

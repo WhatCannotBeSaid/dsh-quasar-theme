@@ -11,7 +11,7 @@
            a set would be a button that lied about the order. */
         if (typeof workspaces.insertBefore !== 'function') return undefined
 
-        var PIN_KEY = 'uni-theme/workspace-pins'
+        var PIN_KEY = 'quasar-theme/workspace-pins'
         /* A real Workspace row keys itself on its own id -- buildGroup's first argument
            is workspace.workspaceId (ui-workspace-client.js:434). The Ungrouped bucket
            reuses the same prefix with an empty suffix (:437), which is why an empty id
@@ -87,6 +87,9 @@
         function readPins() {
           try {
             var raw = localStorage.getItem(PIN_KEY)
+            /* the key was renamed with the plugin; read the old one once so upgrading
+               never silently drops a user's pins -- the next write migrates them */
+            if (typeof raw !== 'string' || raw === '') raw = localStorage.getItem('uni-theme/workspace-pins')
             if (typeof raw !== 'string' || raw === '') return []
             var parsed = JSON.parse(raw)
             if (!Array.isArray(parsed)) return []
