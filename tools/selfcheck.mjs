@@ -1059,11 +1059,8 @@ checks.check('glass.1', 'the sheet names the liquid-glass filters the client hal
      deliverable card after he asked for its preview button's base colour to go.
      Pinned rather than left open — a further surface must come with its own
      declared intent. */
-  /* 2026-11-04 perf: user chose the near-lossless preset; the sheet drops every
-     url(#uni-lg-*) refraction (back to plain blur), so it names zero filter ids.
-     The client half still builds all five, keeping C1's rollback path intact. */
-  if (named.length !== 0) {
-    return `${named.length} liquid-glass filter ids in the sheet, expected 0`
+  if (named.length !== 5) {
+    return `${named.length} liquid-glass filter ids in the sheet, expected 5`
   }
   for (const id of named) {
     if (!clientJs.includes(`'${id}'`)) {
@@ -1085,8 +1082,11 @@ checks.check('glass.1', 'the sheet names the liquid-glass filters the client hal
 })
 checks.check('glass.2', 'every url() filter keeps its blur-only fallback in front of it', () => {
   const rules = cssRules.split('}').filter((rule) => rule.includes('url(#uni-lg-'))
-  /* 2026-11-04 perf: refraction rules removed; zero url() glass rules expected. */
-  if (rules.length !== 0) return `${rules.length} rules name a url() glass filter, expected 0`
+  /* Five since 2026-11-02: the guide's rule, the composer card's resting rule, the
+     edited-files card, the queued-message panel, and the deliverable card. The
+     composer's hover rule left the sheet that day — it pushed the same filter
+     thicker on pointer entry, and that jump is the "sudden" the user named. */
+  if (rules.length !== 5) return `${rules.length} rules name a url() glass filter, expected 5`
   for (const rule of rules) {
     for (const prop of ['backdrop-filter', '-webkit-backdrop-filter']) {
       const blur = rule.indexOf(`${prop}: blur(`)
