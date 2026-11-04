@@ -99,8 +99,8 @@
             if (ray.radius) {
               // Preview-only: relativistic beaming is damped to about half its
               // traced strength, so one limb does not flare into a white blob.
-              var boost = 1 + (ray.boost - 1) * 0.4
-              value = U.shade({ radius: ray.radius, phi: ray.phi, boost: boost }, PHASE, FLUX)
+              var g4 = 1 + (ray.g4 - 1) * 0.4
+              value = U.shade({ radius: ray.radius, phi: ray.phi, g4: g4 }, PHASE, FLUX)
               // Preview tone curve: a soft shoulder keeps the brightest limb out
               // of flat white, so the glyph ramp stays legible all the way up.
               value = value / (1 + value * 1.5)

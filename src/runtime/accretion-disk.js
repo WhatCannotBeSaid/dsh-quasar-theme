@@ -1,12 +1,12 @@
 /* Accretion disk — the ASCII cell layer over the geodesic kernel
  * ---------------------------------------------------------------------------------
  * What this file owns: the glyph alphabet, the grid, the 11-step tone mapping, the
- * per-frame animation of the disk (differential rotation, brightness knots, the slow
- * global breath) and the two canvases' mount/teardown on the page.
+ * per-frame animation of the disk (differential rotation and finite-lived,
+ * sheared brightness patches) and the two canvases' mount/teardown on the page.
  *
- * What it does NOT own: the geodesics. trace and shade's physics come from
- * UniverseGeodesic; this file only decides how a returned ray is turned into a
- * character. The hole (shadow disc + photon ring) is a separate canvas entirely
+ * What it does NOT own: the geodesics. Intersections and relativistic transfer
+ * weights come from UniverseGeodesic; this layer supplies disk emission and turns
+ * the resulting brightness into a character. The hole (shadow disc + photon ring) is a separate canvas entirely
  * (src/runtime/hole.js) and is only consulted here for the ring-band keep-out.
  */
 var UniverseAccretionDisk = (function () {
@@ -17,26 +17,51 @@ var UniverseAccretionDisk = (function () {
   var GLYPHS = ' .-:;+*o#%@' /* 11 档，索引 0..10；lastGlyph = length - 1 */
   var STROKES = '|-/\\'
   var defaults = { angle: 15, fps: 30, maxCells: 16000, cellWidth: 6, brightness: 1, speed: 1 }
-  var SWIRL = 16
-  /* 静止态的自转：盘相位是「角向位置 - time * SWIRL / r^1.5」，只有这一项时整盘是一张固定
-     的花纹在滑行，读不出「洞在转」。这里补三件逐帧便宜的事：
-     SPIN   把整盘与对侧镜环一起慢速旋过去（同心旋转，不重建任何格子）；
-     KNOTS  两层亮度团按 Kepler 角速度漂移，盘的明暗结构自己在变，而不是包在盘上的花纹；
-     PULSE  全局通量的慢呼吸，乘法作用，不改任何几何。 */
-  var SPIN = 0.42
-  /* 盘面纹理的角速率。以前整个盘只有一个 Kepler 相位（SWIRL / r^1.5）：内缘比外缘快三倍，
-     盘是「拧」着走的，最新帧与旧帧之间没有可读的位移。这里补一个整体角速度，
-     内外缘同向同速，盘的明暗条纹一起转过去 —— 那才是「盘在旋」的观感。
-     数值是量出来的：扫 2.4 / 2.0 / 1.6 / 1.2 四档，拿盘上 72 个角向样本做相关最大搜索，
-     只有 1.2 让 1.8 秒后的图样出现干净的小角度位移（约 5°），其余几档要么一整圈假匹配，
-     要么反向。 */
-  var DISK = 1.2
-  /* 亮度团与呼吸幅度都压在几个百分点：再大就是「闪」，不是「转」。 */
-  var KNOTS = [
-    { n: 1, radial: 1.9, angular: 1.0, weight: .16 },
-    { n: 2, radial: 2.7, angular: -.62, weight: .11 }
-  ]
-  var PULSE = .03
+  /* Schwarzschild circular-orbit law: Omega = r^(-3/2), with one visual time scale.
+     ORBIT_RATE is a calibration knob (not a change to the metric or ray.g4).
+     Hot-spot/arc motivation: Schnittman & Bertschinger, astro-ph/0309458;
+     MHD variability motivation: Schnittman et al., astro-ph/0606615.
+     These compact emission patches are a phenomenological model, NOT an MHD solver. */
+  var ORBIT_RATE = 16, TAU = Math.PI * 2
+  var PATCH_COUNT = 24, patchTime = NaN, patches = []
+  function orbit(r) { return ORBIT_RATE / Math.pow(r, 1.5) }
+  function patchesAt(time) {
+    if (time === patchTime) return patches
+    patchTime = time
+    for (var i = 0; i < PATCH_COUNT; i++) {
+      var radius = INNER + (OUTER - INNER) * (i + .5) / PATCH_COUNT
+      var life = .9 * TAU / orbit(radius)
+      var clock = time / life + (grainKey(i, -1) >>> 0) / 4294967296
+      var cycle = Math.floor(clock), age = (clock - cycle) * life
+      var seed = (grainKey(i, cycle) >>> 0) / 4294967296
+      var p = patches[i] || (patches[i] = {})
+      p.radius = radius
+      p.age = age
+      p.phi = seed * TAU
+      p.radial = 1 / (radius * .24)
+      p.angular = 1 / (.45 + .5 * seed)
+      var fade = Math.sin(Math.PI * age / life)
+      p.amplitude = (1.5 + seed) * fade * fade
+    }
+    return patches
+  }
+  function patchAt(p, r, phi, omega) {
+    var dr = (r - p.radius) * p.radial
+    if (Math.abs(dr) >= 1) return 0
+    /* Advect EACH radius, not just the centre: a finite-width knot shears into an arc. */
+    var dp = phi - p.phi - omega * p.age
+    dp -= TAU * Math.round(dp / TAU)
+    dp *= p.angular
+    if (Math.abs(dp) >= 1) return 0
+    var radial = 1 - dr * dr, angular = 1 - dp * dp
+    return p.amplitude * radial * radial * radial * angular * angular * angular
+  }
+  function emission(r, phi, time) {
+    var active = patchesAt(time), omega = orbit(r), value = .32
+    // ponytail: 24 compact patches, not magnetic turbulence; use offline MHD fields for that.
+    for (var i = 0; i < active.length; i++) value += patchAt(active[i], r, phi, omega)
+    return value
+  }
   /* 显示映射的 gamma（第三十阶段）。shade 返回的物理亮度一个字节都不改：契约测试要求
      盘发射项对 g⁴ 严格线性、对 S 严格线性，色调映射写进那里会同时破坏两条。这一档只决定
      「同一批亮度怎么落进 11 档字符」，不参与任何物理解算。
@@ -95,56 +120,20 @@ var UniverseAccretionDisk = (function () {
     var t = Math.min(1, Math.max(0, (x - lo) / (hi - lo)))
     return t * t * (3 - 2 * t)
   }
-  /* Brightness is a flux in [0,1): a smooth radial profile times a slow two-arm
-     spiral, so neighbouring cells stay close in value and the glyphs read as a
-     surface instead of noise. The artificial ring weight does not enter this
-     flux (phase 15 moved it to the Canvas layer), and that weight is not a
-     radiative-transfer result. */
-  /* spin 是可选的第三层相位（见 SPIN）：不传等于 0，退回只按开普勒相位转，
-     trace 出来的半径 / 方位角一个都不改，所以不传的调用点画面与以前逐位相同。
-     要整盘旋起来就显式传 SPIN —— 唯一调用点（draw 里）就是这么传的。 */
-  function shade(ray, time, brightness, spin, out) {
+  /* Only the disk emissivity changes. The radial envelope, g^4 transfer, exposure,
+     tone map, ray intersections and ring-band keep-out remain separate and unchanged. */
+  function shade(ray, time, brightness) {
     var flux = 0
-    var turn = time * (Number(spin) || 0)
-    /* 环权重不再进入 ASCII 亮度（第十五阶段）：光子环已经交给 bakeRing 的 Canvas 精细层，
-       字符只负责吸积盘。以前这里会把环权重加进 flux，盘交点格因此被环带顶到满档 @，
-       环的位置就叠出一圈字符。ray.ring 仍由 trace 产出，只喂给精细层。 */
     if (ray.radius) {
       var r = ray.radius
-      var phase = ray.phi - turn - time * (DISK + SWIRL / Math.pow(r, 1.5))
-      /* 第五个参数是可选的相位回写（第三十三阶段）：字形颗粒要按盘面坐标取 key，
-         在 draw 里重算一遍 pow / 开方不值当。不传时这一行是空操作。 */
-      if (out) out[0] = phase
-      /* log r 只算一次，旋臂与亮度团共用；乘加顺序原样保留。 */
-      var logR = Math.log(r / INNER)
-      var arms = .72 + .28 * Math.sin(2 * phase - 4 * logR)
-      /* 焦散（第三十三阶段）：原来是单层径向正弦，盘上只有一圈圈静止的明暗环；
-         换成两层不同速度、不同方向的波相乘，干涉出会流动的光斑 —— 与 ascii-sharks 的
-         caustic 同一构造（renderer.ts L895）。幅度仍是 .18，整盘通量量级不变。 */
-      var band = .82 + .18 * Math.sin(r * 1.1 + 1.6 * Math.sin(2 * phase)) *
-        Math.sin(phase * 3 - r * .7 - time * .27)
-      /* 亮度团：径向按 log r 起波（等对数宽度），角向跟着同一套 Kepler 相位走，
-         所以团块和盘一起转，但换相的节奏与双旋臂不同 —— 眼睛读到的是「盘里有东西在动」。 */
-      var knots = 0
-      for (var i = 0; i < KNOTS.length; i++) {
-        var knot = KNOTS[i]
-        knots += knot.weight * Math.sin(knot.n * phase + knot.radial * logR - time * knot.angular)
-      }
-      var breathe = 1 + PULSE * Math.sin(time * .33)
-      /* 外缘收口只在盘面最后 1.5M 内做。以前从 r=10 就开始衰减，与 Math.pow(INNER/r, 2)
-         叠成双重压暗，r=15 那一档 460 个格里 325 个直接退化成空格，外围半环读不出字。
-         物理内外缘仍是 INNER=6 / OUTER=16，这里只改「亮度怎么收到 0」。 */
       var edge = smooth(INNER - .2, INNER + .8, r) * (1 - smooth(14.5, 16.2, r))
-      flux += edge * Math.pow(INNER / r, 2) * arms * (band + knots) * breathe * ray.g4 * 3.2
+      var surface = emission(r, ray.phi, time)
+      flux += edge * Math.pow(INNER / r, 2) * surface * ray.g4 * 3.2
     }
     if (!(flux > 0)) return 0
     return 1 - Math.exp(-flux * brightness)
   }
-  /* 字形颗粒的 key（第三十三阶段）：输入是盘面坐标（相位、半径）的量化桶，
-     不是屏幕格索引。取格索引的纹理钉在屏幕上，盘转起来就是一张不动的噪点；
-     取盘面坐标的纹理随盘流过去 —— 这正是要的「抖动一次打散阶梯带，之后跟着盘转」。
-     相邻格在内缘的相位差约 1rad、外缘约 .37rad，量化频率 3 后基本落进不同的桶。
-     一条 imul 链，无查表、无分配。 */
+  /* Stable seed for patch births: seeking to the same time gives the same field. */
   function grainKey(a, b) {
     var h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263)
     h = Math.imul(h ^ (h >>> 13), 1274126177)
@@ -235,8 +224,6 @@ var UniverseAccretionDisk = (function () {
       /* 每格都会走一遍的量提到循环外：一次转场是 19 帧 × 约 15876 格，这些值在帧内不变。
          lastIndex / 12 这两个常数以前在格子内部被求值了两万多次。 */
       var lastGlyph = GLYPHS.length - 1, ink = config.brightness, t = elapsed
-      /* phaseOut 由 shade 顺带写回；tick 是微闪的重掷节拍（约 2.4s 一次，同 ascii-sharks L769）。 */
-      var phaseOut = [0], tick = (t * .42) | 0
       for (var i = 0; i < grid.length; i++) {
         var cell = grid[i], glyph = '', value = 0, bucket = 0
         if (cell.radius) {
@@ -266,24 +253,14 @@ var UniverseAccretionDisk = (function () {
               }
             }
           }
-          value = shade(cell, t, ink, SPIN, phaseOut)
+          value = shade(cell, t, ink)
           if (value > .004) {
             /* 字与墨都走同一个显示映射：物理亮度 value 先过 TONE_GAMMA，再落进 11 档字符。
                两处必须用同一个 shown —— 只压字形不压墨色，暗侧会拿到亮的字形配最暗的墨，
                读起来反而更糊。落字门槛 .004 仍是物理阈值，不随 gamma 变。 */
             var shown = Math.pow(value, TONE_GAMMA)
-            /* 字形颗粒：同亮度的相邻格原本全落同一个字，沿盘面读成一圈圈阶梯带。
-               按盘面坐标（相位 × 半径）取 key 给 ±1 档偏移，阶梯带被打散；
-               纹理锚在盘面上，所以它随盘转、不在格子上沸腾（第三十三阶段）。
-               错峰微闪：约 1.5% 的格按 tick 重掷，提一档，读成湍流里的闪烁。 */
-            var grain = grainKey((phaseOut[0] * 3) | 0, (cell.radius * 1.5) | 0)
-            var shift = ((grain >>> 0) % 3) - 1
-            if (((grainKey(grain, tick) >>> 0) % 1000) < 15 && shift < 1) shift += 1
-            shown += shift / lastGlyph
-            if (shown < 0) shown = 0
-            else if (shown > .999) shown = .999
-            /* (shown * 12) | 0 与 Math.floor(shown * 12) 在 shown ∈ [0,1) 上逐位相同。
-               抖动后 shown 可能顶到 .999，上限那次比较因此留着。 */
+            /* No random glyph flicker: all temporal changes come from the disk field. */
+            if (shown > .999) shown = .999
             var index = Math.min(lastGlyph, Math.floor(shown * lastGlyph + .5))
             glyph = GLYPHS.charAt(index)
             bucket = (shown * 12) | 0
@@ -542,13 +519,32 @@ var UniverseAccretionDisk = (function () {
        和 deep-space 的 canvas.__uniDeepSpace 同一形状。 */
     canvas.__uniBlackHole = renderer
     function findColumn() {
-      return document.querySelector("[data-slot='root'] > * > div:has(> [data-slot='main'])") ||
-        document.querySelector("[data-slot='main']")
+      /* 0.2.2-rc.1 起所有 data-slot 宿主都是 display:contents：本身不产生盒子，
+         getBoundingClientRect() 恒为 0×0。直接拿槽位当列会让取景退化到整幅中点
+         （旧选择器 [data-slot='root'] > * > div:has(> [data-slot='main']) 在新结构下
+         也失配）。改为优先 main.conversation、回落 main，再从槽位向上爬，
+         返回第一个有真实尺寸的祖先——旧版槽位本身有盒子时就是它自己，保持兼容。 */
+      var slot = document.querySelector("[data-slot='main.conversation']") ||
+        document.querySelector("[data-slot='main']") ||
+        /* 旧版（0.2.1 及以前）槽位是真盒子，且列不在 [data-slot='main'] 上，而在它的容器上；
+           保留旧复合选择器作最后兜底，旧 DOM 与旧测试 mock 都能照常命中。 */
+        document.querySelector("[data-slot='root'] > * > div:has(> [data-slot='main'])")
+      var el = slot
+      while (el && el !== document.body) {
+        var rect = el.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) return el
+        el = el.parentElement
+      }
+      return null
     }
     function findFrame() {
       return document.querySelector("[data-slot='root'] > *") || column
     }
     function follow() {
+      /* 转场运镜期间冻结取景重排：切页会让 body 子树与列/框尺寸大幅变动，此刻 place()/
+         resize() 若插进来重设画布尺寸、重建网格，会和合成器上的位移动画打架，读起来就是
+         洞直接跳到取景中心（回程尤其明显）。与 onResize(:816) 的 arcRaf 守护保持一致。 */
+      if (arcRaf) return
       var nextColumn = findColumn()
       var nextFrame = nextColumn ? findFrame() : null
       if (nextColumn === column && nextFrame === frame) return
@@ -590,7 +586,7 @@ var UniverseAccretionDisk = (function () {
       if (arcSide !== true && column) left = column.getBoundingClientRect().left || 0
       for (var i = 0; i < layers.length; i++) layers[i].style.setProperty('--uni-hole-edge', left + 'px')
     }
-    function sized() { place(); resize() }
+    function sized() { if (arcRaf) return; place(); resize() }
     var observer = new ResizeObserver(sized)
     var shell = new MutationObserver(follow)
     shell.observe(document.body, { childList: true, subtree: true })
@@ -813,8 +809,12 @@ var UniverseAccretionDisk = (function () {
         /* 出画落地：内容得从「新会话页取景 + 平移」换成「对话页取景 + 无平移」，两者在屏幕上
            完全重合 —— 洞的位置连续，只有取景写对了；星点按格子落位，不随 viewX 动。
            回程落地不用换：内容本来就已经是新会话页的取景。 */
-        pose({ viewX: toX, viewY: 0, brightness: toBright, speed: toSpeed, alpha: landed })
-        renderer.update({})
+        /* 转场期间 follow()/sized() 被 arcRaf 挡住，落点仍是起飞时的取景；结束后按当前页
+           再同步一次列与取景，保证洞精确落在目标页的洞心（回程尤其依赖 column 已切到
+           新会话页）。 */
+        follow()
+        place()
+        apply({ viewX: viewXFor(arcSide), viewY: 0, brightness: toBright, speed: toSpeed, alpha: landed })
       }
       arcRaf = requestAnimationFrame(step)
     }

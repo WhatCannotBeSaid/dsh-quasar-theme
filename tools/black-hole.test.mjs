@@ -840,8 +840,8 @@ test('A1 带符号理想切向事件：μ=±1 两侧的 g⁴ 同时越过旧限�
 const OLD_WEIGHT_CALC='var g4 = Math.min(1.7, Math.max(.4, Math.pow(g, 1.8)))'
 const OLD_WEIGHT_FIELD='boost: g4,'
 const CLAMPED_G4='var g4 = Math.min(1.7, Math.max(.4, g * g * g * g))'
-const NEW_SHADE_TERM='breathe * ray.g4 * 3.2'
-const OLD_SHADE_TERM='breathe * ray.boost * 3.2'
+const NEW_SHADE_TERM='surface * ray.g4 * 3.2'
+const OLD_SHADE_TERM='surface * ray.boost * 3.2'
 /* 只把「权重定义 + 字段名 + 发射项」还原成第二十八阶段的旧契约；相机、积分器、事件定位
    一个字都不动，所以两边任何几何字段的差异都只能来自本阶段改的那两处。 */
 function legacySource(src){
@@ -970,94 +970,93 @@ function assertG4Contract(api){
   close(pro.g4,Math.pow(a1Closed(6,1),4),A1_SAME,'理想顺行事件 g⁴')
   return ray
 }
-/* 独立参考：内联常量、照抄当前公式，不读生产模块里的任何标识符 ——
-   期望值只来自这份文本，不能让实现给自己出题。band 自第三十三阶段起是双层焦散。 */
-function shadeReference(ray,time,brightness,spin){
-  const INNER=6
-  const KNOTS=[{ n: 1, radial: 1.9, angular: 1.0, weight: .16 },
-    { n: 2, radial: 2.7, angular: -.62, weight: .11 }]
-  const smooth=(lo,hi,x)=>{const t=Math.min(1,Math.max(0,(x-lo)/(hi-lo)));return t*t*(3-2*t)}
-  const flux=0
-  const turn=time*(Number(spin)||0)
-  if(ray.radius){
-    const r=ray.radius
-    const phase=ray.phi-turn-time*(1.2+16/Math.pow(r,1.5))
-    const arms=.72+.28*Math.sin(2*phase-4*Math.log(r/INNER))
-    const band=.82+.18*Math.sin(r*1.1+1.6*Math.sin(2*phase))*Math.sin(phase*3-r*.7-time*.27)
-    let knots=0
-    for(let i=0;i<KNOTS.length;i++){
-      const knot=KNOTS[i]
-      knots+=knot.weight*Math.sin(knot.n*phase+knot.radial*Math.log(r/INNER)-time*knot.angular)
-    }
-    const breathe=1+.03*Math.sin(time*.33)
-    const edge=smooth(INNER-.2,INNER+.8,r)*(1-smooth(14.5,16.2,r))
-    return 1-Math.exp(-(edge*Math.pow(INNER/r,2)*arms*(band+knots)*breathe*ray.g4*3.2)*brightness)
-  }
-  return 0
+/* Test-only exports; production API stays unchanged. Check the physical behaviours,
+   not another copy of the emission formula. */
+function emissionFixture(input=source){
+  const patched=input.replace('shade: shade,','shade: shade, orbit: orbit, patchAt: patchAt, patchesAt: patchesAt, emission: emission,')
+  assert.notEqual(patched,input)
+  return fixture(patched)
 }
-test('shade 与独立参考逐位相同：band 是双层焦散，log 只算一次，乘加顺序不变',()=>{
-  const {api}=fixture()
-  /* 有效着色分支里只留一处 Math.log(r / INNER)，KNOTS 循环不再各算一遍。 */
-  assert.equal(source.split('Math.log(r / INNER)').length,2,'shade 里的 Math.log(r / INNER) 必须恰好一处')
-  assert.ok(source.includes('var logR = Math.log(r / INNER)'),'logR 局部变量必须还在')
-  const rays=[]
-  /* 半径边界：盘两侧收口、呼吸区、外缘。相位/时间/自旋/g⁴/亮度在下面逐条组合。 */
-  for(const radius of [2,5.5,5.999,6,6.3,7,9.11,11.7,14.49,14.5,15.2,16.21,20]) {
-    for(const phi of [-3.1,-.7,0,.35,1.9,3.05]) {
-      for(const g4 of [.06,.4,1,3.55]) rays.push({radius,phi,g4})
-    }
+function assertEmissionShear(input){
+  const patched=input.replace('var active = patchesAt(time), omega = orbit(r), value = .32',
+    'var active = [{radius:10,radial:.5,angular:2,phi:.3,age:3,amplitude:2}], omega = orbit(r), value = .32')
+  assert.notEqual(patched,input,'受控亮斑注入必须命中生产 emission')
+  const {api}=emissionFixture(patched)
+  for(const r of [9,11]){
+    const phi=.3+16/Math.pow(r,1.5)*3
+    const expected=.32+2*Math.pow(1-Math.pow((r-10)*.5,2),3)
+    assert.ok(Math.abs(api.emission(r,phi,0)-expected)<1e-12,'生产 emission 必须按各半径剪切，不能按斑心刚转')
   }
-  /* 真实命中记录也进样本：半径与相位不是人造的。 */
-  for(const [u,v,angle] of [[.51,.14,15],[0,.34125,15],[-.11,.66,15],[.3,-.12,10],[0,.8,50]]){
-    const hit=api.trace(u,v,angle)
-    if(hit.radius) rays.push(hit)
+}
+function assertPatchLife(api){
+  const first=Array.from(api.patchesAt(0),p=>({...p}))
+  assert.equal(first.length,24,'固定槽位不能无限累积')
+  first.forEach((p,i)=>{
+    const life=.9*2*Math.PI/api.orbit(p.radius), birth=life-p.age, eps=1e-6
+    const dying={...api.patchesAt(birth-eps)[i]}, born={...api.patchesAt(birth+eps)[i]}
+    assert.ok(dying.amplitude<1e-10&&born.amplitude<1e-10,'真实槽位出生/消亡都必须熄灭')
+    assert.ok(Math.abs(dying.age-life)<2*eps&&born.age<2*eps,'换代必须重置斑龄')
+    assert.notEqual(dying.phi,born.phi,'下一代必须重新播种')
+    const quarter={...api.patchesAt(birth+life*.25)[i]}, half={...api.patchesAt(birth+life*.5)[i]}
+    assert.ok(half.amplitude>=1.49&&half.amplitude<=2.51,'半生亮斑不能消失')
+    assert.ok(Math.abs(quarter.amplitude/half.amplitude-.5)<1e-10,'生命周期必须平滑渐入渐出')
+    assert.ok(Math.abs(half.age-life*.5)<1e-9)
+  })
+}
+test('盘面亮斑：差速轨道把有限径宽亮斑剪成弧，方位周期连续，暗底不做全盘呼吸',()=>{
+  assertEmissionShear(source)
+  const {api}=emissionFixture(), tau=2*Math.PI
+  assert.ok(Math.abs(api.orbit(8)/api.orbit(12)-Math.pow(12/8,1.5))<1e-12,'内快外慢，不能带刚体旋转项')
+  const p={radius:10,radial:.5,angular:2,phi:.3,age:3,amplitude:2}
+  for(const r of [9,10,11]){
+    const phi=p.phi+api.orbit(r)*p.age
+    const peak=api.patchAt(p,r,phi,api.orbit(r))
+    assert.ok(peak>0)
+    assert.ok(Math.abs(peak-api.patchAt(p,r,phi+tau,api.orbit(r)))<1e-12,'2π 接缝连续')
+    assert.ok(peak>api.patchAt(p,r,phi+.4,api.orbit(r)),'各半径的峰随本地轨道平流')
+    if(r!==10) assert.ok(peak>api.patchAt(p,r,p.phi+api.orbit(10)*p.age,api.orbit(r)),'不能整团按中心角速度刚性旋转')
   }
-  let comparisons=0
-  for(const ray of rays){
-    for(const time of [0,.37,1.7,3.9,11.25]){
-      for(const brightness of [.15,.5,1,2]){
-        for(const spin of [undefined,0,.42]){
-          const actual=api.shade(ray,time,brightness,spin)
-          const expected=shadeReference(ray,time,brightness,spin)
-          assert.ok(Object.is(actual,expected),`shade(${ray.radius},${ray.phi},g⁴=${ray.g4},t=${time},b=${brightness},spin=${spin})=${actual}，参考 ${expected}`)
-          comparisons++
-        }
-      }
-    }
-  }
-  assert.ok(comparisons>5000,`样本量 ${comparisons} 太小`)
-  /* 没有半径的射线仍精确为 0：不触发任何着色分支。 */
-  assert.equal(api.shade({phi:1,g4:1},1,1),0)
+  assert.equal(api.patchAt(p,12,p.phi,api.orbit(12)),0,'径向支撑外精确为零')
+  assert.equal(api.patchAt({...p,amplitude:0},10,1,api.orbit(10)),0,'生命周期端点精确熄灭')
+  for(const t of [0,2,50]) assert.equal(api.emission(100,0,t),.32,'无亮斑处底亮不随时间呼吸')
 })
-test('有效着色分支的 Math.log 只计一次：隔离 VM 计数，宿主 Math 不动',()=>{
-  /* 计数对象是本 VM 内部的替身：它以 vm 自己的内在 %Math% 为原型，只覆盖 log，不改宿主 Math，
-     也不碰任何原型链。每次 fixture() 都新建一个，互不串号。 */
-  const hostLog=Math.log
-  const probe=fixture()
-  let calls=0
-  const sink=vm.runInContext('Math',probe.context)
-  const proxy=Object.create(sink)
-  proxy.log=v=>{calls++;return sink.log(v)}
-  probe.context.Math=proxy
-  const reset=()=>{calls=0}
-  const ray={radius:9.5,phi:.42,g4:1.3}
-  reset()
-  const once=probe.api.shade(ray,1.7,1,.42)
-  /* 旋臂一次 + 两个亮度团各一次，旧实现是三次；去重后只该剩一次。 */
-  assert.equal(calls,1,`有效着色分支调用了 ${calls} 次 Math.log`)
-  assert.equal(once,shadeReference(ray,1.7,1,.42),'计数用例里的值也必须与参考一致')
-  /* 无半径分支一次都不调。 */
-  reset()
-  probe.api.shade({phi:.42,g4:1.3},1.7,1,.42)
-  assert.equal(calls,0,'没有半径的射线不该进入着色分支')
-  /* 第二次有效着色：每一帧每一步仍然只算一次，不会因计数替身被缓存而漏算。 */
-  reset()
-  probe.api.shade(ray,2.2,.15)
-  assert.equal(calls,1,'第二次有效着色也必须只算一次')
-  /* 宿主 Math 与 vm 内在 Math 都没被替换：替身只换掉了那个上下文的 Math 绑定。 */
-  assert.equal(Math.log,hostLog,'宿主 Math.log 被改动了')
-  const shadow=fixture()
-  assert.equal(vm.runInContext('Math.log(1)===0&&Math.log!==undefined',shadow.context),true)
+test('盘面亮斑：跨出生/消亡点连续，任意时间回放确定，ASCII 前亮度有限且实际随时间变化',()=>{
+  const {api}=emissionFixture(), tau=2*Math.PI
+  assertPatchLife(api)
+  const first=Array.from(api.patchesAt(0),p=>({...p}))
+  for(const p of first){
+    const life=.9*tau/api.orbit(p.radius), boundary=life-p.age, eps=1e-6
+    for(const phi of [-Math.PI,-.2,.7,Math.PI]){
+      const before=api.shade({radius:p.radius,phi,g4:1},boundary-eps,1)
+      const after=api.shade({radius:p.radius,phi,g4:1},boundary+eps,1)
+      assert.ok(Math.abs(before-after)<1e-4,'换代不可闪跳')
+    }
+  }
+  const times=[0,.37,3.9,11.25,75,1e4], samples=[]
+  for(const radius of [5.5,6,6.3,9,12,14.5,16,16.3]) for(const phi of [-3.1,-.7,0,1.9,3.1]){
+    for(const time of times){
+      const ray={radius,phi,g4:1}, value=api.shade(ray,time,1)
+      assert.ok(Number.isFinite(value)&&value>=0&&value<1)
+      assert.ok(Math.abs(value-api.shade({...ray,phi:phi+tau},time,1))<1e-12)
+      samples.push({ray,time,value})
+    }
+  }
+  for(const s of samples.reverse()) assert.equal(api.shade(s.ray,s.time,1),s.value,'倒序寻时不得改变场')
+  assert.equal(api.shade({phi:1,g4:1},1,1),0)
+  assert.equal(api.shade({radius:5,phi:1,g4:1},1,1),0)
+  assert.equal(api.shade({radius:17,phi:1,g4:1},1,1),0)
+  let changes=0
+  for(let phi=-3;phi<3;phi+=.1) if(Math.abs(api.shade({radius:10,phi,g4:1},0,1)-api.shade({radius:10,phi,g4:1},4,1))>.01) changes++
+  assert.ok(changes>5,'不能交付一张静止盘')
+})
+test('盘面亮斑负向注入：永生斑与生产路径刚体旋转必须被抓住',()=>{
+  const immortal=source.replace('var cycle = Math.floor(clock), age = (clock - cycle) * life','var cycle = 0, age = time')
+    .replace('var fade = Math.sin(Math.PI * age / life)','var fade = 1')
+  assert.notEqual(immortal,source)
+  assert.throws(()=>assertPatchLife(emissionFixture(immortal).api),/出生\/消亡/)
+  const rigid=source.replace('patchAt(active[i], r, phi, omega)','patchAt(active[i], r, phi, orbit(active[i].radius))')
+  assert.notEqual(rigid,source)
+  assert.throws(()=>assertEmissionShear(rigid),/生产 emission/)
 })
 test('g⁴ 契约的负向注入：g³ 与夹限权重都被真实断言抓住（生产源被改就会非零退出）',()=>{
   /* 生产源里不许再出现 boost 权重字段或 ray.boost 读取：没有兼容层，也没有死字段。 */

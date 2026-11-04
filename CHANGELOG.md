@@ -8,6 +8,27 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Added
 
+- **吸积盘换成 24 个有限寿命、差速切变的亮斑（2026-11-04 第八十二轮）。** 用户逐字：「你再检查下代码看是否可以优化」。
+  `src/runtime/accretion-disk.js` 去掉旧的 SPIN / DISK / KNOTS / PULSE 四层，也去掉每格里的三角函数（旧版每格
+  2~4 次 `sin` + `log`），换成纯算术早退。常量与动机写在源码注释里：`ORBIT_RATE = 16` 是校准旋钮（既不动度规、
+  也不动 `ray.g4`），`orbit(r) = ORBIT_RATE / Math.pow(r, 1.5)` 即 Schwarzschild 圆轨道 `Ω = r^(-3/2)`
+  （hot-spot/arc 动机见 Schnittman & Bertschinger, astro-ph/0309458；MHD 变光动机见 Schnittman et al.,
+  astro-ph/0606615；这是现象学模型，不是 MHD 求解）。24 个 patch 各自 `life = 0.9·TAU/orbit(r)`、
+  `amplitude = (1.5+seed)·sin²(π·age/life)`，种子取自 `grainKey`；`patchAt` 先按 `|dr| >= 1` 早退，再按
+  `|dp| >= 1` 早退，多数格子死在径向闸门。关键一处：每个半径各自被平流（`dp = phi - p.phi - omega*p.age`），
+  有限宽的斑因此被剪成弧，而不是整块平移；暗底 `emission` 基值 `0.32`，不做全盘呼吸。`shade` 从 5 参收到 3 参
+  （`ray, time, brightness`），亮度只随 `ray.g4` 走。`tools/black-hole.test.mjs` 同步改写。
+  同轮追修两处既有问题（都与本次重写无关）：
+  `preview/black-hole-hybrid.js:102-103` 仍读已被测地线内核移除的 `ray.boost`（`src/runtime/geodesic.js` 只返回
+  `g4`，注释写明不保留兼容字段），于是整层 ASCII 盘恒为 0、只剩矢量阴影/环/辉光；改成 `ray.g4` / `g4:` 两个词。
+  `tools/dialog-arc.test.mjs` 的两个用例（`主线程卡住不再冻住洞`、`reduced motion：交给 __uniArc 的时长为 0`）
+  在 `f.drain()` 后补一行 `f.frameAt(0)`，消费掉挂载时的冷启动 settle 补帧；该断言早于 settle 机制（2cd3def
+  引入），在 HEAD 上本就失败，不是这次改坏的。
+  门禁：`node --test tools/black-hole.test.mjs` **34 pass / 0 fail**、`node --test tools/dialog-arc.test.mjs`
+  **15 pass / 0 fail**、`npm run verify` **113 assertions / 0 failed / all green**、`npm run check` 同步，
+  `client.js` **246,126 chars / 53 tokens / 2 fonts / 0 wallpapers**（预览与测试两处改动不进构建产物，
+  故尺寸不变）。
+
 - **输入卡转场改成「连续运镜」（2026-11-03 第八十一轮）。** 用户逐字：「我选B」——B 指上一轮对比里
   的连续运镜：全量位移、卡片全程可见，而不是淡出淡入。`src/runtime/composer-transition.js` 的
   `play()` 把透明度从 `0→1` 改成浅呼吸 `1 → 0.86 → 1`（`DIM = 0.86`，中点最暗，与位移共用同一条
