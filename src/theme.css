@@ -853,13 +853,7 @@ div[data-windows-menu] {
   pointer-events: none;
   -webkit-backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
-  /* 2026-11-01（D107 ④）：折射回挂到卡片上，用户点名「1234 都做」。这一行必须排在
-     上面那条只带模糊的声明**之后**：不认 `url()` 的引擎在解析期丢掉整条生效值，正好
-     退回毛玻璃（本机实测被丢的是 `-webkit-` 前缀那条，所以上面那行不加 url()）。
-     位移图仍由 src/runtime/glass.js 的 `uni-lg-input` target 按卡片实测尺寸现画。
-     代价是当年 C1 量到的那笔：+98 ms/s，占该页主题开销约三成 —— 现在照付，见下方 C1 段。 */
-  -webkit-backdrop-filter: url(#uni-lg-input) blur(var(--cp-glass-composer)) saturate(135%);
-  backdrop-filter: url(#uni-lg-input) blur(var(--cp-glass-composer)) saturate(135%);
+  /* 2026-11-04 perf: composer url() refraction removed; plain blur above is now the only backdrop-filter. */
   /* ----------------------------------------------------------------------
    * C1（2026-10-11，用户点名「玻璃去掉 url(#uni-lg-input)」）：位移折射不再挂在输入卡上。
    *
@@ -1435,8 +1429,6 @@ body > div:has(> [data-shortcut-modal='settings']) > :first-child {
   background: var(--dsw-specific-input-major);
   -webkit-backdrop-filter: blur(var(--cp-glass-guide)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-guide)) saturate(135%);
-  -webkit-backdrop-filter: url(#uni-lg-guide) blur(var(--cp-glass-guide)) saturate(135%);
-  backdrop-filter: url(#uni-lg-guide) blur(var(--cp-glass-guide)) saturate(135%);
 }
 
 /* --------------------------------------------------------------------------
@@ -3282,9 +3274,9 @@ body[data-uni-motion] [class*='HOHHba_card']::before {
   pointer-events: none;
   -webkit-backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
-  -webkit-backdrop-filter: url(#uni-lg-card) blur(var(--cp-glass-card)) saturate(135%);
-  backdrop-filter: url(#uni-lg-card) blur(var(--cp-glass-card)) saturate(135%);
 }
+
+/* 2026-11-04 perf: panel url() refraction removed (plain blur above retained). */
 
 body[data-uni-motion] [class*='HOHHba_card']::after {
   content: '';
@@ -3400,9 +3392,9 @@ body[data-uni-motion] [class*='F07MqG_panel']::before {
   background: transparent;
   -webkit-backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
-  -webkit-backdrop-filter: url(#uni-lg-panel) blur(var(--cp-glass-card)) saturate(135%);
-  backdrop-filter: url(#uni-lg-panel) blur(var(--cp-glass-card)) saturate(135%);
 }
+
+/* 2026-11-04 perf: queued-message panel url() refraction removed (plain blur above retained). */
 
 body[data-uni-motion] [class*='F07MqG_panel']::after {
   content: '';
@@ -3459,9 +3451,9 @@ body[data-uni-motion] [class*='K5rwea_file']::before {
   pointer-events: none;
   -webkit-backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-card)) saturate(135%);
-  -webkit-backdrop-filter: url(#uni-lg-deliverable) blur(var(--cp-glass-card)) saturate(135%);
-  backdrop-filter: url(#uni-lg-deliverable) blur(var(--cp-glass-card)) saturate(135%);
 }
+
+/* 2026-11-04 perf: deliverable card url() refraction removed (plain blur above retained). */
 
 body[data-uni-motion] [class*='K5rwea_file']::after {
   content: '';
