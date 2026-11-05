@@ -2319,6 +2319,27 @@ html[data-windows-titlebar] [data-slot='sidebar'] > div > nav + div ~ div > :nth
 }
 
 /* --------------------------------------------------------------------------
+ * 导航末项 → 会话区标题：43.5px → 26px（2026-11-05，D102）
+ *
+ * 用户逐字：「只调整邮件 → 会话的距离，不动其他，先调整为24px」→「改26px」。
+ *
+ * 真机读数（桌面壳、DPI 200%，截图按 device-scale-factor=2 换算为 CSS px，墨迹到墨迹）：
+ * 官方 **43.5**。目标 26，即上提 17.5px。
+ *
+ * 只动一处：`nav` 的 `margin-bottom` 由官方 8px 改 -9.5px。负值让下面的 regionArea
+ * 上提，会话标题行随之前移；本行补 `position: relative; z-index: 1`，保住最后一枚
+ * 按钮的点击区不被覆盖。
+ * 未动：`margin-top`（D100 的 -6px）、项间 `gap`（官方 2px）、品牌行、会话区内部、
+ * nav 宽度与横排。
+ * 回滚 = 删本段。
+ * ------------------------------------------------------------------------ */
+html[data-windows-titlebar] [data-slot='sidebar'] > div > nav {
+  margin-bottom: -9.5px;
+  position: relative;
+  z-index: 1;
+}
+
+/* --------------------------------------------------------------------------
  * 「设置」行与导航页按钮左对齐（2026-10-07，第二十三轮，D62）
  *
  * 用户要求：「设置」按钮与导航页按钮位置不一致 —— 以导航页按钮的位置为基准调整
@@ -3478,4 +3499,21 @@ body[data-uni-motion] [class*='K5rwea_file']::after {
     color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent),
     transparent 38%
   );
+}
+
+/* --------------------------------------------------------------------------
+ * 启动遮罩的转圈 —— 恢复官方默认（2026-11-05，用户：「把启动时的转圈恢复成官方默认」）
+ *
+ * 宿主启动画面是 [data-dsh-boot] > card > wordmark + spinner + 「Loading plugins…」。
+ * 那枚转圈不自带颜色：底环吃 --dsw-alias-border-l2，旋转弧吃 --dsw-alias-brand-primary，
+ * 两者在 _boot_u7vgf_3 上各有一组官方兜底 --dsh-boot-border / --dsh-boot-brand（亮暗
+ * 各一份）。主题覆盖了这两个全局 token，启动时转圈就变成了主题品牌色。
+ *
+ * 恢复只做在这一格：把 spinner 上的两个 token 指回宿主启动遮罩自己的兜底值。不撤全局
+ * token（应用内其它地方仍在用），也不自造字面色值。背景 --dsw-alias-bg-base 的半透明
+ * veil 不在此列，仍是主题底色；要连背景一起回官方，另说。
+ * ------------------------------------------------------------------------ */
+[data-dsh-boot] [data-dsh-boot-spinner] {
+  --dsw-alias-border-l2: var(--dsh-boot-border);
+  --dsw-alias-brand-primary: var(--dsh-boot-brand);
 }
