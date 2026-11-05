@@ -16,7 +16,7 @@ var UniverseAccretionDisk = (function () {
   var trace = UniverseGeodesic.trace
   var GLYPHS = ' .-:;+*o#%@' /* 11 档，索引 0..10；lastGlyph = length - 1 */
   var STROKES = '|-/\\'
-  var defaults = { angle: 15, fps: 30, maxCells: 16000, cellWidth: 6, brightness: 1, speed: 1 }
+  var defaults = { angle: 15, fps: 60, maxCells: 16000, cellWidth: 6, brightness: 1, speed: 1 }
   /* Schwarzschild circular-orbit law: Omega = r^(-3/2), with one visual time scale.
      ORBIT_RATE is a calibration knob (not a change to the metric or ray.g4).
      Hot-spot/arc motivation: Schnittman & Bertschinger, astro-ph/0309458;
@@ -79,23 +79,6 @@ var UniverseAccretionDisk = (function () {
      x 由 viewXFor() 从视口宽度和半径反算。y 在两个页面都是 0，只有转场途中抬起来走弧线
      （见 arcTo 的 bow）：去程是同一个洞被摆到右缘，不是换上第二颗。 */
   var VIEW_LIMIT = 4000
-  /* 格子静态几何的惰性缓存（第三十二阶段）。逐帧重复算的只有「画布偏移、到洞心的距离、
-     环扇区」这几样，它们只随网格与取景变；shade / 相位 / 字符 / 颜色仍是每帧现算。
-     记录按原网格索引落位，只给被看过且真是盘面的格子建（环区粗筛一次都不命中的格子不建），
-     首次访问就算 gx/gy/d2，d（半径）与 b（扇区桶）只在原来的环区分支真的要它们时才算，
-     没有全网格预热。5 号格是「d 精确算过」的标记：格子与 baseX/baseY 没变，d2 就没变，
-     精确算过一次就一直算过，下帧不再开方。 */
-  var GX = 0, GY = 1, D2 = 2, D = 3, BIN = 4, EXACT = 5
-  function geomFor(cache, cols, i, cw, ch, baseX, baseY) {
-    var g = cache[i]
-    if (!g) { g = cache[i] = new Float64Array(6); g[BIN] = -1; g[EXACT] = 0 }
-    var gx = g[GX], gy = g[GY], gx2 = (i % cols + .5) * cw - baseX, gy2 = (((i / cols) | 0) + .5) * ch - baseY
-    /* 坐标没变（没位移、没换格宽）就整条记录原样复用：d2 与「精确算过」都不必重来。 */
-    if (!(gx === gx2 && gy === gy2)) {
-      g[GX] = gx = gx2; g[GY] = gy = gy2; g[D2] = gx * gx + gy * gy; g[EXACT] = 0
-    }
-    return g
-  }
   function options(input) {
     input = input || {}
     function number(key, min, max) {
@@ -139,155 +122,44 @@ var UniverseAccretionDisk = (function () {
     h = Math.imul(h ^ (h >>> 13), 1274126177)
     return h ^ (h >>> 16)
   }
-  function lit(cell) { return cell ? !!(cell.radius || cell.ring) : false }
+
   /* holeLayer 是洞那层（hole.js）的渲染器：阴影圆、光子环与它的方位包络都由那边负责，
      这里只读它的半径与环包络给盘字让位。不传就是纯字符模式（测试桩、精简 DOM、拆分前的
      旧调用点），此时没有让位可做，落字照旧。 */
   function create(canvas, input, holeLayer) {
-    var config = options(input), ctx = canvas.getContext('2d', { alpha: true })
-    if (!ctx) throw Error('Canvas 2D unavailable')
-    var disposed = false, raf = 0, buildTimer = 0, generation = 0, elapsed = 0, previous = 0, lastDraw = -Infinity
-    var visible = true, frames = 0, totalPaint = 0, maxPaint = 0, buildCpu = 0, w = 0, h = 0, cols = 0, rows = 0, grid = [], cw = 8, ch = 12, ready = false, mode = 'dark', applied = false, arcAlpha = 1, modeHook = null
-    /* 最近一次网格构建的诊断：state 只可能是 ready / failed / building / 空（还没建过）。
-       rays 是格数，exhausted 是首次耗尽格数，retried 是重算过的格数，unresolved 是重算后
-       仍然耗尽的格数，budget 是首次预算。 */
-    var buildDiag = null
-    /* dpr 必须在 create() 这一层：draw() 用它算位移变换，resize() 用它定缓冲区尺寸，
-       以前它只活在 resize() 里，位移那行一跑到就是 ReferenceError。 */
-    var dpr = 1
-    /* 静态几何缓存：只留当前这一份。键是「这份缓存按哪一次取景算的」，任一输入直接比不等
-       就整份作废重算 —— 不快照 grid 内容、不哈希环包络。grid / w / h / cols 用全等，
-       cw / ch / baseX / baseY / horizon 用 Object.is：同尺寸 resize 短路、只改时间/亮度/速度/
-       明暗档的那几帧都不动这些输入，缓存照旧命中。baseX/baseY 照 draw 的原式取（那里恒等于
-       w/2、h/2），不写死、不靠舍入抹平；horizon 进键是因为环带分支拿它比。 */
-    var geo = [], geoGrid = null, geoW = 0, geoH = 0, geoCols = 0
-    var geoCw = NaN, geoCh = NaN, geoX = NaN, geoY = NaN, geoHZ = NaN
-    function ensureGeo(baseX, baseY, horizon) {
-      if (geoGrid === grid && geoW === w && geoH === h && geoCols === cols &&
-        Object.is(geoCw, cw) && Object.is(geoCh, ch) &&
-        Object.is(geoX, baseX) && Object.is(geoY, baseY) && Object.is(geoHZ, horizon)) return
-      geo = []; geoGrid = grid; geoW = w; geoH = h; geoCols = cols
-      geoCw = cw; geoCh = ch; geoX = baseX; geoY = baseY; geoHZ = horizon
+    var config = options(input), renderer = null, initialError = null
+    try { renderer = UniverseAccretionGPU.create(canvas, GLYPHS, DARK, LIGHT) } catch (error) { initialError = error }
+    var disposed = false, failed = false, raf = 0, buildTimer = 0, generation = 0, elapsed = 0, previous = 0, lastDraw = -Infinity
+    var visible = true, frames = 0, totalPaint = 0, maxPaint = 0, buildCpu = 0, w = 0, h = 0, cols = 0, rows = 0, cw = 8, ch = 12, dpr = 1
+    var ready = false, mode = 'dark', applied = false, arcAlpha = 1, modeHook = null, buildDiag = null, size = null, failure = null
+    var motion = window.matchMedia('(prefers-reduced-motion: reduce)'), rAFGap = 0
+    canvas.dataset.blackHoleBackend = 'webgl2'
+    function running() { return !disposed && !failed && ready && visible && !document.hidden && !motion.matches && config.speed > 0 && w > 0 && h > 0 }
+    function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; previous = 0 }
+    function fail(error) {
+      if (disposed || failed) return
+      failed = true; ready = false; generation++; stop()
+      if (buildTimer) { clearTimeout(buildTimer); buildTimer = 0 }
+      failure = error && error.message ? error.message : String(error)
+      buildDiag = Object.assign({}, buildDiag, { state: 'failed', error: failure })
+      canvas.dataset.blackHoleState = 'failed'; canvas.dataset.blackHoleError = failure
+      if (renderer) renderer.dispose()
+      if (typeof console !== 'undefined' && console.error) console.error('QUASAR GPU character layer stopped:', failure)
     }
-    var motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     function draw() {
-      if (disposed || !w || !h || !ready) return
-      var start = performance.now(), light = mode === 'light'
-      /* 半径与环包络都来自洞那层：两边各算一次必然漂移（拆分前阴影圆与盘内缘就是这么差的
-         0.2px）。holeLayer 缺席时退回本地公式，纯字符模式仍要一个半径判亮档内外。 */
-      var horizon = holeLayer ? holeLayer.radius() : CRIT_RATIO * Math.min(w, h) / 2
-      /* 圆心从 viewOf() 拿：它已经含了位移，而位移要靠 setTransform 生效，所以下面画字之前
-         必须把「含位移的圆心」减去位移换回未平移的画布坐标。直接拿 view.x 当画布坐标只在
-         viewX = 0 时成立 —— 对话页一让洞出画，整个盘的格子就会被再推一次位移，整片跑到右边去。 */
-      var view = viewOf(w, h, config), cx = view.x, cy = view.y
-      var baseX = cx - (config.viewX || 0), baseY = cy - (config.viewY || 0)
-      /* 缓存键到这时才组得齐。baseX/baseY 恒等于 w/2、h/2，也照样从这两行取，不另外写死。 */
-      ensureGeo(baseX, baseY, horizon)
-      /* view() 的包装里有半径，这里只取圆心；半径按同一公式就地算。 */
-      var shifted = !!(config.viewX || config.viewY)
-      /* 画布透明（2026-10-29 终版）：左栏透明、透出 body 那层底，主区也必须透出同一层，
-         否则画布的不透明清屏色与左栏的底色永远差一档 —— 前面几次「割裂」都是这么来的。
-         底色交给 body，画布每帧只清上一帧。清屏按缓冲区像素走：这里 ctx 还带着 dpr 变换，
-         用 w × h 当坐标只擦掉左上角一小块，其余格子会叠在上一帧上。 */
-      ctx.save()
-      ctx.setTransform(1, 0, 0, 1, 0, 0)
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.restore()
-      /* 取景位移在这里落地：画布本身不动，绘制原点整体平移。setTransform 重置成单位阵
-         之后必须把 dpr 重新乘回去，否则高 DPI 下字会缩一半。
-         偏移量不能直接读 config：options() 对没传的键会保留上一轮的值，首次 update 只给
-         viewX 时 viewY 是 undefined，乘出来 NaN —— setTransform 收到 NaN 在浏览器里是
-         静默忽略整条变换，新会话页会一直在错的原点下画。 */
-      if (shifted) ctx.setTransform(dpr, 0, 0, dpr, dpr * (Number(config.viewX) || 0), dpr * (Number(config.viewY) || 0))
-      /* 对话页的盘是淡影（见 ARC_FADE_DARK / ARC_FADE_LIGHT），但这一帧不在这里压墨：
-         浓淡交由画布自身的 opacity 承担（arcTo 把它写进合成器关键帧）。理由是逐帧
-         globalAlpha 只有 fps 门限放行的 30 格能画出来，位移却在合成器上按 60fps 走，
-         末段又被 easeInOutCubic 压平，落地补画一次就读成「快到位时突然定档」。
-         整块画布一层 opacity 则与位移共用同一份关键帧、同一条缓动，盘字、阴影圆、
-         光子环按同一比例一起变薄，也不再看主线程这一帧有没有出。 */
-      /* 阴影圆与光子环不在这里画：洞那层（hole.js）有自己一块画布，实心阴影与烘好的
-         环在同一张纸上，盘字的遮挡关系靠 DOM 顺序（洞在下、盘在上）而不是绘制顺序。
-         这一层的角色因此只剩「落盘的字」，而字要绕着环让位 —— 半径与方位包络仍从洞那层读，
-         不能各算一份：拆分前阴影圆与盘内缘就是这么漂开 0.2px 的。 */
-      /* 让位要用的量在帧内不变，提到循环外。ring 是洞那层的烘焙结果：edge 是方位包络，
-         edgeMax 是最外半径，horizon 是烘焙时的阴影半径 —— ringScale 通常正好是 1，只有取景
-         尺寸在 resize 与重烘之间错开时才会偏离。扇区数直接用 edge.length，不另设常数。 */
-      var ring = holeLayer ? holeLayer.ring() : null
-      var ringEdge = ring && ring.edge ? ring.edge : null
-      var ringScale = ring ? horizon / ring.horizon : 1
-      var ringClear = Math.sqrt(cw * cw + ch * ch) / 2 + 1
-      var ringOuter = ringEdge ? ring.edgeMax * ringScale + ringClear : 0
-      var ringBins = ringEdge ? ringEdge.length : 0
-      ctx.font = '600 ' + Math.round(ch * .95) + 'px ui-monospace, Consolas, monospace'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      /* 每格都会走一遍的量提到循环外：一次转场是 19 帧 × 约 15876 格，这些值在帧内不变。
-         lastIndex / 12 这两个常数以前在格子内部被求值了两万多次。 */
-      var lastGlyph = GLYPHS.length - 1, ink = config.brightness, t = elapsed
-      for (var i = 0; i < grid.length; i++) {
-        var cell = grid[i], glyph = '', value = 0, bucket = 0
-        if (cell.radius) {
-          /* 环上不落字：第十五阶段把环交给 Canvas 精细层之后，盘格在环的位置上照常显影，
-             环层就从字缝里透出来，读成「一圈零散杂点压在细环上」。
-             这里在 shade 之前把环带里的盘格跳掉。
-             边界不用固定像素：环峰随方位在 140..215px 之间移动，下方被前景盘拉出一段外扩，
-             上方则贴得紧。整圈取同一个半径，要么清不干净，要么把没有环的前景盘一起挖空。
-             所以查 bakeRing 记下的方位包络 edge[方位]，只清环真有像素的方向。
-             没有环层时一律不清：测试桩、精简 DOM 与烘焙失败都走这条路，纯 ASCII 模式不需要
-             为不存在的环让位。遮挡本身没有放松：被捕获的格子没有 radius，依旧一个字都不落。 */
-          if (ringEdge) {
-            var g0 = geomFor(geo, cols, i, cw, ch, baseX, baseY)
-            /* 先用平方半径粗筛：绝大多数格子在环带之外，省掉每帧一万多次开方与反正切。 */
-            if (g0[D2] < ringOuter * ringOuter) {
-              /* 环包络是可变数据：edge 由 bakeRing 边烘边写，换一次烘焙内容就变，而对象身份
-                 不变。所以「让位」的最终布尔值不缓存 —— 每次都用当前的 ringEdge / ringScale /
-                 ringClear / horizon 现比，缓存的只是距离和扇区桶，不是「这一格永远跳过」。
-                 距离也比在这一支里，比较符号与开方顺序原样保留。 */
-              var gd = g0[D]
-              if (!g0[EXACT]) { gd = Math.sqrt(g0[D2]); g0[D] = gd; g0[EXACT] = 1 }
-              /* 阴影圆内那几格是近侧盘面压在洞前，不属于环，照常落字。 */
-              if (gd > horizon) {
-                var rb = g0[BIN]
-                if (rb < 0) rb = g0[BIN] = (((Math.atan2(g0[GY], g0[GX]) + Math.PI) / (Math.PI * 2) * ringBins) | 0) % ringBins
-                if (gd <= ringEdge[rb] * ringScale + ringClear) continue
-              }
-            }
-          }
-          value = shade(cell, t, ink)
-          if (value > .004) {
-            /* 字与墨都走同一个显示映射：物理亮度 value 先过 TONE_GAMMA，再落进 11 档字符。
-               两处必须用同一个 shown —— 只压字形不压墨色，暗侧会拿到亮的字形配最暗的墨，
-               读起来反而更糊。落字门槛 .004 仍是物理阈值，不随 gamma 变。 */
-            var shown = Math.pow(value, TONE_GAMMA)
-            /* No random glyph flicker: all temporal changes come from the disk field. */
-            if (shown > .999) shown = .999
-            var index = Math.min(lastGlyph, Math.floor(shown * lastGlyph + .5))
-            glyph = GLYPHS.charAt(index)
-            bucket = (shown * 12) | 0
-            if (bucket > 11) bucket = 11
-            var luminous = !light
-            if (light) {
-              var qx = (i % cols + .5) * cw - baseX, qy = (((i / cols) | 0) + .5) * ch - baseY
-              luminous = qx * qx + qy * qy <= horizon * horizon
-            }
-            ctx.fillStyle = luminous ? DARK[bucket] : LIGHT[bucket]
-          }
-        }
-        if (glyph && glyph !== ' ') ctx.fillText(glyph, (i % cols + .5) * cw, (((i / cols) | 0) + .5) * ch, cw)
-      }
-      /* 位移只活在这一个函数里：帧末复位成居中，下一次进 draw() 再按当时的 config 决定。
-         不复位的话，从对话页反向切回新会话页时，第一帧仍带着旧位移。 */
-      if (shifted) ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      if (disposed || failed || !w || !h || !ready) return
+      var start = performance.now(), horizon = holeLayer ? holeLayer.radius() : CRIT_RATIO * Math.min(w, h) / 2
+      var view = viewOf(w, h, config)
+      try {
+        renderer.refreshAtlas(size)
+        renderer.draw(size, { horizon: horizon, ring: holeLayer ? holeLayer.ring() : null,
+          baseX: view.x - (config.viewX || 0), baseY: view.y - (config.viewY || 0),
+          viewX: Number(config.viewX) || 0, viewY: Number(config.viewY) || 0,
+          brightness: config.brightness, light: mode === 'light', patches: patchesAt(elapsed) })
+      } catch (error) { fail(error); return }
       var ms = performance.now() - start
       frames++; totalPaint += ms; maxPaint = Math.max(maxPaint, ms)
     }
-    function running() { return !disposed && ready && visible && !document.hidden && !motion.matches && config.speed > 0 && w > 0 && h > 0 }
-    function stop() { if (raf) cancelAnimationFrame(raf); raf = 0; previous = 0 }
-    /* 显示刷新周期的估计（rAF 间隔的指数滑动平均）。真正决定「动起来顺不顺」的不是我们
-       画多快，而是画出来的帧能不能和刷新对齐：用户那台机器实测 rAF 间隔 6.2ms（约 160Hz），
-       我们却按 60fps 出帧 —— 每次更新落在第 2 或第 3 个刷新上，速度看起来在忽快忽慢。
-       这条估计只用来给飞行期挑一个刷新率的整除数，静止态一律不用。 */
-    var rAFGap = 0
     function tick(now) {
       raf = 0
       if (!running()) return
@@ -297,156 +169,97 @@ var UniverseAccretionDisk = (function () {
       previous = now
       var interval = 1000 / config.fps, delta = now - lastDraw
       if (delta >= interval - .5) { draw(); lastDraw = Number.isFinite(delta) && delta >= interval ? now - delta % interval : now }
-      raf = requestAnimationFrame(tick)
+      if (running()) raf = requestAnimationFrame(tick)
     }
     function sync() { stop(); if (!document.hidden && visible) draw(); if (running()) raf = requestAnimationFrame(tick) }
     function resize() {
-      var rect = canvas.getBoundingClientRect(), nw = rect.width || 0, nh = rect.height || 0
-      /* 空容器的 rect 不会是负数，但会以 0 出现（挂载瞬间、容器被隐藏）：0 下没有任何格子可
-         画，'Math.floor(w / cw)' 会算出 0 列，'new Array(0)' 之后的行循环写 'next[-1]' 直接抛
-         「Invalid array length」，create() 整个挂不上。方框为 0 时先停在这里，等容器的
-         ResizeObserver 再来一次。 */
-      if (!(nw > 0) || !(nh > 0)) { w = 0; h = 0; ready = false; geo = []; geoGrid = null; stop(); return }
-      if (nw === w && nh === h && ready) return
-      w = nw; h = nh; ready = false; stop(); generation++
+      if (disposed || failed) return
+      var rect = canvas.getBoundingClientRect(), nw = rect.width || 0, nh = rect.height || 0, ndpr = Math.min(window.devicePixelRatio || 1, 1.5)
+      if (!(nw > 0) || !(nh > 0)) {
+        w = 0; h = 0; ready = false; generation++; stop()
+        if (buildTimer) { clearTimeout(buildTimer); buildTimer = 0 }
+        if (renderer) renderer.clear()
+        return
+      }
+      if (nw === w && nh === h && ndpr === dpr && ready) return
+      if (nw === w && nh === h && ready) {
+        dpr = ndpr; canvas.width = Math.max(1, Math.round(w * dpr)); canvas.height = Math.max(1, Math.round(h * dpr))
+        size.dpr = dpr; renderer.invalidateAtlas(); sync(); return
+      }
+      w = nw; h = nh; dpr = ndpr; ready = false; stop(); generation++
       var mine = generation
-      /* 环烘完才动手铺格子：draw 会在构建期同步跑一遍，缓存若在环就绪之前先冷启动，
-         那批格子的扇区桶会按「环未就绪」的路子留下未算状态，等环层就绪后白白多算一轮。
-         挪到烘完再失效，缓存键仍按当前 grid 与取景判定，构建期命中照常。 */
-      geo = []; geoGrid = null
       if (buildTimer) clearTimeout(buildTimer)
-      dpr = Math.min(window.devicePixelRatio || 1, 1.5)
-      canvas.width = Math.max(1, Math.round(w * dpr))
-      canvas.height = Math.max(1, Math.round(h * dpr))
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      canvas.width = Math.max(1, Math.round(w * dpr)); canvas.height = Math.max(1, Math.round(h * dpr)); renderer.clear()
       cw = Math.max(config.cellWidth, Math.sqrt(w * h / (config.maxCells * 1.5)))
       cols = Math.max(1, Math.floor(w / cw)); cw = w / cols
       rows = Math.max(1, Math.floor(h / (cw * 1.5))); ch = h / rows
-      var next = new Array(cols * rows), row = 0, short = Math.max(1, Math.min(w, h))
-      buildCpu = 0
-      buildDiag = { state: 'building', rays: 0, exhausted: 0, retried: 0, unresolved: 0, budget: STEP_BUDGET }
+      size = { w: w, h: h, cw: cw, ch: ch, cols: cols, rows: rows, dpr: dpr }
+      var layout = size, request = { width: w, height: h, cellWidth: cw, cellHeight: ch, columns: cols, rows: rows, angle: config.angle, budget: STEP_BUDGET }
+      buildCpu = 0; buildDiag = { state: 'building', rays: cols * rows, exhausted: 0, retried: 0, unresolved: 0, budget: STEP_BUDGET, backend: 'webgl2' }
       canvas.dataset.blackHoleState = 'building'
-      function chunk() {
+      function alive() { return !disposed && !failed && mine === generation }
+      buildTimer = setTimeout(function () {
         buildTimer = 0
-        if (disposed || mine !== generation) return
-        var start = performance.now()
-        do {
-          for (var col = 0; col < cols; col++) {
-            next[row * cols + col] = trace((2 * (col + .5) * cw - w) / short, (h - 2 * (row + .5) * ch) / short, config.angle)
-          }
-          row++
-        } while (row < rows && performance.now() - start < 6)
-        buildCpu += performance.now() - start
-        if (row < rows) { buildTimer = setTimeout(chunk, 0); return }
-        finishBuild(next, short)
-      }
-      function finishBuild(next, short) {
-        var i, q
-        /* 耗尽格先做一次有限恢复：只重算耗尽的那几格，预算翻倍（2400 → 4800），不改变初值、
-           容差与几何，也不做第二次重试。仍然耗尽的格让整张网格失败闭合。
-           重试也是构建成本，必须计进 buildCpu，否则 stats 上的构建耗时会漏掉这一段。 */
-        var retryStart = performance.now()
-        var bad = []
-        for (i = 0; i < next.length; i++) if (next[i] && next[i].terminal === 'exhausted') bad.push(i)
-        for (i = 0; i < bad.length; i++) {
-          q = bad[i]
-          var qr = (q / cols) | 0, qc = q - qr * cols
-          next[q] = trace((2 * (qc + .5) * cw - w) / short, (h - 2 * (qr + .5) * ch) / short, config.angle, STEP_BUDGET * 2)
-        }
-        var left = 0
-        for (i = 0; i < next.length; i++) if (next[i] && next[i].terminal === 'exhausted') left++
-        buildCpu += performance.now() - retryStart
-        buildDiag = { state: left ? 'failed' : 'ready', rays: next.length, exhausted: bad.length,
-          retried: bad.length, unresolved: left, budget: STEP_BUDGET }
-        if (left) {
-          /* 没算完的射线不能伪装成逃逸、捕获或命中：整张网格作废，画布明确置为失败态并清空。
-             ready 保持 false，所以 draw() / tick() 都不会再把这张网格当成可用结果。 */
-          grid = []; ready = false; geo = []; geoGrid = null
-          canvas.dataset.blackHoleState = 'failed'
-          stop()
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-          ctx.clearRect(0, 0, w, h)
-          return
-        }
-        grid = next; ready = true
-        canvas.dataset.blackHoleState = 'ready'; sync()
-      }
-      if (w > 0 && h > 0) buildTimer = setTimeout(chunk, 0)
+        if (!alive()) return
+        renderer.build(request, alive).then(function (result) {
+          if (!alive()) { result.dispose(); return }
+          buildDiag = Object.assign({}, result.diagnostics); buildCpu = result.diagnostics.submitCpuMs
+          if (result.diagnostics.state !== 'ready') { result.dispose(); fail(Error('QUASAR GPU physical grid did not complete')); return }
+          renderer.setGrid(result, layout); ready = true
+          canvas.dataset.blackHoleState = 'ready'; sync()
+        }).catch(function (error) { if (alive() && !error.cancelled) fail(error) })
+      }, 0)
     }
     var observer = new ResizeObserver(resize); observer.observe(canvas)
     var intersection = new IntersectionObserver(function (entries) { visible = entries[0].isIntersecting; sync() }); intersection.observe(canvas)
-    /* theme.css paints the left column with this colour instead of a second veil, so
-       the sidebar and the canvas share one source of truth. It is published here, not
-       declared in the sheet, because the clear colour below is what the sidebar has to
-       match -- and this file already owns that pair. */
     function publishVoid() {
       var root = document.documentElement
       if (!root || !root.style || typeof root.style.setProperty !== 'function') return
       var next = mode === 'light' ? '#edf0f4' : '#030509'
-      /* 值没变就别写：documentElement.style 上的每次写入都会喂回下面那个 observer。 */
       var current = typeof root.style.getPropertyValue === 'function' ? root.style.getPropertyValue('--cp-void') : null
-      if (current === next) return
-      root.style.setProperty('--cp-void', next)
+      if (current !== next) root.style.setProperty('--cp-void', next)
     }
     function applyMode() {
       var host = document.body || document.documentElement, scheme = getComputedStyle(host).colorScheme
       var next = scheme.includes('light') && !scheme.includes('dark') ? 'light' : 'dark'
-      /* 主题层的 style/class/属性变化（亮暗档切换、令牌改写）命中的是同一个 observer；
-         模式没变就别 sync()：那是一次 16000 格的全量绘制，还会把 elapsed 的差分清零。 */
       if (applied && next === mode) return
-      applied = true
-      mode = next; publishVoid(); sync()
-      /* 亮暗档是盘的浓淡的唯一输入，而浓淡由 mount() 那一层决定（只有它知道洞在不在出画位），
-         所以换档要回调出去，否则洞会一直停在上一档的墨量上。 */
+      applied = true; mode = next; publishVoid(); sync()
       if (modeHook) modeHook(mode)
     }
+    function lost() { fail(Error('QUASAR WebGL2 context lost; refresh or re-enable the theme to retry')) }
+    function fontChanged() { if (renderer && !disposed && !failed) { renderer.invalidateAtlas(); sync() } }
     var theme = new MutationObserver(applyMode)
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-ds-dark-theme'] })
     if (document.body) theme.observe(document.body, { attributes: true, attributeFilter: ['style', 'class', 'data-ds-dark-theme'] })
-    document.addEventListener('visibilitychange', sync)
-    motion.addEventListener('change', sync)
+    document.addEventListener('visibilitychange', sync); motion.addEventListener('change', sync)
+    canvas.addEventListener('webglcontextlost', lost)
+    if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', fontChanged)
+    if (initialError) fail(initialError)
     applyMode(); resize()
     return {
       update: function (next) {
-        var old = config
-        config = options(Object.assign({}, config, next))
-        if (config.angle !== old.angle || config.cellWidth !== old.cellWidth || config.maxCells !== old.maxCells) { ready = false; resize() } else sync()      },
-      /* 只写姿态、不重画：转场期每帧走这里，出帧由 tick 统一负责（一帧一画）。
-         绝不从这里传 angle / cellWidth / maxCells —— 那三个要重建网格，而这里没有那条判断。 */
+        var old = config; config = options(Object.assign({}, config, next))
+        if (config.angle !== old.angle || config.cellWidth !== old.cellWidth || config.maxCells !== old.maxCells) { ready = false; resize() } else sync()
+      },
       pose: function (next) { config = options(Object.assign({}, config, next)) },
-      view: function () {
-        var v = viewOf(w, h, config)
-        return { x: v.x, y: v.y, radius: CRIT_RATIO * Math.min(w, h) / 2, width: w, height: h }
-      },
-      setMode: function (next) {
-        applied = true
-        mode = next === 'light' ? 'light' : 'dark'
-        publishVoid(); sync()
-        if (modeHook) modeHook(mode)
-      },
-      /* 盘的整体墨量：0..1，由 mount() 按「亮暗档 + 洞在不在出画位」决定。
-         它现在只是诊断镜像（stats().alpha）—— 绘制不读它，浓淡真正生效的地方是
-         canvas.style.opacity 和转场关键帧里的 opacity。不自己 sync() 的理由不变：
-         多画一次会多出 16000 格的绘制，而且会在旧取景上先画一帧。 */
-      setAlpha: function (next) {
-        var value = Number(next)
-        arcAlpha = value >= 0 && value <= 1 ? value : 1
-      },
-      isLight: function () { return mode === 'light' },
-      onMode: function (fn) { modeHook = typeof fn === 'function' ? fn : null },
-      stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows, meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, rAFGapMs: rAFGap, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config), alpha: arcAlpha,
-        build: buildDiag ? Object.assign({}, buildDiag) : null,
-        ring: holeLayer ? holeLayer.stats().ring : null } },
-      resize: function () { resize() },
+      view: function () { var v = viewOf(w, h, config); return { x: v.x, y: v.y, radius: CRIT_RATIO * Math.min(w, h) / 2, width: w, height: h } },
+      setMode: function (next) { applied = true; mode = next === 'light' ? 'light' : 'dark'; publishVoid(); sync(); if (modeHook) modeHook(mode) },
+      setAlpha: function (next) { var value = Number(next); arcAlpha = value >= 0 && value <= 1 ? value : 1 },
+      isLight: function () { return mode === 'light' }, onMode: function (fn) { modeHook = typeof fn === 'function' ? fn : null },
+      stats: function () { return { frames: frames, width: canvas.width, height: canvas.height, cells: cols * rows, columns: cols, rows: rows,
+        meanPaintMs: frames ? totalPaint / frames : 0, maxPaintMs: maxPaint, buildCpuMs: buildCpu, buildCpuScope: 'GPU submission only',
+        rAFGapMs: rAFGap, running: running(), ready: ready, reducedMotion: motion.matches, config: Object.assign({}, config), alpha: arcAlpha,
+        backend: 'webgl2', gpu: renderer ? renderer.stats() : null, error: failure,
+        build: buildDiag ? Object.assign({}, buildDiag) : null, ring: holeLayer ? holeLayer.stats().ring : null } },
+      resize: resize,
       dispose: function () {
         if (disposed) return
         disposed = true; generation++; stop()
         if (buildTimer) clearTimeout(buildTimer)
         observer.disconnect(); intersection.disconnect(); theme.disconnect()
-        document.removeEventListener('visibilitychange', sync)
-        motion.removeEventListener('change', sync)
-        grid = []
-        geo = []; geoGrid = null
+        document.removeEventListener('visibilitychange', sync); motion.removeEventListener('change', sync); canvas.removeEventListener('webglcontextlost', lost)
+        if (document.fonts && document.fonts.removeEventListener) document.fonts.removeEventListener('loadingdone', fontChanged)
+        if (renderer) renderer.dispose()
         canvas.dataset.blackHoleState = 'disposed'
         var root = document.documentElement
         if (root && root.style && typeof root.style.removeProperty === 'function') root.style.removeProperty('--cp-void')
@@ -506,7 +319,7 @@ var UniverseAccretionDisk = (function () {
       if (holeLayer) holeLayer.dispose()
       if (holeCanvas) holeCanvas.remove()
       canvas.remove()
-      console.warn('Universe ASCII black hole fallback:', error.message)
+      console.warn('QUASAR character layer could not mount:', error.message)
       return
     }
     /* 两块画布共用同一套位置、遮罩界线与转场关键帧，所以凡是逐块写 inline style 的地方
@@ -842,28 +655,8 @@ var UniverseAccretionDisk = (function () {
     }
     window.addEventListener('resize', onResize)
 
-    /* 交互降频：滚动/打字/拖拽/触摸的瞬间把出帧率压到 ACTIVE_FPS，静置 IDLE_MS 后回到
-       defaults.fps。update({fps}) 只走 sync()、不重建网格，所以分辨率/颜色/位置一律不变，
-       静止态观感与改动前完全相同。依据：单帧 2D canvas 绘制约 16ms 在主线程同步发生，
-       30fps 约占半个核，交互时与输入抢主线程正是持续掉帧的主因。fps 下限在 options() 里是 10。 */
-    var IDLE_FPS = defaults.fps, ACTIVE_FPS = 10, IDLE_MS = 250
-    var idleTimer = 0, throttled = false
-    function relax() {
-      idleTimer = 0
-      if (throttled) { throttled = false; renderer.update({ fps: IDLE_FPS }) }
-    }
-    function burst() {
-      if (!throttled) { throttled = true; renderer.update({ fps: ACTIVE_FPS }) }
-      if (idleTimer) clearTimeout(idleTimer)
-      idleTimer = setTimeout(relax, IDLE_MS)
-    }
-    /* scroll 不冒泡，靠 capture 在 window 上收；一律 passive，不干预输入。 */
-    var burstEvents = ['wheel', 'scroll', 'pointerdown', 'keydown', 'touchmove']
-    for (var bi = 0; bi < burstEvents.length; bi++) window.addEventListener(burstEvents[bi], burst, { passive: true, capture: true })
-
+    /* GPU 字符层统一使用 defaults.fps；交互事件不再降帧或重置绘制时钟。 */
     return function () {
-      if (idleTimer) clearTimeout(idleTimer)
-      for (var ri = 0; ri < burstEvents.length; ri++) window.removeEventListener(burstEvents[ri], burst, { capture: true })
       arcStop(); if (settleRaf) cancelAnimationFrame(settleRaf)
       renderer.dispose(); if (holeLayer) holeLayer.dispose(); shell.disconnect()
       if (column) observer.unobserve(column)

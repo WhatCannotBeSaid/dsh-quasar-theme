@@ -568,12 +568,16 @@ checks.check('rt.blackhole', 'the ASCII canvas is positioned from a container re
   const hasFrame = /\[data-slot='root'\] > \* > div:has\(> \[data-slot='main'\]\)|\[data-slot='root'\] > \*:has\(> \[data-slot='main'\]\)/.test(mount)
   if (!hasFrame) return 'mount() does not measure the main+rightbar frame'
   if (!/getBoundingClientRect/.test(mount)) return 'mount() never measures the frame'
-  /* 2026-10-29：画布必须透明（alpha:true + clearRect），否则它是一块与左栏必然有色差的
-   * 不透明方块，「整窗一个底」这条就成不了。 */
-  const draw = functionSource(client, 'draw')
-  if (!draw) return 'draw() is missing from the bundled runtime'
-  if (/\{\s*alpha:\s*false\s*\}/.test(client)) return 'the canvas context is still opaque'
-  if (!/clearRect/.test(draw)) return 'draw() still paints an opaque floor instead of clearing it'
+  /* The GPU canvas must retain the same transparent-floor contract. The old
+   * Canvas2D clearRect gate is replaced, not removed: check the actual backend
+   * context, transparent clear colour and the draw -> clear call together. */
+  const gpu = read('src/runtime/accretion-gpu.js')
+  const draw = functionSource(gpu, 'draw'), clear = functionSource(gpu, 'clear')
+  if (!draw || !clear) return 'GPU draw()/clear() is missing'
+  if (!/getContext\('webgl2',\s*\{\s*alpha:\s*true/.test(gpu)) return 'the GPU canvas must request alpha:true'
+  if (/alpha:\s*false/.test(gpu)) return 'the GPU canvas context is opaque'
+  if (!/\bclear\(\)/.test(draw)) return 'GPU draw() does not clear the transparent screen'
+  if (!/gl\.clearColor\(0,\s*0,\s*0,\s*0\)/.test(clear) || !/gl\.clear\(gl\.COLOR_BUFFER_BIT\)/.test(clear)) return 'GPU clear() does not clear to transparent black'
   return /ResizeObserver/.test(mount) || 'mount() does not re-frame when the container resizes'
 })
 checks.group('paint-layer')
@@ -1370,7 +1374,15 @@ checks.check('cli.17', 'client.js contains no CSS-Modules hash class name', () =
      positive for a regex hunting hashed class names (`_COLORS`); the vendored copy is
      byte-fixed upstream code and not the theme's to police. The theme's own sources are
      what the bundle embeds verbatim (cli.21), so nothing of ours escapes this scan. */
-  const hits = (clientJs + css).match(HASH_CLASS)
+  /* Uppercase WebGL API properties are not CSS selectors. Keep quoted strings
+     untouched, including selector strings such as 'gl.VERTEX_SHADER'; the CSS
+     sheet is never filtered. Mixed-case hash names remain checked everywhere. */
+  const selectorJs = text => text.replace(/(['"])(?:\\.|(?!\1)[^\\\r\n])*\1|`(?:\\[\s\S]|[^\\`])*`|\b(?:gl|extension|timerExtension)\.[A-Z][A-Z0-9_]*\b/g,
+    token => /^["'`]/.test(token) ? token : '')
+  for (const control of ["querySelector('.BynINW_frame')", "querySelector('gl.VERTEX_SHADER')", "querySelector(`gl.VERTEX_SHADER`)", "querySelector(`\ngl.VERTEX_SHADER\n`)"]) {
+    if (!selectorJs(control).match(HASH_CLASS)) return 'hash-class gate no longer detects a quoted selector'
+  }
+  const hits = (selectorJs(clientJs) + css).match(HASH_CLASS)
   return hits === null || `hash names: ${[...new Set(hits)].slice(0, 5).join(', ')}`
 })
 checks.check('cli.18', 'no absolute local path leaked into the bundle', () => {

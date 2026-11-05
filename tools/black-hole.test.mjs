@@ -6,10 +6,50 @@ import { performance } from 'node:perf_hooks'
 const source = readFileSync(new URL('../src/runtime/geodesic.js', import.meta.url), 'utf8') + '\n' +
   readFileSync(new URL('../src/runtime/accretion-disk.js', import.meta.url), 'utf8')
 const holeSource = readFileSync(new URL('../src/runtime/hole.js', import.meta.url), 'utf8')
+
+test('GPU compiler contract: no parallel completion query fails before compilation, without a blocking fallback', async () => {
+  const context = vm.createContext({ performance, setTimeout, clearTimeout })
+  vm.runInContext(readFileSync(new URL('../src/runtime/geodesic.js', import.meta.url), 'utf8') + '\n' +
+    readFileSync(new URL('../src/runtime/geodesic-gpu.js', import.meta.url), 'utf8'), context)
+  let allocated = 0, released = 0, compileCalls = 0
+  const gl = {
+    getExtension: () => null,
+    createProgram() { allocated++; return {} },
+    deleteProgram() { released++ },
+    createShader() { compileCalls++; throw Error('Must not compile on this driver') },
+  }
+  await assert.rejects(context.UniverseGeodesicGPU.create(gl), /requires KHR_parallel_shader_compile/)
+  assert.equal(compileCalls, 0, '这里只检查能力分支，不模拟 GPU 运算')
+  assert.equal(allocated, released, '拒绝环境时仍释放已申请的程序')
+})
 /* 分包后物理在 geodesic.js、字符层在 accretion-disk.js；测试要往测地线闭包里补名字时，
    锚点必须落在前者的导出上，否则补进去的标识符在另一个闭包里不存在。 */
 const GEO_EXPORT = "    ringAt: function (u, v, angle) { return launch(u, v, angle).ring } }"
+
+/* Deliberately no ray integration, glyph synthesis or WebGL emulation here. */
+function gpuStub(opts={}) {
+  const instances=[]
+  return {instances,module:{create(){
+    if(opts.createError)throw Error(opts.createError)
+    const g={requests:[],draws:[],grids:[],results:[],pending:[],disposals:0,invalidations:0,clears:0};instances.push(g)
+    let owned=null
+    return {
+      build(request,alive){
+        g.requests.push({...request});const result={diagnostics:{state:'ready',rays:request.columns*request.rows,budget:2400,exhausted:0,retried:0,unresolved:0,invalid:0,submitCpuMs:0,...opts.diagnostics},disposals:0,dispose(){this.disposals++}}
+        g.results.push(result)
+        if(opts.manual)return new Promise((resolve,reject)=>g.pending.push({resolve,reject,alive}))
+        return opts.reject?Promise.reject(Error(opts.reject)):Promise.resolve(result)
+      },
+      setGrid(result,size){if(owned)owned.dispose();owned=result;g.grids.push({result,size:{...size}})},
+      draw(size,frame){g.draws.push({size:{...size},frame:{...frame,patches:frame.patches.map(p=>({...p}))},edge:frame.ring?.edge.slice()})},
+      clear(){g.clears++},refreshAtlas(){},invalidateAtlas(){g.invalidations++},stats(){return {backend:'test-double',frameGpuMs:null}},
+      dispose(){g.disposals++;if(owned){owned.dispose();owned=null}}
+    }
+  }}}
+}
+
 function fixture(patched, size, opts) {
+  const gpu=gpuStub(opts&&opts.gpu)
   let id=0
   const box=size||{width:320,height:200}
   const timers=new Map(), frames=new Map(), listeners=new Map(), painted=[], placed=[], observers=[], arcs=[], fills=[], inks=[]
@@ -35,7 +75,7 @@ function fixture(patched, size, opts) {
     }
   }
   class Observer { constructor(fn){this.fn=fn;this.active=true;observers.push(this)} observe(){} disconnect(){this.active=false} }
-  const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,Uint8ClampedArray,
+  const context=vm.createContext({UniverseAccretionGPU:gpu.module,performance,console,Math,Number,Object,Float32Array,Uint8ClampedArray,
     window:{devicePixelRatio:2,matchMedia:()=>motion,addEventListener:(k,fn)=>listeners.set('window:'+k,fn),removeEventListener:k=>listeners.delete('window:'+k)},document,ResizeObserver:Observer,IntersectionObserver:Observer,MutationObserver:Observer,
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:fn=>{timers.set(++id,fn);return id},clearTimeout:n=>timers.delete(n),
     requestAnimationFrame:fn=>{frames.set(++id,fn);return id},cancelAnimationFrame:n=>frames.delete(n)})
@@ -47,13 +87,14 @@ function fixture(patched, size, opts) {
   /* inks 记的是每枚圆 fill() 时用的 fillStyle：两档差异只允许出现在墨色上，
      所以测试要能把墨色和几何分开断言。 */
   const ctx={setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(glyph,x,y){painted.push(glyph);placed.push({glyph,x,y})},drawImage(){},beginPath(){},arc(x,y,r){arcs.push({x,y,r})},fill(){fills.push(1);if(ctx.fillStyle!==undefined)inks.push(String(ctx.fillStyle))},fillStyle:''}
-  const canvas={dataset:{},width:0,height:0,getContext:()=>ctx,getBoundingClientRect:()=>({width:box.width,height:box.height})}
+  const canvas={dataset:{},addEventListener:(k,fn)=>listeners.set("canvas:"+k,fn),removeEventListener:k=>listeners.delete("canvas:"+k),width:0,height:0,getContext:()=>ctx,getBoundingClientRect:()=>({width:box.width,height:box.height})}
   function drain(){let count=0;while(timers.size){assert.ok(count++<1000);const tasks=[...timers.values()];timers.clear();tasks.forEach(fn=>fn())}}
+  async function settle(){drain();for(let n=0;n<4;n++)await Promise.resolve()}
   function frame(t){const tasks=[...frames.values()];frames.clear();tasks.forEach(fn=>fn(t))}
   /* 分包后物理在 UniverseGeodesic、字符层在 UniverseAccretionDisk：测试关心的「生产源
      导出了什么」是两者之和，盘那一半的 trace/shade 转口会覆盖同名的物理项，口径不变。 */
   const api=Object.assign({},context.UniverseGeodesic,context.UniverseAccretionDisk)
-  return {api,canvas,context,timers,frames,listeners,observers,painted,placed,arcs,fills,inks,bakes,motion,document,drain,frame,box,makeHole}
+  return {api,gpu,settle,canvas,context,timers,frames,listeners,observers,painted,placed,arcs,fills,inks,bakes,motion,document,drain,frame,box,makeHole}
 }
 test('ASCII parameters clamp angle, cell budget and speed; glyph alphabet is printable ASCII',()=>{
   const {api}=fixture()
@@ -105,20 +146,20 @@ test('both themes fill the shadow disc first: same centre and radius, only the i
   hole.dispose()
 })
 
-test('mount spans the whole frame and hands the sidebar line to the mask variable',()=>{
-  const attrs={}
+test('mount spans the whole frame, preserves the mask and keeps 60 FPS during interaction',()=>{
+  const attrs={}, windowListeners=new Map()
   const frame={getBoundingClientRect:()=>({left:240,top:0,width:1000,height:900})}
   const body={prepend(){},setAttribute:(k,v)=>{attrs[k]=v},removeAttribute:k=>{delete attrs[k]}}
   /* 位置/尺寸由 `left/top/width/height` 四个独立属性给，所以这里用单独的 style 对象接住；
      画布自己的 getBoundingClientRect 跟着它走，第二轮 resize 才是真实尺寸。 */
   const style={setProperty(k,v){style[k]=v},removeProperty(k){delete style[k]}}
-  const canvas={dataset:{},style,setAttribute(){},remove(){this.removed=true},
+  const canvas={dataset:{},style,addEventListener(){},removeEventListener(){},setAttribute(){},remove(){this.removed=true},
     getBoundingClientRect:()=>({width:Number.parseFloat(style.width)||0,height:Number.parseFloat(style.height)||0}),
     getContext:()=>({setTransform(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
   const doc={hidden:false,documentElement:{},body,createElement:()=>canvas,addEventListener(){},removeEventListener(){},
     querySelector:s=>s.includes("[data-slot='root']")?frame:null}
-  const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
-    window:{devicePixelRatio:1,innerWidth:1240,innerHeight:900,addEventListener(){},removeEventListener(){},matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
+  const context=vm.createContext({UniverseAccretionGPU:gpuStub().module,performance,console,Math,Number,Object,Float32Array,document:doc,
+    window:{devicePixelRatio:1,innerWidth:1240,innerHeight:900,addEventListener:(type,fn)=>windowListeners.set(type,fn),removeEventListener:type=>windowListeners.delete(type),matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
     ResizeObserver:class{observe(){}unobserve(){}disconnect(){}},
     IntersectionObserver:class{observe(){}disconnect(){}},MutationObserver:class{observe(){}disconnect(){}},
     getComputedStyle:()=>({colorScheme:'dark'}),setTimeout:()=>0,clearTimeout(){},
@@ -132,7 +173,14 @@ test('mount spans the whole frame and hands the sidebar line to the mask variabl
   /* 左栏隔离交给 mask 斜坡的起点：画布盖住左栏，但斜坡左边那段 alpha 是 0。 */
   assert.equal(canvas.style['--uni-hole-edge'],'240px')
   assert.equal(attrs['data-uni-black-hole'],'')
+  const renderer=canvas.__uniBlackHole
+  assert.equal(renderer.stats().config.fps,60)
+  for(const type of ['wheel','scroll','pointerdown','keydown','touchmove']){
+    windowListeners.get(type)?.()
+    assert.equal(renderer.stats().config.fps,60,`${type} must not reduce the frame-rate target`)
+  }
   dispose()
+  assert.equal(windowListeners.size,0,'mount must release its window listeners')
   assert.equal(canvas.removed,true);assert.equal(attrs['data-uni-black-hole'],undefined)
 })
 
@@ -147,7 +195,7 @@ test('换页与右栏展开都不改取景框：宽高恒等于 frame，只有 -
     const style={setProperty(k,v){style[k]=v},removeProperty(k){delete style[k]}}
     const column={getBoundingClientRect:()=>columnRect}
     const frame={getBoundingClientRect:()=>frameRect}
-    const canvas={dataset:{},width:0,height:0,style,setAttribute(){},remove(){},
+    const canvas={dataset:{},width:0,height:0,style,addEventListener(){},removeEventListener(){},setAttribute(){},remove(){},
       getBoundingClientRect:()=>({width:Number.parseFloat(style.width)||0,height:Number.parseFloat(style.height)||0}),
       getContext:()=>({setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
     const doc={hidden:false,documentElement:{},
@@ -155,7 +203,7 @@ test('换页与右栏展开都不改取景框：宽高恒等于 frame，只有 -
       createElement:()=>canvas,addEventListener(){},removeEventListener(){},
       querySelector:s=>s==="[data-slot='root'] > * > div:has(> [data-slot='main'])"?column
         :s==="[data-slot='root'] > *"?frame:null}
-    const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
+    const context=vm.createContext({UniverseAccretionGPU:gpuStub().module,performance,console,Math,Number,Object,Float32Array,document:doc,
       window:{devicePixelRatio:1,innerWidth:frameRect.width,innerHeight:frameRect.height,
         addEventListener(){},removeEventListener(){},
         matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
@@ -185,14 +233,14 @@ test('mount publishes the canvas clear colour the sidebar is painted with',()=>{
     const props={}
     const rootStyle={setProperty:(k,v)=>{props[k]=v},removeProperty:k=>{delete props[k]}}
     const frame={getBoundingClientRect:()=>({left:280,top:0,width:976,height:900})}
-    const canvas={dataset:{},style:{setProperty(){},removeProperty(){}},setAttribute(){},remove(){},
+    const canvas={dataset:{},style:{setProperty(){},removeProperty(){}},addEventListener(){},removeEventListener(){},setAttribute(){},remove(){},
       getBoundingClientRect:()=>({width:976,height:900}),
       getContext:()=>({setTransform(){},save(){},restore(){},fillRect(){},clearRect(){},fillText(){},beginPath(){},arc(){},fill(){}})}
     const doc={hidden:false,documentElement:{style:rootStyle},
       body:{prepend(){},setAttribute(){},removeAttribute(){}},
       createElement:()=>canvas,addEventListener(){},removeEventListener(){},
       querySelector:s=>s.includes("[data-slot='root']")?frame:null}
-    const context=vm.createContext({performance,console,Math,Number,Object,Float32Array,document:doc,
+    const context=vm.createContext({UniverseAccretionGPU:gpuStub().module,performance,console,Math,Number,Object,Float32Array,document:doc,
       window:{devicePixelRatio:1,innerWidth:1256,innerHeight:900,
         addEventListener(){},removeEventListener(){},
         matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}})},
@@ -212,20 +260,21 @@ test('mount publishes the canvas clear colour the sidebar is painted with',()=>{
   light.dispose()
 })
 
-test('Canvas draws glyphs only; pause, reduced motion, hide, rebuild and disposal cancel owned work',()=>{
+test('GPU controller: pause, motion, visibility, rebuild and disposal own their work (renderer mock)',async()=>{
   const f=fixture(),r=f.api.create(f.canvas)
-  assert.equal(r.stats().ready,false);f.drain();assert.equal(r.stats().ready,true)
-  assert.ok(r.stats().cells<=16000);assert.ok(f.painted.length>0)
-  assert.ok(f.painted.every(g=>g.length===1&&f.api.glyphs.includes(g)))
+  assert.equal(r.stats().ready,false);await f.settle();assert.equal(r.stats().ready,true)
+  assert.ok(r.stats().cells<=16000);assert.ok(f.gpu.instances[0].draws.length>0)
+  assert.equal(f.painted.length,0,'controller must not perform Canvas2D character drawing')
   f.frame(100);f.frame(140);assert.ok(r.stats().frames>=2)
   f.motion.matches=true;f.listeners.get('motion')();assert.equal(f.frames.size,0)
   f.motion.matches=false;f.listeners.get('motion')();assert.equal(f.frames.size,1)
   f.document.hidden=true;f.listeners.get('visibilitychange')();assert.equal(f.frames.size,0)
   f.document.hidden=false;f.listeners.get('visibilitychange')();assert.equal(f.frames.size,1)
   r.update({speed:0});assert.equal(f.frames.size,0)
-  r.update({angle:25});assert.ok(f.timers.size>0)
+  r.update({angle:25});assert.equal(f.timers.size,1)
   r.dispose();r.dispose();assert.equal(f.frames.size,0);assert.equal(f.timers.size,0);assert.equal(f.listeners.size,0)
   assert.ok(f.observers.every(o=>!o.active));assert.equal(f.canvas.dataset.blackHoleState,'disposed')
+  assert.equal(f.gpu.instances[0].disposals,1)
 })
 
 /* ================= 第二十二阶段：数值与事件回归 =================
@@ -366,90 +415,28 @@ test('trace 的四种终态互斥且可区分：步数预算耗尽不等于物�
   assert.equal(short.radius,undefined)
   assert.equal(short.steps,4,`预算 4 步时就该正好停在 4 步，实际 ${short.steps}`)
 })
-test('字符层：没有环层时环带里的有效盘格照常落字，被捕获的格子一个都不落',()=>{
-  /* 第三十一阶段起，环带让位只在「环层烘出来了」时生效：边缘包络来自 bakeRing，
-     没有 offscreen canvas（测试桩、精简 DOM、烘焙失败）就没有包络，也就不该为不存在的环
-     清掉盘面。这条用例走纯 ASCII 那条路，锁住「不排除」这一半行为。
-     另一条用例（下面）开 canvas2d，锁住「有环时让位」那一半。 */
+test('GPU controller: no hole forwards a null ring, complete layout and 24 patch parameters (renderer mock)',async()=>{
   const f=fixture(null,{width:640,height:360}),r=f.api.create(f.canvas)
-  f.drain();assert.equal(r.stats().ready,true)
-  const W=640,H=360,short=Math.min(W,H)
-  let cw=Math.max(6,Math.sqrt(W*H/(16000*1.5)))
-  const cols=Math.max(1,Math.floor(W/cw));cw=W/cols
-  const rows=Math.max(1,Math.floor(H/(cw*1.5)));const ch=H/rows
-  /* 半径与 src 同源：SHADOW_SHARE 只定视场，阴影半径由有限距离临界投影给出。 */
-  const CRIT_RATIO=3*Math.sqrt(3)/Math.sqrt(60*60-(1-2/60)*27)/(3*Math.sqrt(3)/60/0.34)
-  const horizon=CRIT_RATIO*short/2,baseX=W/2,baseY=H/2
-  assert.ok(f.placed.length>0,'应当画出字符')
-  const hit=new Set(),band=new Set(),inside=new Set()
-  for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
-    const u=(2*(col+.5)*cw-W)/short,v=(H-2*(row+.5)*ch)/short
-    if(!f.api.trace(u,v,15).radius)continue
-    hit.add(col+','+row)
-    const gx=(col+.5)*cw-baseX,gy=(row+.5)*ch-baseY,gd=Math.sqrt(gx*gx+gy*gy)
-    if(gd>=horizon-1&&gd<=150)band.add(col+','+row)
-    if(gd<horizon-1)inside.add(col+','+row)
-  }
-  const at=new Map()
-  for(const p of f.placed){
-    const col=Math.round(p.x/cw-.5),row=Math.round(p.y/ch-.5)
-    at.set(col+','+row,p)
-  }
-  /* 落字的每一格都必须真的有盘交点：遮挡没有放松，没有交点的格子照样一个字都不落。 */
-  for(const key of at.keys())assert.ok(hit.has(key),`${key} 没有盘交点却落了字`)
-  /* 没有环层时不排除：旧规则下这里必须是 0，现在是 570 格里的绝大多数。 */
-  let inBand=0
-  for(const key of at.keys())if(band.has(key))inBand++
-  assert.ok(inBand>300,`环带里只落了 ${inBand} 格字，没有环层却在让位`)
-  assert.ok(inBand<=band.size)
-  /* 阴影圆内部那几格是近侧盘面压在洞前，改动前后都照常落字（不属于本阶段范围）。 */
-  assert.ok(inside.size>0,'这个窗口应当有投影落在阴影圆内的近侧盘面')
-  /* 覆盖率：除了 shade 恰好压在 .004 门槛上的极少数格，有交点的格子都该落字。 */
-  assert.ok(hit.size-at.size<=Math.ceil(hit.size*.02),`有交点 ${hit.size} 格，实际落字 ${at.size} 格`)
+  await f.settle();assert.equal(r.stats().ready,true)
+  const g=f.gpu.instances[0],d=g.draws.at(-1)
+  assert.equal(g.requests.length,1);assert.equal(g.grids.length,1)
+  assert.equal(d.frame.ring,null);assert.equal(d.size.w,640);assert.equal(d.size.h,360)
+  assert.equal(d.frame.baseX,320);assert.equal(d.frame.baseY,180);assert.ok(d.frame.horizon>0)
+  assert.equal(d.frame.patches.length,24)
+  assert.ok(d.frame.patches.every(p=>Number.isFinite(p.radius+p.phi+p.age+p.amplitude)))
+  assert.equal(g.requests[0].columns*g.requests[0].rows,r.stats().cells)
   r.dispose()
 })
-test('字符层：环层就绪后环上的盘格全部让位，环外照常落字',()=>{
-  /* 第十五阶段把环交给 Canvas 精细层之后，盘格在环的位置上照常显影，环从字缝里透出来，
-     读成一圈零散杂点。这里在 shade 之前跳过环带里的盘格。
-     边界不能是固定像素：环峰随方位在 140..215px 之间移动，下方被前景盘拉出一段外扩。
-     生产按 bakeRing 记下的方位包络 edge[方位] 查表，只清环真有像素的方向。 */
-  const f=fixture(null,{width:640,height:360},{canvas2d:true,hole:true})
-  /* 环层现在由洞层提供：先建洞，再把洞交给字符层查让位包络。 */
-  const hole=f.makeHole()
-  const r=f.api.create(f.canvas,undefined,hole)
-  f.drain();assert.equal(r.stats().ready,true)
-  const ring=r.stats().ring
-  assert.ok(ring,'环层必须烘出来，否则这条用例测不到让位逻辑')
-  assert.equal(ring.state,'ready')
-  assert.ok(ring.edgeMax>0&&ring.edge instanceof Float32Array,'方位包络必须随环层一起发布')
-  const BINS=ring.edge.length
-  const W=640,H=360,short=Math.min(W,H)
-  let cw=Math.max(6,Math.sqrt(W*H/(16000*1.5)))
-  const cols=Math.max(1,Math.floor(W/cw));cw=W/cols
-  const rows=Math.max(1,Math.floor(H/(cw*1.5)));const ch=H/rows
-  const CRIT_RATIO=3*Math.sqrt(3)/Math.sqrt(60*60-(1-2/60)*27)/(3*Math.sqrt(3)/60/0.34)
-  const horizon=CRIT_RATIO*short/2,baseX=W/2,baseY=H/2
-  /* 与生产同一个字符格让位余量：格心到格角再加 1px。 */
-  const clear=Math.sqrt(cw*cw+ch*ch)/2+1
-  const at=new Map()
-  for(const p of f.placed){
-    const col=Math.round(p.x/cw-.5),row=Math.round(p.y/ch-.5)
-    at.set(col+','+row,p)
-  }
-  assert.ok(at.size>0,'环外必须还有字')
-  let banded=0,outside=0
-  for(const key of at.keys()){
-    const parts=key.split(','),col=Number(parts[0]),row=Number(parts[1])
-    const gx=(col+.5)*cw-baseX,gy=(row+.5)*ch-baseY,gd=Math.sqrt(gx*gx+gy*gy)
-    /* 阴影圆内那几格是近侧盘面压在洞前，不属于环，生产也不排除。 */
-    if(!(gd>horizon))continue
-    const bin=(((Math.atan2(gy,gx)+Math.PI)/(Math.PI*2)*BINS)|0)%BINS
-    if(gd<=ring.edge[bin]+clear)banded++
-    else outside++
-  }
-  assert.equal(banded,0,`环带里还有 ${banded} 格字，让位没有生效`)
-  assert.ok(outside>100,`环外只剩 ${outside} 格字，让位连带把盘面挖空了`)
-  r.dispose()
+test('GPU controller: actual hole ring identity and in-place edge updates reach the renderer (renderer mock)',async()=>{
+  const f=fixture(null,{width:640,height:360},{canvas2d:true,hole:true}),hole=f.makeHole(),r=f.api.create(f.canvas,undefined,hole)
+  await f.settle();assert.equal(r.stats().ready,true)
+  const ring=hole.ring(),g=f.gpu.instances[0]
+  assert.equal(r.stats().ring.edge,ring.edge)
+  assert.equal(ring.state,'ready');assert.ok(ring.edgeMax>0&&ring.edge instanceof Float32Array)
+  assert.equal(g.draws.at(-1).frame.ring,ring);assert.equal(g.draws.at(-1).frame.horizon,hole.radius())
+  ring.edge[0]=400;f.frame(40)
+  assert.equal(g.draws.at(-1).frame.ring,ring);assert.equal(g.draws.at(-1).edge[0],400)
+  assert.equal(g.requests.length,1);r.dispose()
 })
 /* ================= 第二十三阶段：耗尽语义闭环与角度边界 =================
    第二十二阶段只让 trace 能返回 'exhausted'，消费者没跟上：
@@ -468,46 +455,20 @@ const alphaPixels = imgs => {
   for (const img of imgs) for (let i = 3; i < img.data.length; i += 4) if (img.data[i] > 0) n++
   return n
 }
-test('消费者契约：耗尽格让网格失败闭合，不冒充 ready，也不落半个字', () => {
-  /* 正常预算：网格与诊断都必须是 ready，耗尽计数为 0。 */
-  const ok = fixture()
-  const r1 = ok.api.create(ok.canvas)
-  ok.drain()
-  const s1 = r1.stats()
-  assert.equal(s1.ready, true)
-  assert.equal(ok.canvas.dataset.blackHoleState, 'ready')
-  assert.equal(s1.build.state, 'ready')
-  assert.equal(s1.build.rays, s1.cells, '诊断里的射线数必须等于格数')
-  assert.equal(s1.build.exhausted, 0)
-  assert.equal(s1.build.retried, 0)
-  assert.equal(s1.build.unresolved, 0)
-  assert.equal(s1.build.budget, 2400)
-  assert.ok(ok.painted.length > 0)
-
-  /* 耗尽注入（4 步）：一条射线都算不完。修复前这里 ready=true、照常落字。 */
-  const bad = fixture(injectBudget(4))
-  const r2 = bad.api.create(bad.canvas)
-  bad.drain()
-  const s2 = r2.stats()
-  assert.equal(s2.ready, false, '耗尽后不得报告 ready')
-  assert.equal(bad.canvas.dataset.blackHoleState, 'failed', '画布状态必须显式失败，不能停在 building 或 ready')
-  assert.equal(s2.build.state, 'failed')
-  assert.equal(s2.build.rays, s2.cells)
-  assert.ok(s2.build.exhausted > 0, '注入下必须真的出现耗尽')
-  assert.equal(s2.build.retried, s2.build.exhausted, '只允许对耗尽格重算一次，且只重算耗尽格')
-  assert.ok(s2.build.unresolved > 0, '4 步预算下重算也救不回来，必须留下未解决计数')
-  assert.equal(bad.painted.length, 0, '失败态不许把没算完的格子当盘或当作逃逸落字')
-  assert.equal(bad.frames.size, 0, '失败态不启动动画帧')
-  assert.equal(bad.timers.size, 0, '失败态不留待执行的重建任务')
-  /* 有限恢复确实生效：60 步预算下大部分耗尽格被翻倍预算救回，剩下的才失败。
-     这条断言同时证明「重算」不是空转。 */
-  const mid = fixture(injectBudget(60))
-  const r3 = mid.api.create(mid.canvas)
-  mid.drain()
-  const s3 = r3.stats()
-  assert.ok(s3.build.exhausted > 0 && s3.build.unresolved < s3.build.exhausted,
-    `有限恢复没有起作用：exhausted=${s3.build.exhausted} unresolved=${s3.build.unresolved}`)
-  assert.equal(s3.ready, false)
+test('GPU controller: explicit failed diagnostics and rejection fail closed; no partial publication (renderer mock)',async()=>{
+  const ok=fixture(),r1=ok.api.create(ok.canvas);await ok.settle()
+  assert.equal(r1.stats().ready,true);assert.equal(r1.stats().build.rays,r1.stats().cells)
+  assert.equal(r1.stats().build.budget,2400);r1.dispose()
+  const diag={state:'failed',exhausted:7,retried:7,unresolved:3,invalid:0,budget:4}
+  const bad=fixture(null,undefined,{gpu:{diagnostics:diag}}),r2=bad.api.create(bad.canvas);await bad.settle()
+  const g=bad.gpu.instances[0],s=r2.stats()
+  assert.equal(s.ready,false);assert.equal(bad.canvas.dataset.blackHoleState,'failed')
+  for(const key of Object.keys(diag))assert.equal(s.build[key],diag[key])
+  assert.equal(g.grids.length,0);assert.equal(g.draws.length,0);assert.equal(g.results[0].disposals,1)
+  assert.equal(bad.frames.size,0);assert.equal(bad.timers.size,0);r2.dispose()
+  const rejected=fixture(null,undefined,{gpu:{reject:'deliberate GPU failure'}}),r3=rejected.api.create(rejected.canvas);await rejected.settle()
+  assert.equal(r3.stats().ready,false);assert.match(r3.stats().error,/deliberate GPU failure/)
+  assert.equal(rejected.gpu.instances[0].draws.length,0);r3.dispose()
 })
 test('消费者契约：环缓存只要有耗尽射线就整张不发布', () => {
   /* 正常预算：320×200 的遮罩照常烘焙并发布。304 是这一档尺寸下 alpha>0 的像素数。
@@ -1073,221 +1034,45 @@ test('g⁴ 契约的负向注入：g³ 与夹限权重都被真实断言抓住�
   assert.throws(()=>assertG4Contract(fixture(a1Source(clamped)).api),/越过旧上限 1\.7/)
 })
 
-/* 计数只插在测试 VM 里：格子几何的调用点换成先记账再调原函数，Math.sqrt/atan2 也在源码里换成
-   计数包装（见 countedSource）。两边合起来才说明「已访问格子的静态几何」真的少算了。 */
-function countedSource(src){
-  /* 扇区几何在吸积盘那一半，测地线那半的 Math.sqrt 也一起计：计数函数挂在脚本顶层，
-     两边的闭包都能解析到同一个绑定，重建时 trace 的开方因此仍算进总量。
-     计数函数只在 VM 里，生产文件一个字都不改。 */
-  const prefix = 'var sqrtCalls = 0, atanCalls = 0\n' +
-    'function __sqrt(v) { sqrtCalls++; return Math.sqrt(v) }\n' +
-    'function __atan2(y, x) { atanCalls++; return Math.atan2(y, x) }\n' +
-    'globalThis.__geoCount = { sqrt: function () { return sqrtCalls }, atan: function () { return atanCalls } }\n'
-  const patched=prefix+src.replace(/var g0 = geomFor\(/, 'var g0 = (function () { geoHits++; return geomFor.apply(null, arguments) }).call(null, ')
-    .replace(/function geomFor\(cache, cols, i, cw, ch, baseX, baseY\) \{/, 'var geoHits = 0\n  function geomFor(cache, cols, i, cw, ch, baseX, baseY) {')
-    /* VM 的 %Math% 是内建对象，宿主侧拿到的是副本，从外面替换 context.Math 拦不住模块里已经
-       闭包住的 Math 绑定。所以几何计数只替换源码里的调用点，被调用的仍是内建函数本身，
-       返回值逐位相同，宿主 Math 与 VM 内在 Math 都不变。 */
-    .replace(/Math\.sqrt\(/g, '__sqrt(')
-    .replace(/Math\.atan2\(/g, '__atan2(')
-    .replace(/(debugSource: 'v4')/, "$1, geoHits: function () { return geoHits }")
-  assert.notEqual(patched,src,'几何计数插桩必须命中 geomFor 与对外接口')
-  assert.ok(patched.includes('return geoHits'),'几何计数插桩必须挂到对外接口上')
-  assert.ok(patched.includes('__geoCount'),'几何计数插桩必须把计数函数交出来')
-  return patched
-}
-test('静态几何缓存：同一生产绘制器分别走参考几何与缓存几何，逐帧的字符、位置、maxWidth、颜色与顺序全同',()=>{
-  /* 参考路径不缓存，也不复制渲染器：测试 VM 里只把 geomFor 换成一份「每次都按生产原式现算」的
-     独立表达式（基准来自改动前的 draw()），再跑同一个 create()/draw()。字符、顺序、位置、
-     maxWidth、fillStyle 与绘制调用顺序逐帧严格比较，不比较调用次数。 */
-  const reference=`function geomFor(cache, cols, i, cw, ch, baseX, baseY) {
-  /* 改动前 draw() 里那三行的原样：坐标、平方半径、按需开方、按需扇区。 */
-  var gx0 = (i % cols + .5) * cw - baseX
-  var gy0 = (((i / cols) | 0) + .5) * ch - baseY
-  var gd2 = gx0 * gx0 + gy0 * gy0
-  var exact = 0, d = 0, bin = 0
-  return { get: function (k) {
-    if (k === 0) return gx0
-    if (k === 1) return gy0
-    if (k === 2) return gd2
-    if (k === 3) return exact ? d : (exact = 1, d = Math.sqrt(gd2))
-    if (k === 4) return bin >= 0 ? bin : (bin = (((Math.atan2(gy0, gx0) + Math.PI) / (Math.PI * 2) * ringBins) | 0) % ringBins)
-    return 0
-  }, set: function (k, v) { if (k === 3) d = v; else if (k === 4) bin = v } }
-}`
-  const patchedSource=source.replace(/function geomFor\(cache, cols, i, cw, ch, baseX, baseY\) \{[\s\S]*?\n  \}\r?\n/,reference+'\n')
-  const countedCache=countedSource(source)
-  assert.notEqual(patchedSource,source,'参考几何的替换必须真的命中 geomFor，否则两边跑的是同一套实现')
-  function build(name){
-    /* VM 里被全局替换的 Math 未必能穿透到模块闭包，所以覆盖范围的判据是下面逐帧比较的
-       Canvas 调用序列，不指望在这里数调用次数。 */
-    const f=fixture(name==='cache'?source:patchedSource,{width:160,height:100},{canvas2d:true,hole:true})
-    const calls=[]
-    const ctx=f.canvas.getContext()
-    for(const key of ['fillText','fill','drawImage','arc','clearRect','beginPath','save','restore'])
-      if(typeof ctx[key]==='function'){
-        const orig=ctx[key]
-        ctx[key]=function(){calls.push({op:key,args:[].slice.call(arguments).map(v=>typeof v==='object'&&v?`<${v.width}x${v.height}>`:v),fillStyle:String(ctx.fillStyle),font:String(ctx.font),textAlign:String(ctx.textAlign),textBaseline:String(ctx.textBaseline),globalAlpha:ctx.globalAlpha});return orig.apply(ctx,arguments)}
-      }
-    const props=()=>({fillStyle:String(ctx.fillStyle),font:ctx.font,align:ctx.textAlign,baseline:ctx.textBaseline,alpha:ctx.globalAlpha})
-    const r=f.api.create(f.canvas,undefined,f.makeHole())
-    f.drain()
-    f.ticks=0
-    function tick(){
-      f.frame((f.ticks+=40))
-      return {calls:calls.splice(0,calls.length),state:props()}
-    }
-    return {f,r,tick,props}
-  }
-  const ref=build('ref'),cur=build('cache')
-  assert.equal(ref.r.stats().ready,true);assert.equal(cur.r.stats().ready,true)
-  let frames=0,glyphs=0
-  function same(where){
-    const a=ref.tick(),b=cur.tick()
-    assert.deepEqual(b.calls,a.calls,`${where}: 这一帧的 Canvas 调用序列必须逐项相同`)
-    assert.deepEqual(cur.props(),ref.props(),`${where}: 帧末的绘制状态（含 fillStyle）必须相同`)
-    frames++
-    for(const c of b.calls)if(c.op==='fillText')glyphs++
-  }
-  same('冷缓存首帧（暗档）')
-  same('暖缓存第二帧')
-  same('暖缓存第三帧')
-  /* 只改动态参数：时间、亮度、转速、浓淡都不该动静态几何。 */
-  cur.r.setAlpha(.35);ref.r.setAlpha(.35);same('暖缓存 + globalAlpha')
-  cur.r.update({brightness:.4});ref.r.update({brightness:.4});same('暖缓存 + 亮度变化')
-  cur.r.pose({speed:1.4});ref.r.pose({speed:1.4});same('暖缓存 + 转速变化')
-  /* 明暗档：只换墨色与影色。 */
-  ref.r.setMode('light');cur.r.setMode('light');same('亮档')
-  /* 非整数取景位移：baseX/baseY 逐位变，缓存按键失效并重算。 */
-  cur.r.pose({viewX:37.25,viewY:-11.5});ref.r.pose({viewX:37.25,viewY:-11.5});same('非整数取景位移')
-  same('非整数位移的暖帧')
-  cur.r.pose({viewX:-13.75,viewY:6.25});ref.r.pose({viewX:-13.75,viewY:6.25});same('负的非整数位移')
-  cur.r.update({ringProjection:.8});ref.r.update({ringProjection:.8});same('环投影范围缩放')
-  same('环投影缩放后的暖帧')
-  /* 尺寸变化后重建。 */
-  ref.f.box.width=241;cur.f.box.width=241
-  ref.r.resize();cur.r.resize();ref.f.drain();cur.f.drain();same('尺寸变化（含重建网格）')
-  same('尺寸变化后的暖帧')
-  /* 网格参数变化：仰角换重建，格子宽度换重分列。 */
-  ref.r.update({angle:22});cur.r.update({angle:22});ref.f.drain();cur.f.drain();same('仰角变化')
-  ref.r.update({cellWidth:7});cur.r.update({cellWidth:7});ref.f.drain();cur.f.drain();same('格子宽度变化')
-  same('格子宽度变化后的暖帧')
-  /* 环包络原地变化：直接改 stats 里那张 edge，不碰对象身份。 */
-  const edge=ref.r.stats().ring.edge
-  assert.ok(edge instanceof Float32Array,'这条用例需要环层就绪，否则测不到包络比较')
-  for(let i=0;i<edge.length;i++)edge[i]=i%7===0?0:400
-  same('环包络原地变化')
-  /* 环不可用：没有 createElement 就没有环层，纯 ASCII 路径也必须逐帧相同。 */
-  const noref=fixture(source,{width:160,height:100})
-  const nocur=fixture(patchedSource,{width:160,height:100})
-  const nr=noref.api.create(noref.canvas),nc=nocur.api.create(nocur.canvas)
-  noref.drain();nocur.drain()
-  assert.equal(nr.stats().ring,null,'没有洞层就没有环层');assert.equal(nc.stats().ring,null)
-  assert.deepEqual(nocur.placed,noref.placed,'环不可用时的 ASCII 落字也必须逐字相同')
-  assert.ok(noref.placed.length>50,'无环路径几乎没有落字，比不出来')
-  cur.r.dispose();ref.r.dispose()
-  assert.ok(frames>=15,`只比了 ${frames} 帧`)
-  assert.ok(glyphs>200,`字符样本 ${glyphs} 太少`)
+/* These are controller-boundary tests, NOT GPU pixel or numerical proof.
+ * gpu-browser-check.js exercises the real production shaders separately. */
+test('GPU controller: dynamic uniforms and fractional/negative views preserve the grid (renderer mock)',async()=>{
+  const f=fixture(),r=f.api.create(f.canvas);await f.settle();const g=f.gpu.instances[0]
+  r.update({brightness:.4});r.pose({speed:1.4,viewX:37.25,viewY:-11.5});r.setMode('light');r.setAlpha(.35);f.frame(80)
+  let d=g.draws.at(-1)
+  assert.equal(d.frame.brightness,.4);assert.equal(d.frame.light,true)
+  assert.equal(d.frame.viewX,37.25);assert.equal(d.frame.viewY,-11.5);assert.equal(d.frame.baseX,160);assert.equal(d.frame.baseY,100)
+  assert.equal(r.stats().alpha,.35);assert.equal(g.requests.length,1)
+  r.pose({viewX:-13.75,viewY:6.25});f.frame(120);d=g.draws.at(-1)
+  assert.equal(d.frame.viewX,-13.75);assert.equal(d.frame.viewY,6.25)
+  assert.equal(g.requests.length,1);r.dispose()
 })
-test('静态几何缓存：隔离 VM 计数证明暖缓存不再重复算已访问格子的几何，失效后重算，改动态参数不误失效',()=>{
-  /* 计数只用 VM 内的替换：一次进格子几何记一次访问（countedSource 在调用点插桩），
-     Math.sqrt / Math.atan2 数的是整个 draw（构建在 create 里已经跑完，所以帧内数到的就是绘制）。
-     不要求「整个 draw 的 sqrt 为零」——盘面每帧本来就有一枚清屏用的 sqrt，不在格子几何分支里。
-     尺寸取 640×360：环的方位包络 edgeMax 约 64px，大于 short/2，环外确有盘格落在环带里，
-     所以「阴影圆外、环带内」这一支与扇区桶在固定输入下真的会被走到（160×100 时环整圈落在盘外）。 */
-  const f=fixture(countedSource(source),{width:640,height:360},{canvas2d:true,hole:true})
-  /* create() 返回的控制器只有公开方法：几何访问口挂在模块的 api 上，Math 计数口挂在 VM 全局上。
-     不挂到 api 上是因为 geoSrc 只替换过一次 api 尾行，替换表必须逐条命中。 */
-  const geoHits=f.api.geoHits
-  const sqrtCalls=f.context.__geoCount.sqrt, atanCalls=f.context.__geoCount.atan
-  const ho=f.makeHole()
-  const r=f.api.create(f.canvas,undefined,ho)
-  f.drain()
-  assert.ok(r.stats().cells>0)
-  assert.equal(ho.stats().ring.state,'ready','环层必须就绪，否则环带分支根本不进')
-  function frame(n){
-    const g0=geoHits(),s0=sqrtCalls(),a0=atanCalls()
-    f.frame(n)
-    return {sqrt:sqrtCalls()-s0,atan:atanCalls()-a0,geo:geoHits()-g0}
-  }
-  /* 冷缓存首帧：被环区粗筛命中的格子要开方，说明这一帧几何真的算过。
-     不在这里要求 atan>0：构建期那次同步 draw（finishBuild → sync）已经把环带格的扇区桶算好，
-     首帧读到的都是缓存值。 */
-  const cold=frame(40)
-  assert.ok(cold.geo>0,'冷缓存首帧必须有格子几何访问')
-  assert.ok(cold.sqrt>0,'冷缓存首帧的绘制阶段必须有几何开方')
-  assert.equal(cold.atan,0,'构建期已把环带扇区桶算完，冷首帧不该再算 atan2')
-  const outer=cold.geo
-  /* 暖缓存：同一取景下每个被访问的格子都命中缓存，石头几何不再开方、不再算扇区。 */
-  const warm=frame(80)
-  assert.equal(warm.geo,outer,`暖缓存的格子几何访问应当与冷帧同一批，实际多了 ${warm.geo-outer} 次`)
-  assert.equal(warm.atan,0,`暖缓存仍多算了 ${warm.atan} 次 Math.atan2`)
-  /* 帧内剩的 sqrt 只有 ringClear = sqrt(cw²+ch²)/2+1 这一枚帧常量，不在格子几何分支里。 */
-  assert.ok(warm.sqrt<=1,`暖缓存仍多算了 ${warm.sqrt} 次 Math.sqrt（只允许 ringClear 那一枚）`)
-  /* 只改动态参数：不算失效。 */
-  r.update({brightness:.5});r.pose({speed:1.2});r.setAlpha(.5)
-  assert.ok(frame(120).sqrt<=1,'只改时间/亮度/转速/浓淡不该让几何缓存失效')
-  assert.equal(frame(130).atan,0)
-  /* 取景位移不改 baseX/baseY（两相抵消，恒等于 w/2、h/2，与原式一致）：缓存照旧命中，
-     位移由 setTransform 每帧施加，绘制结果由下面那条差分用例逐帧核对。 */
-  r.pose({viewX:21.5,viewY:4.25})
-  const moved=frame(160)
-  assert.ok(moved.geo>0,'取景位移后仍要走格子几何')
-  assert.ok(moved.sqrt<=1,'取景位移不该清空几何缓存')
-  assert.ok(frame(170).sqrt<=1,'位移后的下一帧必须回到暖状态')
-  /* 改格子宽度会重分列、整张网格重建：新格子从空缓存开始，扇区桶必须重算（这里才真正走到 atan2）。
-     构建期那次同步 draw 已经把有机会进环带的格子访问过一遍，所以开方要看「缓存被清掉」本身：
-     构建后总量必须明显高于上一份缓存的访问量。 */
-  const before=sqrtCalls(), atanBefore=atanCalls()
-  r.update({cellWidth:7});f.drain()
-  const regrid=frame(190)
-  assert.ok(regrid.geo>0,'网格参数变化后必须重建格子几何')
-  assert.ok(sqrtCalls()>before+regrid.geo,'网格参数变化后必须重算开方（构建期新网格的几何是冷的）')
-  assert.ok(atanCalls()>atanBefore,'网格参数变化后环带格的扇区桶必须重算（构建期那次同步 draw）')
-  assert.ok(frame(200).sqrt<=1,'重建后的下一帧回到暖缓存')
-  /* 环包络原地变化不会让几何缓存失效（缓存的是距离与扇区，不是让位结果）。 */
-  const edge=r.stats().ring.edge
-  for(let i=0;i<edge.length;i++)edge[i]=0
-  frame(240)
-  assert.ok(frame(280).sqrt<=1,'包络变化不该导致每帧重算')
-  /* 同尺寸 resize 短路不该清缓存。 */
-  r.resize()
-  assert.ok(frame(320).sqrt<=1,'同尺寸 resize 短路不该无故清空几何缓存')
-  assert.equal(frame(330).atan,0,'同尺寸 resize 短路后扇区桶仍该命中')
-  /* 不同尺寸：重建网格 + 重算几何（重建期的同步 draw 就把新几何算冷了一遍）。 */
-  const beforeSize=sqrtCalls()
-  f.box.width=680
-  r.resize();f.drain()
-  assert.ok(frame(360).geo>0,'尺寸变化后必须重建格子几何')
-  assert.ok(sqrtCalls()>beforeSize+772,'尺寸变化后必须重算几何')
-  assert.ok(frame(370).sqrt<=1,'新尺寸的下一帧回到暖缓存')
-  r.dispose()
+test('GPU controller: only grid inputs rebuild; DPR-only changes refresh the atlas (renderer mock)',async()=>{
+  const f=fixture(),r=f.api.create(f.canvas);await f.settle();const g=f.gpu.instances[0]
+  r.update({brightness:.5});r.pose({speed:1.2,viewX:21.5,viewY:4.25});r.setAlpha(.5);r.setMode('light');r.resize();await f.settle()
+  assert.equal(g.requests.length,1)
+  f.context.window.devicePixelRatio=1.25;r.resize();await f.settle()
+  assert.equal(g.requests.length,1);assert.equal(g.invalidations,1);assert.equal(f.canvas.width,400)
+  for(const update of [{angle:22},{cellWidth:7},{maxCells:8000}]){r.update(update);await f.settle()}
+  assert.equal(g.requests.length,4)
+  f.box.width=341;r.resize();await f.settle();assert.equal(g.requests.length,5)
+  assert.equal(g.requests.at(-1).width,341);r.dispose()
 })
-test('静态几何缓存：失败与零尺寸都不保留旧缓存',()=>{
-  /* 最终失败：耗尽注入下网格失败闭合，之后恢复预算重建必须从空缓存开始。
-     测试里把失败那次的预算换成 4 步，再换回正常预算模拟「下一次 resize 重建」。 */
-  const f=fixture(injectBudget(4),{width:160,height:100},{canvas2d:true})
-  const r=f.api.create(f.canvas)
-  f.drain()
-  assert.equal(r.stats().ready,false)
-  assert.equal(f.canvas.dataset.blackHoleState,'failed')
-  assert.equal(f.painted.length,0,'失败态不落字')
-  r.dispose()
-  assert.equal(f.canvas.dataset.blackHoleState,'disposed')
-  /* 再建一个正常实例：丢弃的不是缓存而是这一次的网格，新实例从冷缓存开始也一样画对。 */
-  const ok=fixture(null,{width:160,height:100},{canvas2d:true})
-  const r2=ok.api.create(ok.canvas)
-  ok.drain()
-  assert.equal(r2.stats().ready,true)
-  assert.ok(ok.painted.length>0)
-  /* 零尺寸：draw 直接返回，缓存释放；恢复尺寸后照常重建并画。 */
-  ok.box.width=0
-  r2.resize()
-  ok.box.width=160
-  r2.resize();ok.drain()
-  assert.equal(r2.stats().ready,true)
-  const before=ok.painted.length
-  ok.frame(40)
-  assert.ok(ok.painted.length>before,'零尺寸恢复后必须继续出字')
-  r2.dispose()
+test('GPU controller: superseded, zero-size and disposed builds discard late results (renderer mock)',async()=>{
+  const f=fixture(null,undefined,{gpu:{manual:true}}),r=f.api.create(f.canvas);f.drain();const g=f.gpu.instances[0]
+  f.box.width=341;r.resize();f.drain();assert.equal(g.requests.length,2)
+  g.pending[0].resolve(g.results[0]);await f.settle();assert.equal(g.results[0].disposals,1);assert.equal(g.grids.length,0)
+  g.pending[1].resolve(g.results[1]);await f.settle();assert.equal(r.stats().ready,true);assert.equal(g.grids.length,1)
+  f.box.width=342;r.resize();f.drain();f.box.width=0;r.resize()
+  g.pending[2].resolve(g.results[2]);await f.settle();assert.equal(g.results[2].disposals,1);assert.equal(r.stats().ready,false);assert.equal(f.frames.size,0)
+  f.box.width=343;r.resize();f.drain();r.dispose();g.pending[3].resolve(g.results[3]);await f.settle()
+  assert.equal(g.results[3].disposals,1);assert.equal(g.grids.length,1);assert.equal(f.canvas.dataset.blackHoleState,'disposed')
+})
+test('GPU controller: initialization/context loss stop only characters and never switch to 2D (renderer mock)',async()=>{
+  const failed=fixture(null,undefined,{gpu:{createError:'WebGL2 unavailable'}}),dead=failed.api.create(failed.canvas)
+  assert.equal(dead.stats().ready,false);assert.match(dead.stats().error,/WebGL2 unavailable/);assert.equal(failed.painted.length,0);dead.dispose()
+  const f=fixture(),r=f.api.create(f.canvas);await f.settle();let prevented=false
+  f.listeners.get('canvas:webglcontextlost')({preventDefault(){prevented=true}})
+  assert.equal(prevented,false,'do not request automatic context restoration');assert.equal(r.stats().ready,false);assert.equal(f.frames.size,0);assert.equal(f.canvas.dataset.blackHoleState,'failed')
+  r.update({angle:20});await f.settle();assert.equal(f.gpu.instances[0].requests.length,1);r.dispose()
 })

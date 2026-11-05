@@ -11,8 +11,8 @@
  *      透明度各硬切一次，屏幕上是两次切换。
  *
  * 这里的 fixture 刻意模仿浏览器里影响结果的几处约定：canvas 的 width / height 是缓冲区、
- * getBoundingClientRect 按 CSS 盒模型解算、ctx 的 setTransform 累积成矩阵、fillText 记录
- * 变换生效后的画布坐标。少了这几条，测试判的就只是测试自己的假设。
+ * getBoundingClientRect 按 CSS 盒模型解算。GPU 后端是明确标记的边界替身，只记录绘制输入，
+ * 不计算射线、字符或像素；真实字形、环让位与色阶由 gpu-browser-check.js 检查。
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -51,43 +51,37 @@ const TRAVEL = VIEWPORT.width - COLUMN_CENTER
 const MOVE_MS = 1000
 const HERO = "[data-slot='conversation.hero.brand.mark'],[data-slot='conversation.hero.workspace']"
 
-/* 所有绘制字形的包围盒中点就是绘制出来的圆心。 */
-function paintedCenter(painted) {
-  const xs = painted.map(entry => entry.x)
-  return (Math.min(...xs) + Math.max(...xs)) / 2
+/* 只记录控制器到后端的契约，不模拟 WebGL 或 Canvas 像素。 */
+function gpuRecorder() {
+  const draws = [], builds = []
+  const api = { create() {
+    let current = null
+    return {
+      build(input) {
+        const result = { diagnostics: { state: 'ready', rays: input.columns * input.rows, exhausted: 0, retried: 0, unresolved: 0, invalid: 0, submitCpuMs: 0 }, dispose() {} }
+        const task = Promise.resolve(result)
+        builds.push({ input: { ...input }, task })
+        return task
+      },
+      setGrid(result) { if (current) current.dispose(); current = result },
+      draw(size, frame) { draws.push({ size: { ...size }, frame: { ...frame, patches: frame.patches.map(patch => ({ ...patch })) } }) },
+      clear() {}, refreshAtlas() {}, invalidateAtlas() {},
+      stats: () => ({ backend: 'transition-test-double', gpuFrameMs: null }),
+      dispose() { if (current) current.dispose(); current = null },
+    }
+  } }
+  return { api, draws, builds }
 }
 
 /* 真跑 src/runtime/accretion-disk.js：取景、运镜、重建都在这里判。 */
 function holeFixture({ reduced = false } = {}) {
   let id = 0
   const timers = new Map(), frames = new Map(), listeners = new Map(), attrs = {}, states = []
-  const painted = [], arcs = [], anims = []
+  const gpu = gpuRecorder(), anims = []
   const motion = {
     matches: reduced,
     addEventListener: (kind, fn) => listeners.set('motion', fn),
     removeEventListener: () => listeners.delete('motion'),
-  }
-
-  let matrix = { a: 1, d: 1, e: 0, f: 0 }
-  const stack = []
-  const place = (x, y) => ({ x: x * matrix.a + matrix.e, y: y * matrix.d + matrix.f })
-  const ctx = {
-    fillStyle: '', font: '', textAlign: '', textBaseline: '', globalAlpha: 1, lineWidth: 1,
-    save() { stack.push({ ...matrix, alpha: ctx.globalAlpha }) },
-    restore() {
-      if (!stack.length) return
-      const saved = stack.pop()
-      matrix = { a: saved.a, d: saved.d, e: saved.e, f: saved.f }
-      ctx.globalAlpha = saved.alpha
-    },
-    setTransform(a, b, c, d, e, f) {
-      if (!Number.isFinite(e) || !Number.isFinite(f)) throw new TypeError('setTransform 收到了非数值')
-      matrix = { a, d, e, f }
-    },
-    clearRect() {}, beginPath() {}, closePath() {}, fill() {}, fillRect() {},
-    stroke() {}, moveTo() {}, lineTo() {},
-    arc(x, y, r) { arcs.push({ ...place(x, y), r }) },
-    fillText(glyph, x, y) { painted.push({ glyph, style: ctx.fillStyle, alpha: ctx.globalAlpha, ...place(x, y) }) },
   }
 
   const style = {
@@ -103,6 +97,8 @@ function holeFixture({ reduced = false } = {}) {
     setAttribute(name, value) { canvas[name] = value },
     removeAttribute(name) { delete canvas[name] },
     remove() { canvas.isConnected = false },
+    addEventListener(kind, fn) { (canvas.events ||= new Map()).set(kind, fn) },
+    removeEventListener(kind) { canvas.events?.delete(kind) },
     getBoundingClientRect() {
       return {
         left: Number.parseFloat(style.left) || 0,
@@ -111,7 +107,7 @@ function holeFixture({ reduced = false } = {}) {
         height: Number.parseFloat(style.height) || 0,
       }
     },
-    getContext: () => ctx,
+    getContext() { throw Error('Character controller must not request a 2D context') },
     /* 合成器动画的替身：位移现在交给 canvas.animate 的关键帧，主线程不再逐帧写 viewX。
        测试不需要真跑动画，只要把关键帧留下来逐条核对。 */
     animate(frames, options) {
@@ -150,7 +146,7 @@ function holeFixture({ reduced = false } = {}) {
   }
 
   const context = vm.createContext({
-    performance, console, document: doc, window: viewport,
+    performance, console, document: doc, window: viewport, UniverseAccretionGPU: gpu.api,
     ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
     IntersectionObserver: class { observe() {} disconnect() {} },
     MutationObserver: class { observe() {} disconnect() {} },
@@ -176,13 +172,19 @@ function holeFixture({ reduced = false } = {}) {
     frames.clear()
     tasks.forEach(fn => fn(time))
   }
-  return { api: context.UniverseAccretionDisk, canvas, attrs, states, painted, arcs, anims, listeners, frames, frameAt, drain }
+  async function settle() {
+    drain()
+    await Promise.all(gpu.builds.map(entry => entry.task))
+    for (let i = 0; i < 4; i++) await Promise.resolve()
+    assert.equal(canvas.__uniBlackHole.stats().ready, true, 'GPU fixture 构建必须实际发布 ready，不能只清 timer')
+  }
+  return { api: context.UniverseAccretionDisk, canvas, attrs, states, draws: gpu.draws, builds: gpu.builds, anims, listeners, frames, frameAt, drain, settle }
 }
 
-test('取景框固定成整个 frame：洞心仍落在对话列中心，左栏交给 mask 斜坡隔离', () => {
+test('取景框固定成整个 frame：洞心仍落在对话列中心，左栏交给 mask 斜坡隔离', async () => {
   const f = holeFixture()
   const dispose = f.api.mount()
-  f.drain()
+  await f.settle()
   const hole = f.canvas.__uniBlackHole
   assert.equal(hole.stats().ready, true, '挂载即完成第一次烘焙')
 
@@ -193,9 +195,12 @@ test('取景框固定成整个 frame：洞心仍落在对话列中心，左栏�
 
   /* 画布变宽之后，洞心必须正补偿回对话列中心，而不是躺在整窗中心。 */
   f.frameAt(100)
-  const centered = paintedCenter(f.painted)
-  assert.ok(Math.abs(centered - COLUMN_CENTER) < 40, `新会话页洞应在对话列中间 ${COLUMN_CENTER}，实际 ${centered}`)
+  const drawn = f.draws.at(-1)
+  assert.ok(drawn, '控制器必须向 GPU 提交一帧')
+  const centered = drawn.frame.baseX + drawn.frame.viewX
+  assert.equal(centered, COLUMN_CENTER, '提交给 GPU 的洞心在对话列中心')
   assert.ok(Math.abs(centered - VIEWPORT.width / 2) > 100, '不是整窗居中：整窗中心在左栏那侧')
+  assert.equal(drawn.frame.baseY + drawn.frame.viewY, VIEWPORT.height / 2)
   assert.equal(f.canvas.style['--uni-hole-edge'], COLUMN_LEFT + 'px', '斜坡起点压在对话列左缘，洞不进左栏')
 
   const view = hole.view()
@@ -205,14 +210,14 @@ test('取景框固定成整个 frame：洞心仍落在对话列中心，左栏�
   dispose()
 })
 
-test('出画取景：圆心出画只剩左半弧，速度收到对话页的值', () => {
+test('出画取景：圆心出画只剩左半弧，速度收到对话页的值', async () => {
   const f = holeFixture()
   const dispose = f.api.mount()
-  f.drain()
+  await f.settle()
   const hole = f.canvas.__uniBlackHole
   f.frameAt(100)
 
-  f.painted.length = 0
+  f.draws.length = 0
   f.canvas.__uniArc(true, 0)
   assert.equal(f.attrs['data-uni-sky-mode'], '', '对话页要能被 theme.css 认出来')
   assert.equal(f.canvas.style['--uni-hole-edge'], '0px', '下降坡收到 0：弧在右缘，左栏不再需要隔离')
@@ -228,25 +233,16 @@ test('出画取景：圆心出画只剩左半弧，速度收到对话页的值',
   assert.ok(Math.abs(view.x - view.width) < 0.01, `洞心要压在视口右缘 ${view.width}，实际 ${view.x}`)
   assert.ok(view.x - Number(view.radius) > view.width / 2, '可见的那半圆要整个留在窗口里，不能被左边裁掉')
 
-  /* 绘制坐标而不是配置：弧贴到窗口右缘，而且一个字形都不许落进左栏 —— 用户 m02420
-     的原始抱怨就是「黑洞在左边会挡住左侧栏的文字」，这条断言守的正是它。 */
+  /* 此处只验 GPU 入口的相机契约；可见字符/遮罩由真实 GPU 像素检查承担。 */
   f.frameAt(300)
-  const xs = f.painted.map(entry => entry.x)
-  assert.ok(Math.max(...xs) > VIEWPORT.width - 40, `弧要贴到窗口右缘 ${VIEWPORT.width}，实际最右 ${Math.max(...xs)}`)
-  assert.ok(Math.min(...xs) > COLUMN_LEFT, `左栏一个字都不许有，实际最左 ${Math.min(...xs)}`)
-  const ys = f.painted.map(entry => entry.y)
-  assert.ok(Math.max(...ys) - Math.min(...ys) > 0, '纵向照常铺开')
-
-  /* 露出的是半个圆：字形要铺到半圆左端，而不是只在右缘露一条边。 */
-  const visible = f.painted.filter(entry => entry.x >= 0 && entry.x <= view.width)
-  assert.ok(visible.length > 200, `可见的那半个洞要有字形，实际 ${visible.length}`)
-  const leftmost = Math.min(...visible.map(entry => entry.x))
-  assert.ok(leftmost < view.x - Number(view.radius) * 0.5, `半个圆要铺到左端，实际最左 ${leftmost}`)
-  /* 光子环改由 bakeRing 的 Canvas 精细层承担（第十五阶段），字符只画吸积盘。
-     以前这里靠环权重的暖色字符证明「高光还在」，现在字符通道里没有环，
-     改为守住真正的契约：可见的那半个圆里必须铺满盘字。 */
-  const lit = visible.filter(entry => entry.glyph && entry.glyph !== ' ').length
-  assert.ok(lit > 200, `可见的弧里要铺满盘字，实际 ${lit}`)
+  const drawn = f.draws.at(-1)
+  assert.ok(drawn, '出画后仍向 GPU 提交字符帧')
+  assert.equal(drawn.size.w, VIEWPORT.width)
+  assert.equal(drawn.size.h, VIEWPORT.height)
+  assert.equal(drawn.frame.viewX, ARC_X)
+  assert.equal(drawn.frame.viewY, 0)
+  assert.equal(drawn.frame.baseX + drawn.frame.viewX, drawn.size.w, 'GPU 洞心压在右缘')
+  assert.ok(Math.abs(drawn.frame.horizon - Number(view.radius)) < 1e-9)
 
   f.canvas.__uniSkyModeOff()
   assert.equal(f.attrs['data-uni-sky-mode'], undefined, '回新会话页要撤掉属性')
@@ -257,20 +253,22 @@ test('出画取景：圆心出画只剩左半弧，速度收到对话页的值',
   dispose()
 })
 
-test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几何一个字都不动', () => {
+test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几何一个字都不动', async () => {
   const f = holeFixture()
   const dispose = f.api.mount()
-  f.drain()
+  await f.settle()
   const hole = f.canvas.__uniBlackHole
 
   /* 暗档先量一遍：两档观感要一样，暗档的墨按 Weber 等值收到 0.341，不是满墨。 */
   hole.setMode('dark')
   f.canvas.__uniArc(true, 0)
   f.frameAt(200)
-  f.painted.length = 0
+  f.draws.length = 0
   f.frameAt(300)
-  assert.ok(f.painted.length > 200, `暗档的弧要有字形，实际 ${f.painted.length}`)
-  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '盘字本身满墨：浓淡在画布透明度上')
+  assert.ok(f.draws.length > 0, '暗档必须向 GPU 提交字符帧')
+  assert.equal(f.draws.at(-1).frame.light, false)
+  assert.equal(f.draws.at(-1).frame.brightness, 1)
+  assert.equal('alpha' in f.draws.at(-1).frame, false, '转场整体 alpha 不得混入 GPU 色调映射')
   assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.341) < 1e-9, `暗档对话页的画布透明度 0.341，实际 ${f.canvas.style.opacity}`)
 
   const darkView = hole.view()
@@ -278,10 +276,12 @@ test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几�
   /* 亮档：LIGHT 调色板高端近黑，压在浅色纸面上就是压字，用户 m02530 点名了。 */
   hole.setMode('light')
   f.frameAt(400)
-  f.painted.length = 0
+  f.draws.length = 0
   f.frameAt(500)
-  assert.ok(f.painted.length > 200, `亮档的弧也要有字形，实际 ${f.painted.length}`)
-  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '盘字本身满墨：浓淡在画布透明度上')
+  assert.ok(f.draws.length > 0, '亮档必须向 GPU 提交字符帧')
+  assert.equal(f.draws.at(-1).frame.light, true)
+  assert.equal(f.draws.at(-1).frame.brightness, 1)
+  assert.equal('alpha' in f.draws.at(-1).frame, false)
   assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.252) < 1e-9, `亮档对话页的画布透明度 0.252，实际 ${f.canvas.style.opacity}`)
 
   /* 「不改变位置」是这条需求的硬约束：换档只许改浓淡。 */
@@ -294,18 +294,19 @@ test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几�
   /* 回新会话页要把墨补回来，否则洞会一直淡着。 */
   f.canvas.__uniSkyModeOff()
   f.frameAt(600)
-  f.painted.length = 0
+  f.draws.length = 0
   f.frameAt(700)
-  assert.deepEqual([...new Set(f.painted.map(entry => entry.alpha))], [1], '盘字全程满墨：浓淡只走画布透明度')
+  assert.ok(f.draws.length > 0)
+  assert.equal(f.draws.at(-1).frame.brightness, 1, '复位不改变 GPU 亮度，浓淡只走画布透明度')
   assert.ok(Math.abs(Number(f.canvas.style.opacity) - 1) < 1e-9, `回新会话页要把画布透明度补回 1，实际 ${f.canvas.style.opacity}`)
 
   dispose()
 })
 
-test('换页不重建网格：画布尺寸、格数与 ready 全程不变，所以不会闪一帧', () => {
+test('换页不重建网格：画布尺寸、格数与 ready 全程不变，所以不会闪一帧', async () => {
   const f = holeFixture()
   const dispose = f.api.mount()
-  f.drain()
+  await f.settle()
   const hole = f.canvas.__uniBlackHole
   const before = hole.stats()
   assert.deepEqual(f.states, ['building', 'ready'], `只有初次挂载会烘焙，实际 ${f.states.join(' → ')}`)
@@ -314,7 +315,7 @@ test('换页不重建网格：画布尺寸、格数与 ready 全程不变，所�
   f.frameAt(0)
   f.frameAt(160)
   f.frameAt(320)
-  f.drain()
+  await f.settle()
   const after = hole.stats()
 
   assert.equal(after.width, before.width, '画布缓冲区宽度不许变')
@@ -328,16 +329,16 @@ test('换页不重建网格：画布尺寸、格数与 ready 全程不变，所�
   f.canvas.__uniArc(false, 320)
   f.frameAt(600)
   f.frameAt(920)
-  f.drain()
+  await f.settle()
   assert.equal(hole.stats().cells, before.cells, '回程同样不重建')
   assert.deepEqual(f.states, ['building', 'ready'], `回程也不许烘焙，实际 ${f.states.join(' → ')}`)
   dispose()
 })
 
-test('运镜连续：位移交给合成器，内容只在两端各画一次', () => {
+test('运镜连续：位移交给合成器，内容只在两端各画一次', async () => {
   const f = holeFixture()
   const dispose = f.api.mount()
-  f.drain()
+  await f.settle()
   const hole = f.canvas.__uniBlackHole
   const home = hole.stats().config.viewX
   assert.ok(Math.abs(home - (COLUMN_CENTER - VIEWPORT.width / 2)) < 0.01, `首页 viewX 应为 ${COLUMN_CENTER - VIEWPORT.width / 2}，实际 ${home}`)
@@ -427,13 +428,13 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', ()
   dispose()
 })
 
-test('转场途中切亮档：落地按当前档收墨，不被起飞时捕获的旧值压回去', () => {
+test('转场途中切亮档：落地按当前档收墨，不被起飞时捕获的旧值压回去', async () => {
   /* 起飞那一帧 toAlpha 是暗档 0.341。飞到一半换成亮档，onMode 把内联和 live.alpha
      都改成了 0.252（动画在跑，视觉上被 WAAPI 压住，看不出跳）。落地若照旧的 toAlpha
      写回，对话页此后就一直停在 0.341 —— 亮档却没有亮档该有的淡度，直到下次切页。 */
   const f = holeFixture()
   const dispose = f.api.mount()
-  f.drain()
+  await f.settle()
   const hole = f.canvas.__uniBlackHole
   f.canvas.__uniArc(true, MOVE_MS)
   f.frameAt(1500)
@@ -446,12 +447,12 @@ test('转场途中切亮档：落地按当前档收墨，不被起飞时捕获�
   dispose()
 })
 
-test('主线程卡住不再冻住洞：位置在合成器上，主线程只补最后那一帧', () => {
+test('主线程卡住不再冻住洞：位置在合成器上，主线程只补最后那一帧', async () => {
   /* 真机日志里四段 390~490ms 的长任务（m02920）以前会把洞冻在半路。现在整段行程是一条
      合成器动画，主线程断供只影响「盘转了几帧」和落地那一帧的取景写入。 */
   const f = holeFixture()
   const dispose = f.api.mount()
-  f.drain()
+  await f.settle()
   f.frameAt(0) /* 挂载的冷启动 settle 补帧先落地，下面「一个 rAF 都不跑」的空档才从干净状态起算 */
   const hole = f.canvas.__uniBlackHole
   const home = hole.stats().config.viewX
@@ -475,10 +476,10 @@ test('主线程卡住不再冻住洞：位置在合成器上，主线程只补�
   dispose()
 })
 
-test('reduced motion：交给 __uniArc 的时长为 0 时瞬时落点，不申请动画帧', () => {
+test('reduced motion：交给 __uniArc 的时长为 0 时瞬时落点，不申请动画帧', async () => {
   const f = holeFixture({ reduced: true })
   const dispose = f.api.mount()
-  f.drain()
+  await f.settle()
   f.frameAt(0) /* 同上：消费掉挂载的 settle 补帧，否则「不运镜就不出帧」会数到那一帧 */
   const hole = f.canvas.__uniBlackHole
   f.canvas.__uniArc(true, 0)
@@ -512,6 +513,8 @@ function clientHarness({ reduced = false, home = false } = {}) {
       setAttribute(name, value) { canvas[name] = value },
       removeAttribute(name) { delete canvas[name] },
       remove() { canvas.isConnected = false },
+    addEventListener(kind, fn) { (canvas.events ||= new Map()).set(kind, fn) },
+    removeEventListener(kind) { canvas.events?.delete(kind) },
       getBoundingClientRect: () => ({ left: 0, top: 0, width: VIEWPORT.width, height: VIEWPORT.height }),
       getContext: () => context2d,
     }
@@ -575,7 +578,7 @@ function clientHarness({ reduced = false, home = false } = {}) {
     document,
   }
   const sandbox = {
-    window, document, performance, console,
+    window, document, performance, console, __quasarGPUForArcTests: gpuRecorder().api,
     setTimeout: window.setTimeout, clearTimeout: window.clearTimeout,
     requestAnimationFrame: window.requestAnimationFrame, cancelAnimationFrame: window.cancelAnimationFrame,
     getComputedStyle: direction => ({ colorScheme: 'dark', position: 'relative', isolation: 'auto', getPropertyValue: () => '' }),
@@ -589,7 +592,10 @@ function clientHarness({ reduced = false, home = false } = {}) {
   context.globalThis = context
   let factory = null
   window.__ModuleLoader__ = { load(options) { factory = options.factory } }
-  vm.runInContext(BUILT, context)
+  const gpuEntry = 'UniverseAccretionGPU.create(canvas, GLYPHS, DARK, LIGHT)'
+  assert.equal(BUILT.split(gpuEntry).length, 2, '只替换构建产物中的唯一 GPU 后端边界，不替换 mount/转场')
+  const withTestBackend = BUILT.replace(gpuEntry, 'globalThis.__quasarGPUForArcTests.create(canvas, GLYPHS, DARK, LIGHT)')
+  vm.runInContext(withTestBackend, context)
   assert.equal(typeof factory, 'function', '构建产物要通过 __ModuleLoader__ 交出一个 factory')
   const plugin = factory(() => ({}))
   assert.equal(typeof plugin.apply, 'function', 'factory 要返回带 apply 的模块')

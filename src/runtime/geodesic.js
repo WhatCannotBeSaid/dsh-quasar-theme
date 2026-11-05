@@ -225,5 +225,8 @@ var UniverseGeodesic = (function () {
      拿 ratio / ringAt / budget / trace。两边都不许再实现一遍公式。 */
   return { trace: trace, launch: launch, ratio: CRIT_RATIO, budget: STEP_BUDGET,
     inner: INNER, outer: OUTER, distance: DISTANCE, tanHalf: TAN_HALF,
+    gpu: { tolerance: STEP_TOL, stepMax: STEP_MAX, angleCap: ANGLE_CAP,
+      captureRadius: CAPTURE_R, escapeRadius: ESCAPE_R, criticalImpact: B_CRIT,
+      ringCore: RING_CORE, sqrtFD: SQRT_FD, dpA: DP_A, dpB: DP_B, dpE: DP_E },
     ringAt: function (u, v, angle) { return launch(u, v, angle).ring } }
 })()
