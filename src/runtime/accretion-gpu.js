@@ -24,9 +24,9 @@ var UniverseAccretionGPU = (function () {
     ].join('\n')
     var statePixel = head + 'flat in vec4 state;out vec4 color;void main(){color=state;}'
     var glyph = head + [
-      'uniform ivec2 gridSize;uniform vec2 cellSize,viewSize,viewOffset,quadSize;uniform sampler2D stateTexture;',
+      'uniform ivec2 visibleOrigin,visibleSize;uniform vec2 cellSize,viewSize,viewOffset,quadSize;uniform sampler2D stateTexture;',
       'out vec2 uv;flat out int glyphIndex,bucket,luminous,valid;',
-      'void main(){int row=gl_InstanceID/gridSize.x,col=gl_InstanceID-row*gridSize.x;ivec4 s=ivec4(floor(texelFetch(stateTexture,ivec2(col,row),0)*255.0+0.5));',
+      'void main(){int r=gl_InstanceID/visibleSize.x;int row=visibleOrigin.y+r,col=visibleOrigin.x+gl_InstanceID-r*visibleSize.x;ivec4 s=ivec4(floor(texelFetch(stateTexture,ivec2(col,row),0)*255.0+0.5));',
       'glyphIndex=s.x;bucket=s.y;luminous=s.z;valid=s.w;vec2 corner=vec2(0);',
       'if(gl_VertexID==1||gl_VertexID==4||gl_VertexID==5)corner.x=1.0;if(gl_VertexID==2||gl_VertexID==3||gl_VertexID==5)corner.y=1.0;',
       'uv=corner;vec2 xy=(vec2(col,row)+0.5)*cellSize+viewOffset+(corner-0.5)*quadSize;',
@@ -39,6 +39,15 @@ var UniverseAccretionGPU = (function () {
     ].join('\n')
     return { state: state, statePixel: statePixel, glyph: glyph, glyphPixel: glyphPixel }
   }
+  /* Cull atlas quads, not just their cell centres: padded glyphs can cross the edge. */
+  function visibleGrid(size, frame, quadWidth, quadHeight) {
+    function clamp(value, limit) { return Math.max(0, Math.min(limit, value)) }
+    var x = clamp(Math.floor((-frame.viewX - quadWidth / 2) / size.cw + .5), size.cols)
+    var y = clamp(Math.floor((-frame.viewY - quadHeight / 2) / size.ch + .5), size.rows)
+    var right = clamp(Math.ceil((size.w - frame.viewX + quadWidth / 2) / size.cw - .5), size.cols)
+    var bottom = clamp(Math.ceil((size.h - frame.viewY + quadHeight / 2) / size.ch - .5), size.rows)
+    return { x: x, y: y, cols: Math.max(0, right - x), rows: Math.max(0, bottom - y) }
+  }
   function palette(values) {
     var data = new Float32Array(values.length * 3)
     values.forEach(function (s, i) { var n = parseInt(s.slice(1), 16); data[i * 3] = (n >>> 16 & 255) / 255; data[i * 3 + 1] = (n >>> 8 & 255) / 255; data[i * 3 + 2] = (n & 255) / 255 })
@@ -50,6 +59,7 @@ var UniverseAccretionGPU = (function () {
     var programs = [], textures = [], vaos = [], framebuffers = [], queries = [], physics, physicsTask = null, compilation = new AbortController(), grid = null, gridVao = null, disposed = false
     var stateProgram, glyphProgram, stateTexture, atlas, ringTexture, stateFbo, emptyVao, atlasKey = '', ringLength = 0, quadWidth = 0, quadHeight = 0
     var patchA = new Float32Array(96), patchB = new Float32Array(96), frames = 0, gpuMs = null, gpuMax = null, gpuSampleCount = 0, gpuSampleFrame = null
+    var visibleBuffer = null, visibleKey = '', visibleCells = 0
     var extension = gl.getExtension('EXT_disjoint_timer_query_webgl2')
     function texture(filter) {
       var t = gl.createTexture(); textures.push(t); gl.bindTexture(gl.TEXTURE_2D, t)
@@ -63,6 +73,7 @@ var UniverseAccretionGPU = (function () {
       if (disposed) return
       compilation.abort()
       if (grid) { grid.dispose(); grid = null }
+      if (visibleBuffer) gl.deleteBuffer(visibleBuffer)
       if (physics) physics.dispose()
       queries.forEach(function (sample) { gl.deleteQuery(sample.query) }); queries = []
       textures.forEach(function (t) { gl.deleteTexture(t) }); framebuffers.forEach(function (f) { gl.deleteFramebuffer(f) })
@@ -77,6 +88,7 @@ var UniverseAccretionGPU = (function () {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array(1)); ringLength = 1
       stateFbo = gl.createFramebuffer(); framebuffers.push(stateFbo)
       emptyVao = gl.createVertexArray(); vaos.push(emptyVao)
+      visibleBuffer = gl.createBuffer()
       var ink = use(glyphProgram); gl.uniform1i(ink('stateTexture'), 0); gl.uniform1i(ink('atlas'), 1)
       gl.uniform3fv(ink('darkInk[0]'), palette(dark)); gl.uniform3fv(ink('lightInk[0]'), palette(light))
       var stateInk = use(stateProgram); gl.uniform1i(stateInk('ringEdge'), 0)
@@ -99,7 +111,9 @@ var UniverseAccretionGPU = (function () {
       if (disposed) { result.dispose(); return }
       if (grid) grid.dispose()
       if (gridVao) { gl.deleteVertexArray(gridVao); vaos.splice(vaos.indexOf(gridVao), 1) }
-      grid = result; gridVao = gl.createVertexArray(); vaos.push(gridVao); gl.bindVertexArray(gridVao)
+      grid = result; visibleKey = ''; visibleCells = 0
+      gridVao = gl.createVertexArray(); vaos.push(gridVao); gl.bindVertexArray(gridVao)
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, visibleBuffer)
       gl.bindBuffer(gl.ARRAY_BUFFER, grid.buffer); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, grid.stride || 32, 0); gl.bindVertexArray(null)
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, stateTexture)
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, size.cols, size.rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
@@ -118,6 +132,20 @@ var UniverseAccretionGPU = (function () {
     function draw(size, frame) {
       if (disposed || !grid || gl.isContextLost()) return
       pollTimers()
+      var visible = visibleGrid(size, frame, quadWidth, quadHeight)
+      var key = [visible.x, visible.y, visible.cols, visible.rows].join(':')
+      visibleCells = visible.cols * visible.rows
+      gl.bindVertexArray(gridVao)
+      if (key !== visibleKey) {
+        /* Keep the physical grid cached; upload indices only when the visible bounds change. */
+        var indices = new Uint32Array(visibleCells), index = 0
+        for (var row = visible.y; row < visible.y + visible.rows; row++) {
+          for (var col = visible.x; col < visible.x + visible.cols; col++) indices[index++] = row * size.cols + col
+        }
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, visibleBuffer); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.DYNAMIC_DRAW)
+        visibleKey = key
+      }
+      if (!visibleCells) { gl.bindVertexArray(null); clear(); frames++; return }
       var sampleFrame = frames, query = extension && frames % 30 === 0 && queries.length < 3 ? gl.createQuery() : null
       if (query) gl.beginQuery(extension.TIME_ELAPSED_EXT, query)
       try {
@@ -135,11 +163,11 @@ var UniverseAccretionGPU = (function () {
         gl.uniform1f(loc('horizon'), frame.horizon); gl.uniform1f(loc('brightness'), frame.brightness); gl.uniform1i(loc('light'), frame.light ? 1 : 0)
         gl.uniform1i(loc('ringBins'), bins); gl.uniform1f(loc('ringScale'), scale); gl.uniform1f(loc('ringClear'), padding); gl.uniform1f(loc('ringOuter'), bins ? frame.ring.edgeMax * scale + padding : 0)
         gl.uniform4fv(loc('patchA[0]'), patchA); gl.uniform4fv(loc('patchB[0]'), patchB)
-        gl.disable(gl.BLEND); gl.bindFramebuffer(gl.FRAMEBUFFER, stateFbo); gl.viewport(0, 0, size.cols, size.rows); gl.bindVertexArray(gridVao); gl.drawArrays(gl.POINTS, 0, size.cols * size.rows)
-        clear(); loc = use(glyphProgram); gl.uniform2i(loc('gridSize'), size.cols, size.rows); gl.uniform2f(loc('cellSize'), size.cw, size.ch)
+        gl.disable(gl.BLEND); gl.bindFramebuffer(gl.FRAMEBUFFER, stateFbo); gl.viewport(0, 0, size.cols, size.rows); gl.bindVertexArray(gridVao); gl.drawElements(gl.POINTS, visibleCells, gl.UNSIGNED_INT, 0)
+        clear(); loc = use(glyphProgram); gl.uniform2i(loc('visibleOrigin'), visible.x, visible.y); gl.uniform2i(loc('visibleSize'), visible.cols, visible.rows); gl.uniform2f(loc('cellSize'), size.cw, size.ch)
         gl.uniform2f(loc('viewSize'), size.w, size.h); gl.uniform2f(loc('viewOffset'), frame.viewX, frame.viewY); gl.uniform2f(loc('quadSize'), quadWidth, quadHeight)
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, stateTexture); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, atlas)
-        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.bindVertexArray(emptyVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, size.cols * size.rows)
+        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.bindVertexArray(emptyVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, visibleCells)
         gl.bindVertexArray(null); frames++
       } finally { if (query) { gl.endQuery(extension.TIME_ELAPSED_EXT); queries.push({ query: query, frame: sampleFrame }) } }
     }
@@ -153,8 +181,8 @@ var UniverseAccretionGPU = (function () {
         if (disposed || (alive && !alive())) { var error = Error('QUASAR GPU build superseded'); error.cancelled = true; throw error }
         return engine.run(input, alive)
       },
-      stats: function () { return { backend: 'webgl2', frameGpuMs: gpuMs, maxFrameGpuMs: gpuMax, frameGpuSampleCount: gpuSampleCount, frameGpuSampleFrame: gpuSampleFrame, frames: frames, timerAvailable: !!extension } },
+      stats: function () { return { backend: 'webgl2', frameGpuMs: gpuMs, maxFrameGpuMs: gpuMax, frameGpuSampleCount: gpuSampleCount, frameGpuSampleFrame: gpuSampleFrame, frames: frames, visibleCells: visibleCells, timerAvailable: !!extension } },
       invalidateAtlas: function () { atlasKey = '' }, refreshAtlas: bakeAtlas, dispose: dispose }
   }
-  return { create: create, sources: sources }
+  return { create: create, sources: sources, visibleGrid: visibleGrid }
 })()

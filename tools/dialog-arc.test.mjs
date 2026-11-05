@@ -226,6 +226,7 @@ test('出画取景：圆心出画只剩左半弧，速度收到对话页的值',
   assert.ok(Math.abs(config.viewX - ARC_X) < 0.01, `viewX 应为 ${ARC_X}，实际 ${config.viewX}`)
   assert.ok(Math.abs(config.brightness - 1) < 1e-9, `亮度保持 1（淡化只走 alpha），实际 ${config.brightness}`)
   assert.ok(Math.abs(config.speed - 0.35) < 1e-9, `速度要收到 0.35，实际 ${config.speed}`)
+  assert.equal(config.fps, 60, '对话页降转速但不降帧率')
 
   const view = hole.view()
   assert.ok(Math.abs(view.x - (view.width / 2 + config.viewX)) < 1e-9, 'view() 必须把位移算进圆心')

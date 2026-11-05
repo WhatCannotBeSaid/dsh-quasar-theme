@@ -7,6 +7,31 @@ const source = readFileSync(new URL('../src/runtime/geodesic.js', import.meta.ur
   readFileSync(new URL('../src/runtime/accretion-disk.js', import.meta.url), 'utf8')
 const holeSource = readFileSync(new URL('../src/runtime/hole.js', import.meta.url), 'utf8')
 
+test('GPU visible grid matches padded-quad intersections, including fractional and offscreen views', () => {
+  const context = vm.createContext({})
+  vm.runInContext(readFileSync(new URL('../src/runtime/accretion-gpu.js', import.meta.url), 'utf8'), context)
+  const size = { w: 320, h: 240, cw: 10, ch: 12, cols: 32, rows: 20 }
+  for (const dpr of [1, 1.25, 1.5]) {
+    const qw = (Math.ceil(size.cw * dpr) + 4) / dpr, qh = (Math.ceil(size.ch * dpr) + 4) / dpr
+    for (const viewX of [-4000, -160, -13.75, -2, 0, 37.25, 160, 4000]) {
+      for (const viewY of [-4000, -120, -11.5, 0, 6.25, 120, 4000]) {
+        const visible = context.UniverseAccretionGPU.visibleGrid(size, { viewX, viewY }, qw, qh)
+        let expected = 0
+        for (let row = 0; row < size.rows; row++) for (let col = 0; col < size.cols; col++) {
+          const x = (col + .5) * size.cw + viewX, y = (row + .5) * size.ch + viewY
+          const intersects = x + qw / 2 > 0 && x - qw / 2 < size.w && y + qh / 2 > 0 && y - qh / 2 < size.h
+          const submitted = col >= visible.x && col < visible.x + visible.cols && row >= visible.y && row < visible.y + visible.rows
+          assert.equal(submitted, intersects, `view=${viewX},${viewY}; dpr=${dpr}; cell=${col},${row}`)
+          expected += intersects ? 1 : 0
+        }
+        assert.equal(visible.cols * visible.rows, expected)
+      }
+    }
+  }
+  const side = context.UniverseAccretionGPU.visibleGrid(size, { viewX: 160, viewY: 0 }, 14, 16)
+  assert.equal(side.cols * side.rows, 17 * 20, 'half-view retains one padded edge column, not the full grid')
+})
+
 test('GPU compiler contract: no parallel completion query fails before compilation, without a blocking fallback', async () => {
   const context = vm.createContext({ performance, setTimeout, clearTimeout })
   vm.runInContext(readFileSync(new URL('../src/runtime/geodesic.js', import.meta.url), 'utf8') + '\n' +

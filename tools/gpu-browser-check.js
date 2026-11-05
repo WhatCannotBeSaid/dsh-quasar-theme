@@ -94,6 +94,19 @@ UniverseGPUCheck.renderer = async function () {
     renderer.setGrid({ buffer: buffer, dispose: function () { if (!released) { gl.deleteBuffer(buffer); released = true } } }, size)
     var patches = Array.from({length:24}, function (_, i) { return { radius: 6 + i * .42, phi: i * .37, age: i * .02, radial: .4, angular: 1, amplitude: .5 } })
     var frame = { baseX: 160, baseY: 120, viewX: 0, viewY: 0, horizon: 34, ring: null, brightness: 1, light: false, patches: patches }
+    /* Test-only full-grid reference: same production shaders and uniforms, no culling. */
+    var full = false, submittedState = 0, submittedGlyphs = 0, uploads = 0, locations = new Map()
+    var getLocation = gl.getUniformLocation.bind(gl), uniform2i = gl.uniform2i.bind(gl)
+    var elements = gl.drawElements.bind(gl), instances = gl.drawArraysInstanced.bind(gl), bufferData = gl.bufferData.bind(gl)
+    gl.getUniformLocation = function (program, name) { var loc = getLocation(program, name); locations.set(loc, name); return loc }
+    gl.uniform2i = function (loc, x, y) {
+      if (full && locations.get(loc) === 'visibleOrigin') { x = 0; y = 0 }
+      if (full && locations.get(loc) === 'visibleSize') { x = size.cols; y = size.rows }
+      return uniform2i(loc, x, y)
+    }
+    gl.drawElements = function (mode, n, type, offset) { if (full) return gl.drawArrays(mode, 0, count); submittedState = n; return elements(mode, n, type, offset) }
+    gl.drawArraysInstanced = function (mode, first, n, total) { if (!full) submittedGlyphs = total; return instances(mode, first, n, full ? count : total) }
+    gl.bufferData = function (target, data, usage) { if (target === gl.ELEMENT_ARRAY_BUFFER) uploads++; return bufferData(target, data, usage) }
     function expected(index) {
       if (data[index * 8 + 3] !== 1) return { value: [0,0,0,0] }
       var x = (index % size.cols + .5) * size.cw - frame.baseX, y = (Math.floor(index / size.cols) + .5) * size.ch - frame.baseY, d = Math.hypot(x, y), ring = frame.ring
@@ -110,18 +123,34 @@ UniverseGPUCheck.renderer = async function () {
       return {value:[glyph,bucket,!frame.light||d<=frame.horizon?1:0,glyph>0?1:0],near:Math.abs(shown*10+.5-Math.round(shown*10+.5))<1e-4||Math.abs(shown*12-Math.round(shown*12))<1e-4}
     }
     function check(name) {
+      submittedState = 0; submittedGlyphs = 0
       renderer.draw(size,frame)
       var pixels=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels)
       var visible=0;for(var p=3;p<pixels.length;p+=4)if(pixels[p])visible++
       bind(gl.FRAMEBUFFER,stateFbo);var states=new Uint8Array(count*4);gl.readPixels(0,0,size.cols,size.rows,gl.RGBA,gl.UNSIGNED_BYTE,states);bind(gl.FRAMEBUFFER,null)
       var mismatches=0,thresholdDifferences=0
-      for(var j=0;j<count;j++){var exp=expected(j),different=exp.value.some(function(v,k){return v!==states[j*4+k]});if(different){if(exp.near&&states[j*4+2]===exp.value[2]&&states[j*4+3]===exp.value[3])thresholdDifferences++;else mismatches++}}
-      var error=gl.getError();result.snapshots.push({name:name,mismatches:mismatches,thresholdDifferences:thresholdDifferences,visiblePixels:visible,glError:error,passed:mismatches===0&&visible>0&&error===0})
+      var qw=(Math.ceil(size.cw*size.dpr)+4)/size.dpr,qh=(Math.ceil(size.ch*size.dpr)+4)/size.dpr,expectedCells=0
+      for(var j=0;j<count;j++){
+        var x=(j%size.cols+.5)*size.cw+frame.viewX,y=(Math.floor(j/size.cols)+.5)*size.ch+frame.viewY
+        if(x+qw/2<=0||x-qw/2>=size.w||y+qh/2<=0||y-qh/2>=size.h)continue
+        expectedCells++
+        var exp=expected(j),different=exp.value.some(function(v,k){return v!==states[j*4+k]})
+        if(different){if(exp.near&&states[j*4+2]===exp.value[2]&&states[j*4+3]===exp.value[3])thresholdDifferences++;else mismatches++}
+      }
+      var before=uploads;renderer.draw(size,frame);var cached=uploads===before
+      full=true;renderer.draw(size,frame);full=false
+      var reference=new Uint8Array(pixels.length);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,reference)
+      var pixelDifferences=0;for(var k=0;k<pixels.length;k++)if(pixels[k]!==reference[k])pixelDifferences++
+      var error=gl.getError();result.snapshots.push({name:name,mismatches:mismatches,thresholdDifferences:thresholdDifferences,visiblePixels:visible,submittedCells:submittedState,totalCells:count,pixelDifferences:pixelDifferences,cached:cached,glError:error,passed:mismatches===0&&pixelDifferences===0&&cached&&submittedState===expectedCells&&submittedGlyphs===expectedCells&&(expectedCells===0||visible>0)&&error===0})
     }
     check('dark/no ring');frame.light=true;frame.brightness=.4;check('light/no ring')
     frame.ring={horizon:34,edgeMax:400,edge:new Float32Array(360).fill(60)};check('ring keepout')
     for(var e=0;e<360;e++)frame.ring.edge[e]=e%7===0?0:400
     frame.viewX=37.25;frame.viewY=-11.5;check('in-place ring and fractional view')
+    frame.viewX=160;frame.viewY=0;check('dialog half-view')
+    frame.viewX=-160;frame.viewY=6.25;check('negative view')
+    frame.viewX=4000;check('fully offscreen')
+    frame.viewX=0;frame.viewY=0;check('return to full view')
     result.passed=result.snapshots.every(function(s){return s.passed});result.renderer=gl.getParameter(gl.RENDERER)
     return result
   } catch(error) {result.error=String(error.stack||error);return result}
