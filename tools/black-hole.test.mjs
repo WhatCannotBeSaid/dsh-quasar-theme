@@ -32,6 +32,56 @@ test('GPU visible grid matches padded-quad intersections, including fractional a
   assert.equal(side.cols * side.rows, 17 * 20, 'half-view retains one padded edge column, not the full grid')
 })
 
+test('GPU cache scheduling: static inputs invalidate once; animation and unchanged ring contents do not', () => {
+  // API scheduling only: no shader execution or numeric WebGL emulation.
+  const calls = { prepare: 0, state: 0, glyph: 0, ring: 0 }, resources = new Set()
+  const gl = { getExtension: () => null, getParameter: () => 4096, isContextLost: () => false }
+  for (const name of ['ARRAY_BUFFER','ELEMENT_ARRAY_BUFFER','FLOAT','UNSIGNED_INT','STATIC_DRAW','DYNAMIC_DRAW','TEXTURE_2D','TEXTURE0','TEXTURE1','NEAREST','LINEAR','TEXTURE_MIN_FILTER','TEXTURE_MAG_FILTER','TEXTURE_WRAP_S','TEXTURE_WRAP_T','CLAMP_TO_EDGE','R32F','RED','RGBA','RGBA8','UNSIGNED_BYTE','FRAMEBUFFER','FRAMEBUFFER_COMPLETE','COLOR_ATTACHMENT0','DEPTH_TEST','CULL_FACE','DITHER','UNPACK_PREMULTIPLY_ALPHA_WEBGL','UNPACK_FLIP_Y_WEBGL','MAX_TEXTURE_SIZE','TRANSFORM_FEEDBACK_BUFFER','RASTERIZER_DISCARD','POINTS','BLEND','COLOR_BUFFER_BIT','ONE','ONE_MINUS_SRC_ALPHA','TRIANGLES']) gl[name] = name
+  for (const name of ['bindTexture','texParameteri','useProgram','uniform1i','uniform3fv','disable','enable','bindVertexArray','bindBuffer','bufferData','enableVertexAttribArray','vertexAttribIPointer','vertexAttribDivisor','vertexAttribPointer','activeTexture','pixelStorei','bindFramebuffer','framebufferTexture2D','viewport','clearColor','clear','uniform2i','uniform2f','uniform1f','uniform4fv','bindBufferBase','beginTransformFeedback','endTransformFeedback','blendFunc']) gl[name] = () => {}
+  for (const kind of ['Buffer','Texture','VertexArray','Framebuffer','Program']) {
+    gl['create' + kind] = () => { const resource = {}; resources.add(resource); return resource }
+    gl['delete' + kind] = resource => resources.delete(resource)
+  }
+  gl.checkFramebufferStatus = () => gl.FRAMEBUFFER_COMPLETE
+  gl.getUniformLocation = (_, name) => name
+  gl.texImage2D = (_, level, format) => { if (format === gl.R32F) calls.ring++ }
+  gl.texSubImage2D = () => { calls.ring++ }
+  gl.drawArrays = () => { calls.prepare++ }
+  gl.drawElements = () => { calls.state++ }
+  gl.drawArraysInstanced = () => { calls.glyph++ }
+  const context = vm.createContext({ Float32Array, Uint32Array, AbortController, UniverseGeodesicGPU: { program: () => gl.createProgram() },
+    document: { createElement: () => ({ getContext: () => ({ setTransform() {}, fillText() {} }) }) } })
+  vm.runInContext(readFileSync(new URL('../src/runtime/accretion-gpu.js', import.meta.url), 'utf8'), context)
+  const renderer = context.UniverseAccretionGPU.create({ width: 30, height: 24, getContext: () => gl }, ' .-:;+*o#%@', Array(12).fill('#ffffff'), Array(12).fill('#000000'))
+  const size = { w: 30, h: 24, cols: 3, rows: 2, cw: 10, ch: 12, dpr: 1 }, data = new Float32Array(48)
+  for (let i = 0; i < 6; i++) data[i * 8 + 3] = 1
+  function grid() { const buffer = gl.createBuffer(); renderer.setGrid({ buffer, data, dispose: () => gl.deleteBuffer(buffer) }, size) }
+  const frame = { baseX: 15, baseY: 12, horizon: 4, viewX: 0, viewY: 0, brightness: 1, light: false, ring: null,
+    patches: Array.from({ length: 24 }, () => ({ radius: 8, phi: 0, age: 0, radial: 1, angular: 1, amplitude: .5 })) }
+  function draw(prepare, ring, active = 1) {
+    const before = { ...calls }; renderer.draw(size, frame)
+    assert.deepEqual(Object.keys(calls).map(key => calls[key] - before[key]), [prepare, active, active, ring])
+  }
+  try {
+    grid(); draw(1, 0); draw(0, 0)
+    frame.light = true; frame.brightness = .4; frame.patches[0].age++; frame.viewX = .25; draw(0, 0)
+    frame.ring = { horizon: 4, edgeMax: 8, edge: new Float32Array([8]) }; draw(1, 1); draw(0, 0)
+    frame.ring.edge = new Float32Array([8]); draw(0, 0)
+    frame.ring.edge[0] = 9; draw(1, 1)
+    frame.ring.edge = new Float32Array([9, 10]); draw(1, 1)
+    frame.ring.edgeMax++; draw(1, 0); frame.ring.horizon++; draw(1, 0)
+    frame.horizon++; draw(1, 0); frame.baseX++; draw(1, 0)
+    const ring = frame.ring; frame.ring = null; draw(1, 0); frame.ring = ring; draw(1, 0)
+    size.dpr = 1.5; renderer.refreshAtlas(size); draw(0, 0)
+    frame.viewX = 4000; draw(0, 0, 0); frame.ring.edge[0]++; frame.viewX = 0; draw(1, 1)
+    grid(); draw(1, 0)
+    for (let i = 0; i < 6; i++) data.set([9 + i, i * .2, .7, 1], i * 8)
+    grid(); draw(1, 0)
+    Object.assign(size, { cols: 2, rows: 3, cw: 15, ch: 8 }); grid(); draw(1, 0)
+  } finally { renderer.dispose() }
+  assert.equal(resources.size, 0, 'all GPU handles, including the static cache, are released')
+})
+
 test('GPU compiler contract: no parallel completion query fails before compilation, without a blocking fallback', async () => {
   const context = vm.createContext({ performance, setTimeout, clearTimeout })
   vm.runInContext(readFileSync(new URL('../src/runtime/geodesic.js', import.meta.url), 'utf8') + '\n' +
@@ -54,9 +104,9 @@ const GEO_EXPORT = "    ringAt: function (u, v, angle) { return launch(u, v, ang
 /* Deliberately no ray integration, glyph synthesis or WebGL emulation here. */
 function gpuStub(opts={}) {
   const instances=[]
-  return {instances,module:{create(){
+  return {instances,module:{create(canvas,glyphs,dark,light){
     if(opts.createError)throw Error(opts.createError)
-    const g={requests:[],draws:[],grids:[],results:[],pending:[],disposals:0,invalidations:0,clears:0};instances.push(g)
+    const g={palettes:{dark:[...dark],light:[...light]},requests:[],draws:[],grids:[],results:[],pending:[],disposals:0,invalidations:0,clears:0};instances.push(g)
     let owned=null
     return {
       build(request,alive){
@@ -128,6 +178,36 @@ test('ASCII parameters clamp angle, cell budget and speed; glyph alphabet is pri
   assert.equal(api.options({angle:0,maxCells:Infinity}).angle,10)
   assert.equal(api.options({maxCells:Infinity}).maxCells,16000)
   assert.match(api.glyphs,/^[\x20-\x7e]+$/)
+})
+test('light disc borrows dark copper depth with muted warm highlights, without a yellow wash or halo; dark palette and physical grid stay unchanged',async()=>{
+  const f=fixture(), disk=f.api.create(f.canvas)
+  await f.settle()
+  const g=f.gpu.instances[0], {dark,light}=g.palettes
+  assert.deepEqual(dark,['#2a1a12','#3d2719','#4f321d','#623f22','#774c27','#8d5a2e','#a46a36','#bb7c40','#d0904b','#e3a65c','#f2bd75','#ffe0a8'])
+  assert.equal(light.length,12)
+  let previous=0, lowest=0
+  for(const [i,hex] of light.entries()){
+    const [r,g,b]=hex.slice(1).match(/../g).map(n=>parseInt(n,16))
+    assert.ok(r>=g&&g>b,'warm copper-to-amber family')
+    assert.ok((g-b)/(r-b)<=.4,'all light buckets stay copper (hue <= 24 degrees), not yellow gold')
+    const luminance=[r,g,b].reduce((sum,c,i)=>sum+[.2126,.7152,.0722][i]*(c/255<=.04045?c/255/12.92:((c/255+.055)/1.055)**2.4),0)
+    assert.ok(luminance>.18&&luminance>previous,'never near-black; physical brightness still increases luminance')
+    if(i===0){lowest=luminance;assert.ok(r-g>g-b,'low buckets lean copper, not yellow gold')}
+    if(i===light.length-1)assert.ok((r-b)/r<.22,'soft, desaturated highlights rather than a yellow wash')
+    previous=luminance
+  }
+  assert.ok(previous>.45&&previous<.6,'highest bucket stays softly lit, not near-white')
+  assert.ok(previous-lowest>.3,'retain depth instead of a narrow, uniformly gold ramp')
+  const builds=g.requests.length, patches=JSON.stringify(g.draws.at(-1).frame.patches)
+  disk.setMode('light');assert.equal(g.draws.at(-1).frame.light,true)
+  disk.setMode('dark');assert.equal(g.draws.at(-1).frame.light,false)
+  assert.equal(g.requests.length,builds);assert.equal(JSON.stringify(g.draws.at(-1).frame.patches),patches)
+  const context=vm.createContext({})
+  vm.runInContext(readFileSync(new URL('../src/runtime/accretion-gpu.js',import.meta.url),'utf8'),context)
+  const shaders=context.UniverseAccretionGPU.sources()
+  assert.match(shaders.state,/bool luminous=!light;/,'no dark-palette exception over the shadow')
+  assert.doesNotMatch(shaders.glyphPixel,/halo|textureSize/,'no added glow sampling')
+  disk.dispose()
 })
 test('null-path cache contains dark captured rays and finite emitting disk intersections across all angles',()=>{
   const {api}=fixture()

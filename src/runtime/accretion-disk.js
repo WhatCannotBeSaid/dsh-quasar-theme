@@ -267,7 +267,7 @@ var UniverseAccretionDisk = (function () {
     }
   }
   var DARK = ['#2a1a12', '#3d2719', '#4f321d', '#623f22', '#774c27', '#8d5a2e', '#a46a36', '#bb7c40', '#d0904b', '#e3a65c', '#f2bd75', '#ffe0a8']
-  var LIGHT = ['#b3a291', '#a8917b', '#9c8063', '#906e4d', '#855e38', '#784d28', '#6b3e1d', '#5f3219', '#532715', '#471f12', '#3c180f', '#30110b']
+  var LIGHT = ['#9e7565', '#a67d6b', '#ae8571', '#b68d77', '#be957e', '#c59d87', '#cba592', '#d0ad9d', '#d4b5a8', '#d6bbaf', '#d8bfb2', '#d9c1b2']
   /* 黑洞只存在于「对话区 + 右栏」这一块视图里，左栏是一张独立的纸。
      以前画布 'position: fixed; inset: 0' 铺满整个视口：黑洞连左栏一起画，只靠左栏自己的漆
      把它盖住；那条漆一旦被清掉，洞就漏进左栏。现在取景由两个元素共同决定：
@@ -326,7 +326,7 @@ var UniverseAccretionDisk = (function () {
        都过这一张表，不重复写两遍（漏一块就是洞留在原地、盘飞走）。 */
     var layers = holeCanvas ? [canvas, holeCanvas] : [canvas]
     function setStyle(key, value) {
-      for (var i = 0; i < layers.length; i++) layers[i].style[key] = value
+      for (var i = 0; i < layers.length; i++) layers[i].style[key] = key === 'opacity' && layers[i] === canvas ? String(diskOpacity(Number(value))) : value
     }
     /* 页背景转场要冻结/恢复渲染循环、读 ready，所以在画布上挂一个驱动句柄，
        和 deep-space 的 canvas.__uniDeepSpace 同一形状。 */
@@ -440,14 +440,19 @@ var UniverseAccretionDisk = (function () {
        「对话页亮色模式下的吸积盘有点遮挡文字，调整下吸积盘使其不遮挡文字，不改变位置」），
        也是转场淡入淡出的终点：飞去对话页时 alpha 1 → 这个值，回新会话页 1 ← 这个值，
        与位移共用同一条 easeInOutCubic（见 arcTo 里的 step），所以是「随着移动慢慢淡」。
-       两档取不同值是为了观感一致。LIGHT 调色板高端近黑（#30110b）、DARK 是深蓝底，
-       同一个 alpha 在亮档看起来比暗档浓约 35%，于是按 WCAG 相对亮度的 Weber 对比度
-       (Lbg - Lcomp) / Lbg 反算，让两档落到同一个目标 0.25：
+       两档基准取不同值以限制阴影圆对正文的遮挡；亮档盘字单独映射到暗档浓度。
+       以下是阴影圆按 WCAG 相对亮度的 Weber 对比度 (Lbg - Lcomp) / Lbg
+       反算到目标 0.25 的基准，不代表盘字的对比度：
          暗：#0c111a 底 + #030509 墨 → 0.2501
          亮：#edf0f4 底 + #101725 墨 → 0.2495
        全程不动几何：洞心、半径、取景、格子一概不变，只是这一帧的墨薄一点。 */
     var ARC_FADE_DARK = 0.341
     var ARC_FADE_LIGHT = 0.252
+    /* 只提升亮档盘字：对话页与暗档同为 .341；阴影圆保留 .252，新会话页仍为 1。
+       alpha 仍是两层共用的转场进度基准，映射仅用于盘画布的实际 opacity。 */
+    function diskOpacity(alpha) {
+      return renderer.isLight() ? 1 - (1 - alpha) * (1 - ARC_FADE_DARK) / (1 - ARC_FADE_LIGHT) : alpha
+    }
     var arcRaf = 0
     var arcAnim = null, arcAnims = []
     var arcSide = false
@@ -583,11 +588,14 @@ var UniverseAccretionDisk = (function () {
           easing: 'linear',
         })
       }
-      /* 两块画布各自一份同参数动画：合成器上两层的 transform 与 opacity 逐点同值，
-         屏幕上就是同一个洞在移动、同比例变淡。arcAnim 只留盘那份给 arcStop 之外的地方看。 */
+      /* 两块画布共用位移和淡化进度；亮档仅提高盘字浓度，阴影圆沿用原关键帧。
+         arcAnim 只留盘那份给 arcStop 之外的地方看。 */
       arcAnims = []
       for (var li = 0; li < layers.length; li++) {
-        if (typeof layers[li].animate === 'function') arcAnims.push(layers[li].animate(keys, { duration: ms, easing: 'linear', fill: 'forwards' }))
+        var layerKeys = layers[li] === canvas && renderer.isLight() ? keys.map(function (key) {
+          return Object.assign({}, key, { opacity: diskOpacity(key.opacity) })
+        }) : keys
+        if (typeof layers[li].animate === 'function') arcAnims.push(layers[li].animate(layerKeys, { duration: ms, easing: 'linear', fill: 'forwards' }))
       }
       arcAnim = arcAnims[0] || null
       /* 亮度、转速还在主线程上插值 —— 它们不参与位移、也不进合成器关键帧，卡一下看不出来；

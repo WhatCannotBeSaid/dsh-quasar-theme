@@ -81,32 +81,67 @@ var UniverseGPUCheck = async function (options) {
 /* Actual two-pass renderer checks. Synthetic physical records isolate shading,
  * masking and atlas composition from the independently checked geodesic solver. */
 UniverseGPUCheck.renderer = async function () {
-  var canvas = document.createElement('canvas'), renderer, result = { snapshots: [], passed: false }
+  var canvas = document.createElement('canvas'), renderer, referenceProgram, referenceVao, referenceBuffer, result = { snapshots: [], passed: false }
   try {
     renderer = UniverseAccretionGPU.create(canvas, ' .-:;+*o#%@', Array(12).fill('#ffffff'), Array(12).fill('#000000'))
     var gl = renderer.gl, bind = gl.bindFramebuffer.bind(gl), stateFbo
     gl.bindFramebuffer = function (target, fbo) { if (fbo) stateFbo = fbo; return bind(target, fbo) }
     var size = { w: 320, h: 240, cw: 10, ch: 12, cols: 32, rows: 20, dpr: 1.25 }, count = size.cols * size.rows
     canvas.width = Math.round(size.w * size.dpr); canvas.height = Math.round(size.h * size.dpr)
-    var data = new Float32Array(count * 8), buffer = gl.createBuffer(), released = false
-    for (var i = 0; i < count; i++) { data[i * 8] = 6.1 + i % 23 * .42; data[i * 8 + 1] = i % 37 * .17; data[i * 8 + 2] = .5 + i % 13 * .13; data[i * 8 + 3] = i % 7 === 0 ? 2 : 1 }
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW)
-    renderer.setGrid({ buffer: buffer, dispose: function () { if (!released) { gl.deleteBuffer(buffer); released = true } } }, size)
+    var data = new Float32Array(count * 8)
+    for (var i = 0; i < count; i++) { data[i * 8] = 6.1 + i % 23 * .42; data[i * 8 + 1] = i % 37 * .17; data[i * 8 + 2] = .5 + i % 13 * .13; data[i * 8 + 3] = i % 7 === 0 ? 2 + i % 3 : 1 }
+    function installGrid() {
+      var buffer = gl.createBuffer(), released = false
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW)
+      renderer.setGrid({ buffer: buffer, data: data, dispose: function () { if (!released) { gl.deleteBuffer(buffer); released = true } } }, size)
+    }
+    installGrid()
+    referenceVao = gl.createVertexArray(); referenceBuffer = gl.createBuffer(); gl.bindVertexArray(referenceVao)
+    gl.bindBuffer(gl.ARRAY_BUFFER, referenceBuffer); gl.bufferData(gl.ARRAY_BUFFER, Uint32Array.from({length:count}, function (_, i) { return i }), gl.STATIC_DRAW)
+    gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 1, gl.UNSIGNED_INT, 0, 0); gl.vertexAttribDivisor(0, 1); gl.bindVertexArray(null)
     var patches = Array.from({length:24}, function (_, i) { return { radius: 6 + i * .42, phi: i * .37, age: i * .02, radial: .4, angular: 1, amplitude: .5 } })
     var frame = { baseX: 160, baseY: 120, viewX: 0, viewY: 0, horizon: 34, ring: null, brightness: 1, light: false, patches: patches }
-    /* Test-only full-grid reference: same production shaders and uniforms, no culling. */
-    var full = false, submittedState = 0, submittedGlyphs = 0, uploads = 0, locations = new Map()
-    var getLocation = gl.getUniformLocation.bind(gl), uniform2i = gl.uniform2i.bind(gl)
-    var elements = gl.drawElements.bind(gl), instances = gl.drawArraysInstanced.bind(gl), bufferData = gl.bufferData.bind(gl)
-    gl.getUniformLocation = function (program, name) { var loc = getLocation(program, name); locations.set(loc, name); return loc }
-    gl.uniform2i = function (loc, x, y) {
-      if (full && locations.get(loc) === 'visibleOrigin') { x = 0; y = 0 }
-      if (full && locations.get(loc) === 'visibleSize') { x = size.cols; y = size.rows }
-      return uniform2i(loc, x, y)
+    /* Frozen pre-cache state shader: require identical GPU RGBA8, not CPU tolerance. */
+    var originalState = '#version 300 es\nprecision highp float;precision highp int;\n' + [
+      'layout(location=0) in vec4 ray;uniform ivec2 gridSize;uniform vec2 cellSize,base;',
+      'uniform float horizon,brightness,ringScale,ringClear,ringOuter;uniform int ringBins;',
+      'uniform bool light;uniform highp sampler2D ringEdge;uniform vec4 patchA[24],patchB[24];flat out vec4 state;',
+      'void main(){int row=gl_VertexID/gridSize.x,col=gl_VertexID-row*gridSize.x;vec2 centre=(vec2(col,row)+0.5)*cellSize;',
+      'gl_Position=vec4((vec2(col,row)+0.5)/vec2(gridSize)*2.0-1.0,0,1);gl_PointSize=1.0;state=vec4(0);if(ray.w!=1.0)return;',
+      'vec2 q=centre-base;float d2=dot(q,q);if(ringBins>0&&d2<ringOuter*ringOuter){float d=sqrt(d2);if(d>horizon){',
+      'float az=q.x==0.0?(q.y<0.0?-1.5707963267948966:1.5707963267948966):atan(q.y,q.x);int bin=int((az+3.141592653589793)/6.283185307179586*float(ringBins))%ringBins;',
+      'if(d<=texelFetch(ringEdge,ivec2(bin,0),0).r*ringScale+ringClear)return;}}',
+      'float r=ray.x,phi=ray.y,omega=16.0/pow(r,1.5),emission=0.32;',
+      'for(int i=0;i<24;i++){float dr=(r-patchA[i].x)*patchA[i].w;if(abs(dr)>=1.0)continue;',
+      'float dp=phi-patchA[i].y-omega*patchA[i].z;dp-=6.283185307179586*floor(dp/6.283185307179586+0.5);dp*=patchB[i].x;if(abs(dp)>=1.0)continue;',
+      'float radial=1.0-dr*dr,angular=1.0-dp*dp;emission+=patchB[i].y*radial*radial*radial*angular*angular*angular;}',
+      'float edge=smoothstep(5.8,6.8,r)*(1.0-smoothstep(14.5,16.2,r));float flux=edge*pow(6.0/r,2.0)*emission*ray.z*3.2;',
+      'float value=flux>0.0?1.0-exp(-flux*brightness):0.0;if(value<=0.004)return;float shown=min(0.999,pow(value,0.45));',
+      'int glyph=min(10,int(floor(shown*10.0+0.5))),bucket=min(11,int(shown*12.0));bool luminous=!light;',
+      'state=vec4(float(glyph),float(bucket),luminous?1.0:0.0,glyph>0?1.0:0.0)/255.0;}'
+    ].join('\n')
+    referenceProgram = UniverseGeodesicGPU.program(gl, originalState, UniverseAccretionGPU.sources().statePixel)
+    var full = false, submittedState = 0, submittedGlyphs = 0, uploads = 0, ringUploads = 0, preparations = 0, submittedIndices = []
+    var elements = gl.drawElements.bind(gl), arrays = gl.drawArrays.bind(gl), instances = gl.drawArraysInstanced.bind(gl), bufferData = gl.bufferData.bind(gl)
+    var image = gl.texImage2D.bind(gl), subImage = gl.texSubImage2D.bind(gl)
+    gl.texImage2D = function () { if (arguments[2] === gl.R32F) ringUploads++; return image.apply(null, arguments) }
+    gl.texSubImage2D = function () { ringUploads++; return subImage.apply(null, arguments) }
+    gl.drawArrays = function () { preparations++; return arrays.apply(null, arguments) }
+    gl.drawElements = function (mode, n, type, offset) {
+      if (!full) { submittedState = n; return elements(mode, n, type, offset) }
+      gl.useProgram(referenceProgram)
+      function loc(name) { return gl.getUniformLocation(referenceProgram, name) }
+      var ring=frame.ring,bins=ring?ring.edge.length:0,scale=ring?frame.horizon/ring.horizon:1,pad=Math.hypot(size.cw,size.ch)/2+1
+      gl.uniform1i(loc('ringEdge'),0);gl.uniform2i(loc('gridSize'),size.cols,size.rows);gl.uniform2f(loc('cellSize'),size.cw,size.ch);gl.uniform2f(loc('base'),frame.baseX,frame.baseY)
+      gl.uniform1f(loc('horizon'),frame.horizon);gl.uniform1f(loc('brightness'),frame.brightness);gl.uniform1i(loc('light'),frame.light?1:0)
+      gl.uniform1i(loc('ringBins'),bins);gl.uniform1f(loc('ringScale'),scale);gl.uniform1f(loc('ringClear'),pad);gl.uniform1f(loc('ringOuter'),bins?ring.edgeMax*scale+pad:0)
+      var a=new Float32Array(96),b=new Float32Array(96)
+      patches.forEach(function(p,i){a.set([p.radius,p.phi,p.age,p.radial],i*4);b.set([p.angular,p.amplitude,0,0],i*4)})
+      gl.uniform4fv(loc('patchA[0]'),a);gl.uniform4fv(loc('patchB[0]'),b)
+      return arrays(mode,0,count)
     }
-    gl.drawElements = function (mode, n, type, offset) { if (full) return gl.drawArrays(mode, 0, count); submittedState = n; return elements(mode, n, type, offset) }
-    gl.drawArraysInstanced = function (mode, first, n, total) { if (!full) submittedGlyphs = total; return instances(mode, first, n, full ? count : total) }
-    gl.bufferData = function (target, data, usage) { if (target === gl.ELEMENT_ARRAY_BUFFER) uploads++; return bufferData(target, data, usage) }
+    gl.drawArraysInstanced = function (mode, first, n, total) { if (full) gl.bindVertexArray(referenceVao); else submittedGlyphs = total; return instances(mode, first, n, full ? count : total) }
+    gl.bufferData = function (target, data, usage) { if (target === gl.ELEMENT_ARRAY_BUFFER) { uploads++; submittedIndices = Array.from(data) } return bufferData(target, data, usage) }
     function expected(index) {
       if (data[index * 8 + 3] !== 1) return { value: [0,0,0,0] }
       var x = (index % size.cols + .5) * size.cw - frame.baseX, y = (Math.floor(index / size.cols) + .5) * size.ch - frame.baseY, d = Math.hypot(x, y), ring = frame.ring
@@ -120,41 +155,67 @@ UniverseGPUCheck.renderer = async function () {
       var flux=smooth(5.8,6.8,r)*(1-smooth(14.5,16.2,r))*Math.pow(6/r,2)*emission*data[index*8+2]*3.2, value=flux>0?1-Math.exp(-flux*frame.brightness):0
       if(value<=.004)return {value:[0,0,0,0]}
       var shown=Math.min(.999,Math.pow(value,.45)), glyph=Math.min(10,Math.floor(shown*10+.5)), bucket=Math.min(11,Math.floor(shown*12))
-      return {value:[glyph,bucket,!frame.light||d<=frame.horizon?1:0,glyph>0?1:0],near:Math.abs(shown*10+.5-Math.round(shown*10+.5))<1e-4||Math.abs(shown*12-Math.round(shown*12))<1e-4}
+      return {value:[glyph,bucket,!frame.light?1:0,glyph>0?1:0],near:Math.abs(shown*10+.5-Math.round(shown*10+.5))<1e-4||Math.abs(shown*12-Math.round(shown*12))<1e-4}
     }
-    function check(name) {
+    function check(name, prepared, uploaded) {
       submittedState = 0; submittedGlyphs = 0
+      var oldPreparations=preparations,oldRingUploads=ringUploads
       renderer.draw(size,frame)
+      var preparationDelta=preparations-oldPreparations,ringUploadDelta=ringUploads-oldRingUploads
       var pixels=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels)
       var visible=0;for(var p=3;p<pixels.length;p+=4)if(pixels[p])visible++
       bind(gl.FRAMEBUFFER,stateFbo);var states=new Uint8Array(count*4);gl.readPixels(0,0,size.cols,size.rows,gl.RGBA,gl.UNSIGNED_BYTE,states);bind(gl.FRAMEBUFFER,null)
       var mismatches=0,thresholdDifferences=0
-      var qw=(Math.ceil(size.cw*size.dpr)+4)/size.dpr,qh=(Math.ceil(size.ch*size.dpr)+4)/size.dpr,expectedCells=0
+      var qw=(Math.ceil(size.cw*size.dpr)+4)/size.dpr,qh=(Math.ceil(size.ch*size.dpr)+4)/size.dpr,expectedIndices=[],rectangleCells=0
       for(var j=0;j<count;j++){
         var x=(j%size.cols+.5)*size.cw+frame.viewX,y=(Math.floor(j/size.cols)+.5)*size.ch+frame.viewY
         if(x+qw/2<=0||x-qw/2>=size.w||y+qh/2<=0||y-qh/2>=size.h)continue
-        expectedCells++
+        rectangleCells++
+        if(data[j*8+3]===1)expectedIndices.push(j)
         var exp=expected(j),different=exp.value.some(function(v,k){return v!==states[j*4+k]})
         if(different){if(exp.near&&states[j*4+2]===exp.value[2]&&states[j*4+3]===exp.value[3])thresholdDifferences++;else mismatches++}
       }
-      var before=uploads;renderer.draw(size,frame);var cached=uploads===before
+      var before=uploads,beforePreparation=preparations,beforeRingUpload=ringUploads;renderer.draw(size,frame)
+      var cached=uploads===before&&preparations===beforePreparation&&ringUploads===beforeRingUpload
       full=true;renderer.draw(size,frame);full=false
       var reference=new Uint8Array(pixels.length);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,reference)
+      bind(gl.FRAMEBUFFER,stateFbo);var referenceStates=new Uint8Array(count*4);gl.readPixels(0,0,size.cols,size.rows,gl.RGBA,gl.UNSIGNED_BYTE,referenceStates);bind(gl.FRAMEBUFFER,null)
+      var stateDifferences=0;expectedIndices.forEach(function(index){for(var k=0;k<4;k++)if(states[index*4+k]!==referenceStates[index*4+k])stateDifferences++})
       var pixelDifferences=0;for(var k=0;k<pixels.length;k++)if(pixels[k]!==reference[k])pixelDifferences++
-      var error=gl.getError();result.snapshots.push({name:name,mismatches:mismatches,thresholdDifferences:thresholdDifferences,visiblePixels:visible,submittedCells:submittedState,totalCells:count,pixelDifferences:pixelDifferences,cached:cached,glError:error,passed:mismatches===0&&pixelDifferences===0&&cached&&submittedState===expectedCells&&submittedGlyphs===expectedCells&&(expectedCells===0||visible>0)&&error===0})
+      var expectedCells=expectedIndices.length,ordered=JSON.stringify(submittedIndices)===JSON.stringify(expectedIndices)
+      var error=gl.getError();result.snapshots.push({name:name,mismatches:mismatches,thresholdDifferences:thresholdDifferences,visiblePixels:visible,submittedCells:submittedState,rectangleCells:rectangleCells,totalCells:count,pixelDifferences:pixelDifferences,stateDifferences:stateDifferences,preparations:preparationDelta,ringUploads:ringUploadDelta,cached:cached,ordered:ordered,glError:error,passed:mismatches===0&&stateDifferences===0&&pixelDifferences===0&&preparationDelta===prepared&&ringUploadDelta===uploaded&&cached&&ordered&&submittedState===expectedCells&&submittedGlyphs===expectedCells&&renderer.stats().visibleCells===expectedCells&&(expectedCells===0||visible>0)&&error===0})
     }
-    check('dark/no ring');frame.light=true;frame.brightness=.4;check('light/no ring')
-    frame.ring={horizon:34,edgeMax:400,edge:new Float32Array(360).fill(60)};check('ring keepout')
+    check('dark/no ring',1,0);frame.light=true;frame.brightness=.4;check('light/no ring',0,0)
+    for(var t=0;t<12;t++){patches.forEach(function(p,i){p.age=t*.37+i*.02});frame.brightness=.05+t*.31;check('dynamic patches/brightness '+t,0,0)}
+    frame.ring={horizon:34,edgeMax:400,edge:new Float32Array(360).fill(60)};check('ring keepout',1,1)
     for(var e=0;e<360;e++)frame.ring.edge[e]=e%7===0?0:400
-    frame.viewX=37.25;frame.viewY=-11.5;check('in-place ring and fractional view')
-    frame.viewX=160;frame.viewY=0;check('dialog half-view')
-    frame.viewX=-160;frame.viewY=6.25;check('negative view')
-    frame.viewX=4000;check('fully offscreen')
-    frame.viewX=0;frame.viewY=0;check('return to full view')
+    frame.viewX=37.25;frame.viewY=-11.5;check('in-place ring and fractional view',1,1)
+    frame.viewX=160;frame.viewY=0;check('dialog half-view',0,0)
+    frame.viewX=-160;frame.viewY=6.25;check('negative view',0,0)
+    frame.viewX=4000;check('fully offscreen',0,0)
+    frame.viewX=0;frame.viewY=0;check('return to full view',0,0)
+    frame.ring={horizon:34,edgeMax:400,edge:new Float32Array(frame.ring.edge)};check('new ring with identical contents',0,0)
+    frame.horizon=36;check('horizon changes',1,0)
+    frame.ring.horizon=35;check('ring scale changes',1,0)
+    frame.ring.edgeMax=401;check('ring outer bound changes',1,0)
+    frame.baseX+=.25;check('physical centre changes',1,0)
+    var savedRing=frame.ring;frame.ring=null;check('remove ring',1,0)
+    frame.ring=savedRing;check('restore identical ring',1,0)
+    frame.ring.edge=new Float32Array(180).fill(80);check('ring bins change',1,1)
+    frame.ring.edge=new Float32Array([80]);check('one-bin ring replaces old texture',1,1)
+    frame.ring.edge[0]=81;check('same-length ring upload',1,1)
+    frame.ring=null;for(var j=0;j<count;j++)data[j*8+3]=2
+    installGrid();check('rebuilt grid with no disk cells',0,0)
+    for(var j=0;j<count;j++)data[j*8+3]=j%3===0?1:3
+    installGrid();check('rebuilt grid at unchanged visible bounds',1,0)
+    for(var j=0;j<count;j++){data[j*8]=6.4+j%19*.48;data[j*8+1]=j%29*.21;data[j*8+2]=.3+j%11*.16}
+    installGrid();check('rebuilt physical values with unchanged terminals',1,0)
+    size.cols=40;size.rows=16;size.cw=8;size.ch=15
+    installGrid();check('rebuilt grid geometry',1,0)
     result.passed=result.snapshots.every(function(s){return s.passed});result.renderer=gl.getParameter(gl.RENDERER)
     return result
   } catch(error) {result.error=String(error.stack||error);return result}
-  finally {if(renderer){var context=renderer.gl;renderer.dispose();var lose=context.getExtension('WEBGL_lose_context');if(lose)lose.loseContext()}globalThis.__QUASAR_GPU_RENDER_CHECK=result}
+  finally {if(renderer){var context=renderer.gl;if(referenceProgram)context.deleteProgram(referenceProgram);if(referenceVao)context.deleteVertexArray(referenceVao);if(referenceBuffer)context.deleteBuffer(referenceBuffer);renderer.dispose();var lose=context.getExtension('WEBGL_lose_context');if(lose)lose.loseContext()}globalThis.__QUASAR_GPU_RENDER_CHECK=result}
 }
 /* Match the existing CPU tests' diagnostic injection: preserve the production
  * transfer equations, but expose their low components before display quantization.

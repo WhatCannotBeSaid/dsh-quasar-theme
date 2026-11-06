@@ -74,7 +74,7 @@ function gpuRecorder() {
 }
 
 /* 真跑 src/runtime/accretion-disk.js：取景、运镜、重建都在这里判。 */
-function holeFixture({ reduced = false } = {}) {
+function holeFixture({ reduced = false, withBody = false } = {}) {
   let id = 0
   const timers = new Map(), frames = new Map(), listeners = new Map(), attrs = {}, states = []
   const gpu = gpuRecorder(), anims = []
@@ -116,6 +116,17 @@ function holeFixture({ reduced = false } = {}) {
       return { cancel() { record.cancelled = true }, finish() {}, finished: Promise.resolve() }
     },
   }
+  const bodyAnims = []
+  const bodyCanvas = {
+    dataset: {}, style: { setProperty(name, value) { this[name] = value } },
+    setAttribute() {}, remove() {},
+    animate(frames, options) {
+      const record = { frames, options, cancelled: false }
+      bodyAnims.push(record)
+      return { cancel() { record.cancelled = true } }
+    },
+  }
+  let created = 0
   const column = { getBoundingClientRect: () => ({ left: COLUMN_LEFT, top: 0, width: COLUMN_WIDTH, height: VIEWPORT.height }) }
   const frame = { getBoundingClientRect: () => ({ left: 0, top: 0, width: VIEWPORT.width, height: VIEWPORT.height }) }
   const body = {
@@ -127,7 +138,7 @@ function holeFixture({ reduced = false } = {}) {
     hidden: false,
     body,
     documentElement: { style: { setProperty() {}, removeProperty() {}, getPropertyValue: () => null } },
-    createElement: () => canvas,
+    createElement: () => withBody && created++ > 0 ? bodyCanvas : canvas,
     addEventListener: (kind, fn) => listeners.set(kind, fn),
     removeEventListener: kind => listeners.delete(kind),
     querySelector(selector) {
@@ -147,6 +158,10 @@ function holeFixture({ reduced = false } = {}) {
 
   const context = vm.createContext({
     performance, console, document: doc, window: viewport, UniverseAccretionGPU: gpu.api,
+    UniverseHole: withBody ? { create: () => ({
+      radius: () => RADIUS, ring: () => null, stats: () => ({ ring: null }),
+      resize() {}, pose() {}, setMode() {}, dispose() {},
+    }) } : undefined,
     ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
     IntersectionObserver: class { observe() {} disconnect() {} },
     MutationObserver: class { observe() {} disconnect() {} },
@@ -178,7 +193,7 @@ function holeFixture({ reduced = false } = {}) {
     for (let i = 0; i < 4; i++) await Promise.resolve()
     assert.equal(canvas.__uniBlackHole.stats().ready, true, 'GPU fixture 构建必须实际发布 ready，不能只清 timer')
   }
-  return { api: context.UniverseAccretionDisk, canvas, attrs, states, draws: gpu.draws, builds: gpu.builds, anims, listeners, frames, frameAt, drain, settle }
+  return { api: context.UniverseAccretionDisk, canvas, bodyCanvas, bodyAnims, attrs, states, draws: gpu.draws, builds: gpu.builds, anims, listeners, frames, frameAt, drain, settle }
 }
 
 test('取景框固定成整个 frame：洞心仍落在对话列中心，左栏交给 mask 斜坡隔离', async () => {
@@ -254,7 +269,7 @@ test('出画取景：圆心出画只剩左半弧，速度收到对话页的值',
   dispose()
 })
 
-test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几何一个字都不动', async () => {
+test('两档盘字不透明度同为 0.341，位置与几何不变', async () => {
   const f = holeFixture()
   const dispose = f.api.mount()
   await f.settle()
@@ -274,7 +289,7 @@ test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几�
 
   const darkView = hole.view()
 
-  /* 亮档：LIGHT 调色板高端近黑，压在浅色纸面上就是压字，用户 m02530 点名了。 */
+  /* 亮档盘字使用柔和铜色，画布不透明度与暗档一致。 */
   hole.setMode('light')
   f.frameAt(400)
   f.draws.length = 0
@@ -283,7 +298,7 @@ test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几�
   assert.equal(f.draws.at(-1).frame.light, true)
   assert.equal(f.draws.at(-1).frame.brightness, 1)
   assert.equal('alpha' in f.draws.at(-1).frame, false)
-  assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.252) < 1e-9, `亮档对话页的画布透明度 0.252，实际 ${f.canvas.style.opacity}`)
+  assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.341) < 1e-9, `亮档对话页的画布不透明度 0.341，实际 ${f.canvas.style.opacity}`)
 
   /* 「不改变位置」是这条需求的硬约束：换档只许改浓淡。 */
   const lightView = hole.view()
@@ -301,6 +316,40 @@ test('两档的盘都压成淡影：亮档 0.252、暗档 0.341，位置与几�
   assert.equal(f.draws.at(-1).frame.brightness, 1, '复位不改变 GPU 亮度，浓淡只走画布透明度')
   assert.ok(Math.abs(Number(f.canvas.style.opacity) - 1) < 1e-9, `回新会话页要把画布透明度补回 1，实际 ${f.canvas.style.opacity}`)
 
+  dispose()
+})
+
+test('亮档只提升盘字：阴影圆保持 .252，去回程关键帧与新会话页端点不变', async () => {
+  const f = holeFixture({ withBody: true })
+  const dispose = f.api.mount()
+  await f.settle()
+  const renderer = f.canvas.__uniBlackHole
+  renderer.setMode('light')
+  f.canvas.__uniArc(true, MOVE_MS)
+  const disk = f.anims.at(-1).frames
+  const body = f.bodyAnims.at(-1).frames
+  assert.equal(disk[0].opacity, 1)
+  assert.ok(Math.abs(disk.at(-1).opacity - .341) < 1e-9)
+  assert.ok(Math.abs(body.at(-1).opacity - .252) < 1e-9)
+  disk.forEach((key, i) => {
+    assert.equal(key.transform, body[i].transform)
+    assert.ok(Math.abs((1 - key.opacity) / (1 - .341) - (1 - body[i].opacity) / (1 - .252)) < 1e-9)
+  })
+  f.canvas.__uniSkyMode()
+  assert.ok(Math.abs(Number(f.canvas.style.opacity) - .341) < 1e-9)
+  assert.equal(Number(f.bodyCanvas.style.opacity), .252)
+  f.canvas.__uniArc(false, MOVE_MS)
+  assert.ok(Math.abs(f.anims.at(-1).frames[0].opacity - .341) < 1e-9)
+  assert.equal(f.bodyAnims.at(-1).frames[0].opacity, .252)
+  assert.equal(f.anims.at(-1).frames.at(-1).opacity, 1)
+  assert.equal(f.bodyAnims.at(-1).frames.at(-1).opacity, 1)
+  f.canvas.__uniSkyModeOff()
+  assert.equal(Number(f.canvas.style.opacity), 1)
+  assert.equal(Number(f.bodyCanvas.style.opacity), 1)
+  f.canvas.__uniSkyMode()
+  renderer.setMode('dark')
+  assert.equal(Number(f.canvas.style.opacity), .341)
+  assert.equal(Number(f.bodyCanvas.style.opacity), .341)
   dispose()
 })
 
@@ -431,8 +480,8 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', as
 
 test('转场途中切亮档：落地按当前档收墨，不被起飞时捕获的旧值压回去', async () => {
   /* 起飞那一帧 toAlpha 是暗档 0.341。飞到一半换成亮档，onMode 把内联和 live.alpha
-     都改成了 0.252（动画在跑，视觉上被 WAAPI 压住，看不出跳）。落地若照旧的 toAlpha
-     写回，对话页此后就一直停在 0.341 —— 亮档却没有亮档该有的淡度，直到下次切页。 */
+     都改成了基准 0.252（盘字另外映射为 .341）。落地按当前档重算，
+     诊断基准仍保留亮档值，盘字保持与暗档相同的实际不透明度。 */
   const f = holeFixture()
   const dispose = f.api.mount()
   await f.settle()
@@ -443,7 +492,7 @@ test('转场途中切亮档：落地按当前档收墨，不被起飞时捕获�
   f.frameAt(1600)
   f.frameAt(2100)
   f.frameAt(2600)
-  assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.252) < 1e-9, `落地要按亮档收墨 0.252，实际 ${f.canvas.style.opacity}`)
+  assert.ok(Math.abs(Number(f.canvas.style.opacity) - 0.341) < 1e-9, `亮档盘字落地不透明度 0.341，实际 ${f.canvas.style.opacity}`)
   assert.ok(Math.abs(hole.stats().alpha - 0.252) < 1e-9, `诊断镜像也要是亮档值，实际 ${hole.stats().alpha}`)
   dispose()
 })

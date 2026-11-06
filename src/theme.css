@@ -478,6 +478,15 @@ body:not([data-ds-dark-theme]) {
  * 上（DSH Web 与桌面端同一内核），这是稳定能力；万一换到不支持的渲染器，后果是这行
  * 字**看不见**（color 已透明、裁剪却没生效）。没有用 @supports 兜底，因为 css.7 只
  * 放行 @property 一种 @ 块，其它 @ 块会被判成非契约选择器 —— 兜底写不进去。 */
+/* dsh-im 渠道会话行：肉眼看到的字不在 span 里（第八十七轮，2026-11-06）
+ * ----------------------------------------------------------------------------
+ * dsh-im 把渠道会话标题做成「原文透明 + ::after 用 attr() 重画」：原文靠
+ * -webkit-text-fill-color: transparent 藏起来，再把去掉「微信 · 」前缀的文字重画在
+ * 22px 处给左侧 logo 让位（该插件 session-channel-logos.js:82-107）。
+ * 于是两条作用在字形上的属性必须跟着换层：写在本层 span 上，镂空挡不住
+ * text-shadow（透明原文以阴影现形，与重画层错位叠字），background-clip:text 也会把
+ * 渐变裁进被 logo 盖住的原文。放大、字距、字重这类可继承属性留在本层不动，重画层自己
+ * 继承，效果与其它会话行一致。 */
 body [data-row-key^='session:']:has([class*='pinIndicator']) > span:nth-child(2) {
   /* 渐变文字的三件套。`color: transparent` 是让字形镂空、由背景图透出来的那块
    * （不是「把字藏起来」：没有 background-clip:text 时它才会真的看不见，见下条注释）。
@@ -487,6 +496,21 @@ body [data-row-key^='session:']:has([class*='pinIndicator']) > span:nth-child(2)
   background-clip: text;
   background-image: var(--uni-pin-flow);
   font-weight: 600;
+}
+
+/* 置顶的 IM 行：渐变挪到重画层。本层摘掉背景裁剪，否则渐变会从被 logo 盖住的原文里
+ * 透出来；重画层自己的 -webkit-text-fill-color 交给我们接管成透明，由渐变填充。 */
+body [data-row-key^='session:']:has([class*='pinIndicator']) > span[data-dsh-im-session-text] {
+  background-image: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+}
+
+body [data-row-key^='session:']:has([class*='pinIndicator']) > span[data-dsh-im-session-text]::after {
+  background-image: var(--uni-pin-flow);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* 外光已撤（2026-11-01 第七十五轮，用户逐字：「只要文字本身变色，其他的都不要！」）。
@@ -3198,9 +3222,21 @@ body[data-uni-motion] [data-row-key^='session:'][aria-selected] > span:nth-of-ty
     text-shadow 200ms ease-out;
 }
 
+/* 选中放大对 IM 行同样生效：font-size / letter-spacing 写在标题 span 上，dsh-im 的
+ * 重画层是它的伪元素，字号与字距一并继承。唯一要换层的是 text-shadow —— 它会穿过
+ * -webkit-text-fill-color: transparent，把藏起来的原文以阴影形式重新画出来，与重画层
+ * 错位叠成两份字（第八十七轮，2026-11-06）。 */
 body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] > span:nth-of-type(2) {
   font-size: 1.08em;
   letter-spacing: 0.02em;
+  text-shadow: 0.45px 0.45px 0 currentColor;
+}
+
+body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] > span[data-dsh-im-session-text] {
+  text-shadow: none;
+}
+
+body[data-uni-motion] [data-row-key^='session:'][aria-selected='true'] > span[data-dsh-im-session-text]::after {
   text-shadow: 0.45px 0.45px 0 currentColor;
 }
 
