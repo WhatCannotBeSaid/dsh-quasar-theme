@@ -1004,7 +1004,7 @@ body [data-composer-card] {
  * 只改模糊与饱和，不挂折射：折射要按每个面的尺寸各画一张位移图（glue.1 的 id 计数会
  * 跟着涨），两片材质厚度一致已经足够读作同一块玻璃。
  * ------------------------------------------------------------------------ */
-body:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'])
+body:has([data-composer-card] [aria-expanded='true']:not([data-uni-mep-group-toggle]), [data-phase='hero'])
   [data-menu-material='translucent'] > [aria-hidden='true'] {
   -webkit-backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
   backdrop-filter: blur(var(--cp-glass-composer)) saturate(135%);
@@ -1073,7 +1073,11 @@ body:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'])
      · 指针落在卡、工作区选择、Agent预设 任一处；
      · 卡里有字（`data-uni-composer-typed`，由 src/client.js 的 `mountComposerTyped()` 打）；
      · 卡内或这两颗的弹层开着（`aria-expanded='true'`；**自己或子孙都算** —— 两半写成两条
-      并列参数，因为 `:has()` 不能嵌套，写不进一条）；
+      并列参数，因为 `:has()` 不能嵌套，写不进一条）；卡内那半排除本主题模型面板自己的
+      分组行 `[data-uni-mep-group-toggle]` —— 2026-11-11 实测：分组行常驻 DOM 且默认展开，
+      恒写 `aria-expanded='true'`，于是「有人在场」永远成立，幽灵态从装上起一次都没出现过。
+      键选主题自己的属性而不是宿主的 `[aria-haspopup]`：宿主那四个触发器带不带 haspopup
+      没量过，拿没量过的契约换一个已经量过的回归，等于换个地方漏。
      · 键盘焦点落在这两颗上（`:focus-visible`）。**卡不参与这一条**：编辑器一挂载就
        拿焦点，而文本输入框天然匹配 `:focus-visible`，让它参与等于把刚出现的页面钉回
        实体态 —— 那正是上一轮修掉的毛病。
@@ -1098,7 +1102,7 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-phase='hero
 body[data-uni-black-hole]:has([data-black-hole-state='ready']) [data-phase='hero'] [data-slot='conversation.hero.agentPreset'] button {
   transition: opacity 200ms linear;
 }
-body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) [data-composer-card] {
+body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true']:not([data-uni-mep-group-toggle]), [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) [data-composer-card] {
   background-color: color-mix(in srgb, var(--dsw-specific-input-major) var(--uni-ghost-mix, 10%), transparent);
   /* 幽灵态下连**外围那一圈**一起去掉 —— 这是 2026-11-01 第六轮的关键发现：
      宿主给卡片的不是纯底色，`InputBar.module.css` 的 `.card`（编译成哈希类，名字不入
@@ -1127,7 +1131,7 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='
 body:not([data-ds-dark-theme]) {
   --uni-ghost-mix: 33%;
 }
-body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) [data-composer-card]::before {
+body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true']:not([data-uni-mep-group-toggle]), [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) [data-composer-card]::before {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -1135,7 +1139,7 @@ body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='
    两点省略要说明：① `> *` 只压一层，不做 `*` 全海选，避免透明度按层数叠乘；
    ② 那两颗没有可缩的填充（撤掉背板后宿主给的就是「无底色，只有字与图标」），
    所以它们的幽灵态就是这一条 —— 不为它们发明底色，也不做 color-mix。 */
-body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) :is([data-composer-card] > *, [data-phase='hero'] button[aria-label='选择工作区'], [data-slot='conversation.hero.agentPreset'] button) {
+body[data-uni-black-hole]:has([data-black-hole-state='ready']):has([data-phase='hero'], [data-phase='settling']):not(:has([data-composer-card]:hover, [data-phase='hero'] button[aria-label='选择工作区']:hover, [data-slot='conversation.hero.agentPreset'] button:hover)):not(:has([data-composer-card][data-uni-composer-typed])):not(:has([data-composer-card] [aria-expanded='true']:not([data-uni-mep-group-toggle]), [data-phase='hero'] button[aria-label='选择工作区'][aria-expanded='true'], [data-phase='hero'] button[aria-label='选择工作区'] [aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button[aria-expanded='true'], [data-slot='conversation.hero.agentPreset'] button [aria-expanded='true'])):not(:has([data-phase='hero'] button[aria-label='选择工作区']:focus-visible, [data-slot='conversation.hero.agentPreset'] button:focus-visible)) :is([data-composer-card] > *, [data-phase='hero'] button[aria-label='选择工作区'], [data-slot='conversation.hero.agentPreset'] button) {
   opacity: 0.55;
 }
 
@@ -2334,13 +2338,9 @@ html[data-windows-titlebar] body:not([data-ds-dark-theme]) {
  *   ② 回排列：删掉本块两条规则 —— 回到 D45 的「设置 1 / 导航 2」，中心差回到 +58.125。
  *   ③ 想让 Web 壳也照此排列：删掉两条选择器的前缀 `html[data-windows-titlebar] `。
  * ------------------------------------------------------------------------ */
-html[data-windows-titlebar] [data-slot='sidebar'] > div > nav {
-  order: 1;
-  margin-top: -6px;
-}
-html[data-windows-titlebar] [data-slot='sidebar'] > div > nav + div ~ div > :nth-child(2) {
-  order: 2;
-}
+/* 2026-11-13：用户要求「算了，就官方默认间距」——放弃 D100 的导航上移与换位，
+ * 删除该规则，间距与排序一律回到官方默认（设置行回到导航上方、导航不再上提）。
+ * 上面 D100 的读数与回滚说明仅作历史保留。 */
 
 /* --------------------------------------------------------------------------
  * 导航末项 → 会话区标题：43.5px → 26px（2026-11-05，D102）
@@ -2357,10 +2357,18 @@ html[data-windows-titlebar] [data-slot='sidebar'] > div > nav + div ~ div > :nth
  * nav 宽度与横排。
  * 回滚 = 删本段。
  * ------------------------------------------------------------------------ */
-html[data-windows-titlebar] [data-slot='sidebar'] > div > nav {
-  margin-bottom: -9.5px;
-  position: relative;
-  z-index: 1;
+/* 2026-11-13：用户要求恢复官方默认间距，D102 的 -9.5px 定制删除，
+ * 导航 → 会话回到官方默认距离。 */
+
+/* 2026-11-13：用户选择「A：补平两段间距」。桌面壳里品牌行被固定进 40px 顶栏带
+ *（见本表品牌行 fixed 规则），脱离文档流，使「品牌 → 导航」与「导航 → 会话」两段
+ * 基准不一。按官方布局推导：titlebar 40 + root padding 6 + scrollRegion margin-top 4
+ * + grid 首行 8 ⇒ nav 顶约 58，品牌行盒底 0.5+40=40.5 ⇒ 上段约 17.5px；下段 =
+ * panelList margin-bottom 8 + grid 第 3 行 2 = 10px。给 nav 加 margin-top:-7.5px，
+ * 把上段压到 10px 与下段相等（margin-top 只改上段，grid 行高自适应后下段仍是 8+2）。
+ * 仅桌面壳生效。若桌面实测仍有偏差，微调此值即可。 */
+html[data-windows-titlebar] [data-slot='sidebar'] nav {
+  margin-top: -7.5px;
 }
 
 /* --------------------------------------------------------------------------
@@ -2421,9 +2429,25 @@ html[data-windows-titlebar] [data-slot='sidebar'] > div > nav {
 [data-slot='settings.launcher'] > button {
   display: none !important;
 }
-[data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='插件'],
-[data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='Plugins'] {
+/* 2026-11-13：0.2.2-rc.2 的 PanelRow 在 nav 与 button 之间插入了 <div.panelEntry>，
+ * 按钮不再是 nav 的直接子元素，原来的 `> div > nav > button` 强结构选择器整条失配，
+ * 插件行重新露出。改以 data-slot 为锚、按钮与 nav 用后代关系，仍只按可访问名
+ *（zh 插件 / en Plugins）藏这一行，其余导航项不动。 */
+[data-slot='sidebar'] nav[aria-label] button:has([data-slot='sidebar.panellist'])[aria-label='插件'],
+[data-slot='sidebar'] nav[aria-label] button:has([data-slot='sidebar.panellist'])[aria-label='Plugins'] {
   display: none !important;
+}
+
+/* 2026-11-13：0.2.2-rc.2 把面板行的悬停/选中底色从 button 挪到了新加的外层
+ * div.panelEntry（`.panelEntry:hover` / `.panelEntryActive` 用 --dsw-alias-interactive-bg-hover）。
+ * 上面的令牌压制名单只列 button 与带角色/data-* 的元素，不含这个无角色 div，
+ * 于是它继承了官方令牌、官方 hover/选中底色照画。这里在侧栏 nav 作用域把该令牌
+ * 压成 transparent，div.panelEntry 与 button.panelRow 一并吃透明：悬停只剩引力
+ * 收束，选中不留底色（选中表达由下面 aria-current='page' 那组接管）。
+ * 选择器不写 [aria-label]：selfcheck css.10 要求带 nav[aria-label] 的规则必须具名。 */
+[data-slot='sidebar'] nav {
+  --dsw-alias-interactive-bg-hover: transparent;
+  --dsw-alias-interactive-bg-hover-accent: transparent;
 }
 
 /* --------------------------------------------------------------------------
@@ -2514,14 +2538,9 @@ html[data-windows-titlebar] [data-slot='sidebar'] > div > nav {
  * 回滚：删掉本节六条规则 → 三处「更多」原样回来（菜单本就一直在，只是重新有了入口），
  * 无需重建、无需重启，刷新页面即可。
  * ------------------------------------------------------------------------ */
-[data-slot='sidebar'] nav button[aria-haspopup='menu'][aria-label='更多'],
-[data-slot='sidebar'] nav button[aria-haspopup='menu'][aria-label='More'],
-[data-slot='conversation.session.header'] button[aria-haspopup='menu'][aria-label^='更多会话视图'],
-[data-slot='conversation.session.header'] button[aria-haspopup='menu'][aria-label^='More conversation views'],
-[data-sidebar-right-guide] button[aria-haspopup='menu'][aria-label='更多工具'],
-[data-sidebar-right-guide] button[aria-haspopup='menu'][aria-label='More tools'] {
-  display: none !important;
-}
+/* 2026-11-13：用户要求「把『更多』恢复，不要隐藏了」——删除本节六条隐藏规则，
+ * 左栏导航「更多」、会话头「更多会话视图」、右栏「更多工具」三处入口全部恢复
+ * 官方默认（菜单本就一直在，只是重新有了触发器）。上面的成因说明仅作历史保留。 */
 
 /* --------------------------------------------------------------------------
  * 新建会话页（hero）：德语 headline / 去掉「预览版」/ 去掉图形 logo
@@ -3169,6 +3188,26 @@ body[data-uni-motion] [role='option'][aria-selected='true'] > span {
   transition: font-size 200ms ease-out;
 }
 
+/* 2026-11-13：0.2.2-rc.2 的导航面板按钮用 aria-current='page'（旧版是 'true'），
+ * 上面的 [aria-current='true'] 选中钩子命不中它。这里按 'page' 补一组，限定在
+ * 侧栏 nav 内，表达式与上面同一套：字距 0.02em、单层单向偏移影、标题 span 放大
+ * 1.08em，底色/边框显式压平。:not(:has(svg)) 只放大文字 span，不缩放图标槽。
+ * 选择器不写 [aria-label]：避免被 selfcheck css.10 误判为「藏行未具名」。 */
+body[data-uni-motion] [data-slot='sidebar'] nav button[aria-current='page'] {
+  letter-spacing: 0.02em;
+  text-shadow: 0.45px 0.45px 0 currentColor;
+  background-color: transparent;
+  border-color: transparent;
+  transition: letter-spacing 200ms ease-out, text-shadow 200ms ease-out;
+}
+body[data-uni-motion] [data-slot='sidebar'] nav button[aria-current='page'] > span:not(:has(svg)) {
+  font-size: 1.08em;
+  transition: font-size 200ms ease-out;
+}
+
+/* transition 不继承；导航标题 span 的字号过渡须单独关闭，保留选中终态。 */
+body[data-uni-motion='reduced'] [data-slot='sidebar'] nav button[aria-current='page'],
+body[data-uni-motion='reduced'] [data-slot='sidebar'] nav button[aria-current='page'] > span:not(:has(svg)),
 body[data-uni-motion='reduced'] [aria-current='true']:not([data-row-key]),
 body[data-uni-motion='reduced'] [role='menuitemradio'][aria-checked='true'],
 body[data-uni-motion='reduced'] [role='radio'][aria-checked='true'],

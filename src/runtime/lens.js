@@ -9,6 +9,9 @@
      * R/G 两个通道就是 x/y 位移，浏览器原生完成采样。探针实测（2026-10-30，
      * uni-lens-probe.html）backdrop-filter: url(#id) 在 Electron 里生效、
      * CSS.supports 返回 true、开关两档都是 160fps（worst 6.5ms），没有可测代价。
+     * 那套脚手架（宿主 <svg> → filter → 尺寸监听 → 挂载扫描 → 卸载）已抽取到
+     * src/runtime/displacement-mount.js（uniMountDisplacement），与 glass.js 共用；
+     * 本文件只保留透镜特有的目标清单、峰值与位移图 lensMap。
      *
      * 与 glass.js 的三点不同：
      *   ① 图是径向的（向心），不是四周倒角；位移方向指向元素中心。
@@ -22,14 +25,6 @@
      * 34px ⇒ 5.1px。位移图边长把峰值算进 region，所以被采样的像素一定存在。
      */
     function mountHoverLens() {
-        if (typeof document === 'undefined') return undefined
-        var root = document.body || document.documentElement
-        var disposed = false
-        var frame = null
-        var NS = 'http://www.w3.org/2000/svg'
-        var two = function (value) { return Math.round(value * 100) / 100 }
-        var pct = function (part, whole) { return two(part / whole * 100) + '%' }
-
         /* 两个主角（设计第三条）。行与发送键各一张图：尺寸差一个数量级，一张图
            撑不到两种几何上。会话行只认 session: 前缀 —— 侧栏里 workspace 与
            overflow 两种行也带 [data-row-key]，但它们不是主角。 */
@@ -85,125 +80,20 @@
           return canvas.toDataURL('image/png')
         }
 
-        var host = document.createElementNS(NS, 'svg')
-        host.setAttribute('id', 'uni-lens-defs')
-        host.setAttribute('aria-hidden', 'true')
-        host.setAttribute('focusable', 'false')
-        host.setAttribute('style',
-          'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none')
-
-        var states = []
-        for (var i = 0; i < targets.length; i += 1) {
-          var target = targets[i]
-          var filter = document.createElementNS(NS, 'filter')
-          filter.setAttribute('id', target.id)
-          /* sRGB：线性光下算位移会把弯折放到错的位置（glass.js 同一条）。 */
-          filter.setAttribute('color-interpolation-filters', 'sRGB')
-          var image = document.createElementNS(NS, 'feImage')
-          image.setAttribute('preserveAspectRatio', 'none')
-          image.setAttribute('result', 'lens-map')
-          var shift = document.createElementNS(NS, 'feDisplacementMap')
-          shift.setAttribute('in', 'SourceGraphic')
-          shift.setAttribute('in2', 'lens-map')
-          shift.setAttribute('xChannelSelector', 'R')
-          shift.setAttribute('yChannelSelector', 'G')
-          filter.appendChild(image)
-          filter.appendChild(shift)
-          host.appendChild(filter)
-          states.push({ target: target, els: [], size: '', filter: filter, image: image, shift: shift })
-        }
-        root.appendChild(host)
-
-        var paint = function (state) {
-          if (disposed || state.els.length === 0) return
-          var box = state.els[0].getBoundingClientRect()
-          var w = Math.round(box.width)
-          var h = Math.round(box.height)
-          if (w < 8 || h < 8) return
-          var peak = peakOf(w, h)
-          var key = w + 'x' + h + '@' + peak
-          if (key === state.size) return
-          state.size = key
-          /* 滤镜区域向外扩一个峰值，位移采样才拿得到边界外的像素。 */
-          state.filter.setAttribute('x', pct(-peak, w))
-          state.filter.setAttribute('y', pct(-peak, h))
-          state.filter.setAttribute('width', pct(w + 2 * peak, w))
-          state.filter.setAttribute('height', pct(h + 2 * peak, h))
-          state.shift.setAttribute('scale', String(2 * peak))
-          state.image.setAttribute('href', lensMap(w, h, peak))
-        }
-
-        var watcher = typeof ResizeObserver === 'function' ? new ResizeObserver(function (entries) {
-          /* 同 glass.js：一个 state 一张图，本批首次命中时画，后续命中跳过；
-             Set 只活在这个回调里。 */
-          var done = new Set()
-          for (var e = 0; e < entries.length; e += 1) {
-            for (var s = 0; s < states.length; s += 1) {
-              if (states[s].els.indexOf(entries[e].target) === -1) continue
-              if (done.has(states[s])) continue
-              done.add(states[s])
-              paint(states[s])
-            }
+        return uniMountDisplacement({
+          hostId: 'uni-lens-defs',
+          mapName: 'lens-map',
+          targets: targets,
+          key: function (state, w, h) { return w + 'x' + h + '@' + peakOf(w, h) },
+          draw: function (state, w, h) {
+            var peak = peakOf(w, h)
+            /* 滤镜区域向外扩一个峰值，位移采样才拿得到边界外的像素。 */
+            state.filter.setAttribute('x', uniPct(-peak, w))
+            state.filter.setAttribute('y', uniPct(-peak, h))
+            state.filter.setAttribute('width', uniPct(w + 2 * peak, w))
+            state.filter.setAttribute('height', uniPct(h + 2 * peak, h))
+            state.shift.setAttribute('scale', String(2 * peak))
+            state.image.setAttribute('href', lensMap(w, h, peak))
           }
-        }) : null
-
-        /* 挂载扫描与 glass.js 同一套：会话行是列表虚拟化出来的，一次查询抓不全，
-           用 MutationObserver 只在「新增/移除的节点可能匹配」时补一次扫描。 */
-        var scan = function () {
-          if (disposed) return
-          for (var s = 0; s < states.length; s += 1) {
-            var state = states[s]
-            var found = document.querySelectorAll(state.target.selector)
-            var next = []
-            var changed = found.length !== state.els.length
-            for (var f = 0; f < found.length; f += 1) {
-              if (state.els.indexOf(found[f]) === -1) {
-                if (watcher !== null) watcher.observe(found[f])
-                changed = true
-              }
-              next.push(found[f])
-            }
-            for (var g = 0; g < state.els.length; g += 1) {
-              if (next.indexOf(state.els[g]) === -1) {
-                if (watcher !== null) watcher.unobserve(state.els[g])
-                changed = true
-              }
-            }
-            state.els = next
-            if (changed) {
-              state.size = ''
-              paint(state)
-            }
-          }
-        }
-
-        /* 2026-11-02：判定本体与 glass.js 共用 src/runtime/mutation-records.js 的
-           uniMutationTouches，两份逐字节相同的实现只留一处。 */
-        var mounted = function (records) {
-          for (var s = 0; s < states.length; s += 1) {
-            if (uniMutationTouches(records, states[s].target.selector)) return true
-          }
-          return false
-        }
-
-        var queued = false
-        var mounts = typeof MutationObserver === 'function' ? new MutationObserver(function (records) {
-          if (disposed || !mounted(records)) return
-          if (queued) return
-          queued = true
-          frame = window.requestAnimationFrame(function () { frame = null; queued = false; scan() })
-        }) : null
-        if (mounts !== null) {
-          mounts.observe(root, { childList: true, subtree: true })
-        }
-        scan()
-
-        return () => {
-          disposed = true
-          if (frame !== null) window.cancelAnimationFrame(frame)
-          frame = null
-          if (mounts !== null) mounts.disconnect()
-          if (watcher !== null) watcher.disconnect()
-          host.remove()
-        }
+        })
     }

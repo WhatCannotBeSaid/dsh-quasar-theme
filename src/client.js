@@ -615,42 +615,8 @@
 
       ctx.effect(() => deferEffect(() => mountCentredPanels()), 'universe: centred panels')
 
-      /* ------------------------------------------------------------------------
-         Round 65 (2026-11-01) -- the composer's "has text" state, for the hero page's
-         ghost card.
-
-         The ghost card (src/theme.css, the composer-card block) thins to a ~0.10 fill
-         while the pointer is away and comes back on ':hover' / ':focus-within'. The
-         third condition the design tree agreed on -- "there is text in the card" --
-         cannot be a selector: the composer is a Lexical editor,
-         'div[role="textbox"][data-composer-input="true"]', not a textarea. There is no
-         ':placeholder-shown' to test, and the empty editor still carries a
-         '<p><br></p>' body, so its 'textContent' is not empty either.
-
-         So the fact is published as an attribute, 'data-uni-composer-typed', and the
-         sheet tests only that. Keeping the read here rather than in CSS keeps the
-         "is this empty?" judgement in one place: the editor's ways of saying "empty"
-         (a zero-width space, a placeholder node, a stray <br>) are exactly what a
-         selector would get subtly wrong.
-
-         Why these three events and no MutationObserver. 'input' fires on typing,
-         paste and undo -- every path that changes text. 'focusin'/'focusout' re-check
-         at the two moments text can change with no 'input' in between (Lexical
-         normalising on blur, a draft landing as the card takes focus). An observer
-         would be the complete answer, but it would fire on every streamed token of
-         every conversation, while this state is only ever read by a rule already gated
-         on the hero page -- a cost with no reader.
-
-         Reads are batched into one animation frame: Lexical mutates its DOM during
-         the 'input' handler's own turn, and the frame after is when those mutations
-         have landed. Nothing is written when the answer has not changed, so a card
-         that is not being typed into produces no attribute writes at all.
-
-         Known bound: a card prefilled by something that fires none of the three events
-         (a restored draft landing while the page is already unfocused) keeps the ghost
-         fill until the reader touches it. Every user-driven path hits one of the
-         three. */
-      /* 2026-11-02: moved to src/runtime/composer-typed.js (mountComposerTyped). */
+      /* Round 65 (2026-11-01) -- the composer's "has text" state. The implementation and
+         its full rationale live in src/runtime/composer-typed.js (mountComposerTyped). */
       ctx.effect(() => deferEffect(() => mountComposerTyped()), 'universe: composer typed state')
 
       /* Read-only surface for troubleshooting and for the delivery docs. */

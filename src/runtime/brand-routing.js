@@ -28,7 +28,7 @@
       /* The panel row the sheet hides by its two accessible names (zh 插件 / en
        * Plugins); the same pair of selectors lives in src/theme.css and in the css.10
        * assertion, so the three move together. */
-      var PANEL_ROW = "[data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='插件'], [data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='Plugins']"
+      var PANEL_ROW = "[data-slot='sidebar'] nav[aria-label] button:has([data-slot='sidebar.panellist'])[aria-label='插件'], [data-slot='sidebar'] nav[aria-label] button:has([data-slot='sidebar.panellist'])[aria-label='Plugins']"
 
       /* The settings command by its other door. dsh-client-shortcuts declares a map
          per receiving device and the two maps disagree on this one command: the

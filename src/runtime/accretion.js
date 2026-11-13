@@ -138,53 +138,19 @@
     }
 
     function mountAccretion() {
-        if (typeof document === 'undefined' || typeof window === 'undefined') return undefined
-        if (typeof window.requestAnimationFrame !== 'function') return undefined
-
         var SEL = "svg[data-state='ongoing']"
-        var SVG_NS = 'http://www.w3.org/2000/svg'
-        var rows = []
-        var raf = 0
-        var ticks = 0
-        var dirty = true
-        var disposed = false
-        var observer = null
-        /* 动效开关有两个来源：body[data-uni-motion] 的 DOM 观察器，以及系统的
-           prefers-reduced-motion。两个都只负责 kick，跑不跑由 isReduced 判定。 */
-        var pref = null
-        var prefQuery = null
-        var onPref = function () { }
-
-        /* 与 theme.css 的兜底规则同源：一个属性决定跑还是停。 */
-        var isReduced = function () {
-            return document.body !== null && document.body.dataset !== undefined &&
-                document.body.dataset.uniMotion === 'reduced'
-        }
-
-        var make = function (name, attrs) {
-            var el = document.createElementNS(SVG_NS, name)
-            for (var key in attrs) {
-                if (Object.prototype.hasOwnProperty.call(attrs, key)) el.setAttribute(key, attrs[key])
-            }
-            return el
-        }
-
-        var nowMs = function () {
-            return typeof performance !== 'undefined' && typeof performance.now === 'function'
-                ? performance.now()
-                : Date.now()
-        }
 
         /* 一次装配：一个缩放组 + 四段弧（一段头、三段尾）。官方那两枚圆被样式表藏起来，
            这里只需要往同一个 svg 里追加；宿主复用节点时靠 rows 里的记录认出同一行。 */
-        var attach = function (svg, previous) {
+        var attach = function (svg, previous, api) {
+            var make = api.make
             var g = make('g', { class: 'uni-acc', transform: 'scale(' + UNI_ACC_K + ')' })
             var arcs = []
             for (var i = 0; i <= UNI_ACC_TAIL_DECAY.length; i += 1) {
                 arcs.push(make('path', { class: i === 0 ? 'uni-acc-arc uni-acc-arc-head' : 'uni-acc-arc uni-acc-arc-tail' }))
                 g.appendChild(arcs[i])
             }
-            var now = nowMs()
+            var now = api.nowMs()
             var row = {
                 svg: svg,
                 host: typeof svg.closest === 'function' ? svg.closest('[data-row-key]') : null,
@@ -193,7 +159,7 @@
                 born: previous === null ? now : previous.born
             }
             row.key = row.host === null ? null : row.host.getAttribute('data-row-key')
-            if (isReduced()) paintStill(row)
+            if (api.isReduced()) paintStill(row)
             else paint(row, ((now - row.born) % UNI_ACC_CYCLE) / UNI_ACC_CYCLE)
             svg.appendChild(g)
             return row
@@ -217,115 +183,43 @@
             paint(row, UNI_ACC_STILL_T)
         }
 
-        var sync = function () {
-            var live = document.querySelectorAll(SEL)
-            var next = []
-            for (var i = 0; i < live.length; i += 1) {
-                var svg = live[i]
-                var host = typeof svg.closest === 'function' ? svg.closest('[data-row-key]') : null
-                var key = host === null ? null : host.getAttribute('data-row-key')
-                var found = null
+        return uniStatusRowMount({
+            select: SEL,
+            watchReducedMedia: true,
+            /* 按 node、host、key 认行；同一行换 SVG 时用 host+key 续相位。 */
+            find: function (rows, node, host, key) {
                 for (var j = 0; j < rows.length; j += 1) {
-                    if (rows[j].svg === svg && rows[j].host === host && rows[j].key === key) { found = rows[j]; break }
+                    if (rows[j].svg === node && rows[j].host === host && rows[j].key === key) return rows[j]
                 }
-                /* 同一行重建 SVG 时延续相位；key 同时校验，虚拟列表复用行不串相位。 */
-                if (found === null && host !== null) {
+                if (host !== null) {
                     for (var k = 0; k < rows.length; k += 1) {
-                        if (rows[k].host === host && rows[k].key === key) {
-                            found = rows[k]
-                            break
-                        }
+                        if (rows[k].host === host && rows[k].key === key) return rows[k]
                     }
                 }
-                if (found === null || found.svg !== svg || found.g.parentNode !== svg) found = attach(svg, found)
-                next.push(found)
-            }
-            for (var m = 0; m < rows.length; m += 1) {
-                if (next.indexOf(rows[m]) < 0 && rows[m].g.parentNode !== null) rows[m].g.parentNode.removeChild(rows[m].g)
-            }
-            rows = next
-        }
-
-        var frame = function (now) {
-            if (disposed) return
-            raf = 0
-            if (dirty) {
-                dirty = false
-                sync()
-            }
-            ticks += 1
+                return null
+            },
+            needsAttach: function (found, node) {
+                return found === null || found.svg !== node || found.g.parentNode !== node
+            },
+            attach: attach,
+            detach: function (row) {
+                if (row.g.parentNode !== null) row.g.parentNode.removeChild(row.g)
+            },
             /* 静态模式与「没有 running 行」都不留 RAF 循环：前者每帧画同一帧是纯烧电，
                后者根本没人看。状态一变由观察器/prof 回调 kick 起来。 */
-            if (isReduced() || rows.length === 0) {
-                for (var i = 0; i < rows.length; i += 1) paintStill(rows[i])
-                return
+            frame: function (now, api) {
+                if (api.isDirty()) { api.clearDirty(); api.sync() }
+                api.bumpTicks()
+                var rows = api.rows()
+                if (api.isReduced() || rows.length === 0) {
+                    for (var i = 0; i < rows.length; i += 1) paintStill(rows[i])
+                    return
+                }
+                for (var j = 0; j < rows.length; j += 1) {
+                    var row = rows[j]
+                    paint(row, ((now - row.born) % UNI_ACC_CYCLE) / UNI_ACC_CYCLE)
+                }
+                api.nextFrame()
             }
-            for (var j = 0; j < rows.length; j += 1) {
-                var row = rows[j]
-                paint(row, ((now - row.born) % UNI_ACC_CYCLE) / UNI_ACC_CYCLE)
-            }
-            raf = window.requestAnimationFrame(frame)
-        }
-
-        /* 变更一律同步认一次（sync 便宜且必须及时）：样式表在我们挂上 g.uni-acc 的同一帧就把
-           官方那环藏了，若等下一次 rAF 才补图形，那一格会是空的。 */
-        var kick = function () {
-            if (disposed) return
-            dirty = true
-            sync()
-            dirty = false
-            if (raf === 0) raf = window.requestAnimationFrame(frame)
-        }
-
-        sync()
-        /* 观察器是全局构造器（fixture 也按全局提供），不是 window 上的属性。 */
-        if (typeof MutationObserver === 'function') {
-            /* 同 kepler：只有可能改变 SEL 命中的批次才同步，规则与边界见
-               uniStatusMutationTouches。属性批次（data-state / data-row-key）一律算相关。 */
-            observer = new MutationObserver(function (records) {
-                if (!disposed && uniStatusMutationTouches(records, SEL)) kick()
-            })
-            observer.observe(document.documentElement, {
-                subtree: true,
-                childList: true,
-                attributes: true,
-                attributeFilter: ['data-state', 'data-row-key']
-            })
-            /* 动效开关写在 body 的属性上：它决定跑不跑，所以单独盯一个观察器。 */
-            if (document.body !== null) {
-                pref = new MutationObserver(function () { kick() })
-                pref.observe(document.body, {
-                    attributes: true,
-                    attributeFilter: ['data-uni-motion']
-                })
-            }
-        }
-        if (typeof window.matchMedia === 'function') {
-            prefQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
-            onPref = function () { kick() }
-            if (typeof prefQuery.addEventListener === 'function') prefQuery.addEventListener('change', onPref)
-            else if (typeof prefQuery.addListener === 'function') prefQuery.addListener(onPref)
-        }
-        /* 挂载末尾不再 kick：上面那次 sync() 已经把图形写好，kick 会再扫一遍，并把 dirty 留给
-           首个 frame 扫第三遍。这里只清掉已消费的 dirty，按原来的条件请求首帧 ——
-           首帧仍照常决定停不停（reduced 或没有 ongoing 行时它画完静止帧就退出）。 */
-        dirty = false
-        if (raf === 0) raf = window.requestAnimationFrame(frame)
-
-        return function () {
-            if (disposed) return
-            disposed = true
-            if (raf !== 0) window.cancelAnimationFrame(raf)
-            raf = 0
-            if (observer !== null) observer.disconnect()
-            if (pref !== null) pref.disconnect()
-            if (prefQuery !== null) {
-                if (typeof prefQuery.removeEventListener === 'function') prefQuery.removeEventListener('change', onPref)
-                else if (typeof prefQuery.removeListener === 'function') prefQuery.removeListener(onPref)
-            }
-            for (var i = 0; i < rows.length; i += 1) {
-                if (rows[i].g.parentNode !== null) rows[i].g.parentNode.removeChild(rows[i].g)
-            }
-            rows = []
-        }
+        })
     }

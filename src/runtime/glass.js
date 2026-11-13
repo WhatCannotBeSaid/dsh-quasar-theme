@@ -1,17 +1,11 @@
 /* Private factory input; concatenated by CLIENT_FILES, not a public module. */
+    /* 液体玻璃（2026-10-07，第二十四轮）。
+     *
+     * 宿主 <svg> → <filter>/<feImage>/<feDisplacementMap> → 尺寸监听 → 挂载扫描 →
+     * 卸载这一整套脚手架已抽取到 src/runtime/displacement-mount.js（uniMountDisplacement），
+     * 与 lens.js 共用。本文件只保留玻璃特有的两样：目标清单，和 glass 的位移图 glassMap。
+     */
     function mountLiquidGlass() {
-        if (typeof document === 'undefined') return undefined
-        var root = document.body || document.documentElement
-        var disposed = false
-        var frame = null
-        var NS = 'http://www.w3.org/2000/svg'
-        /* The filter region reaches exactly one bevel past the element on every side, so
-           the pixels the rim samples exist as backdrop; it is set from the measured size
-           in paint(), because a percentage of the box cannot express a bevel that stays
-           constant in px. */
-        var two = function (value) { return Math.round(value * 100) / 100 }
-        var pct = function (part, whole) { return two(part / whole * 100) + '%' }
-
         /* 2026-10-07: the command window's target was removed with its paint rule —
            the user asked for the task panel's material, and TodoPanel declares no
            refraction. The composer and, since the borderless round, the right
@@ -60,18 +54,18 @@
             + '<defs>'
             + '<linearGradient id="h" x1="0" y1="0" x2="1" y2="0">'
             + '<stop offset="0" stop-color="rgb(0,0,0)"/>'
-            + '<stop offset="' + pct(bx, W) + '" stop-color="rgb(0,0,0)"/>'
-            + '<stop offset="' + pct(2 * bx, W) + '" stop-color="rgb(128,0,0)"/>'
-            + '<stop offset="' + pct(W - 2 * bx, W) + '" stop-color="rgb(128,0,0)"/>'
-            + '<stop offset="' + pct(W - bx, W) + '" stop-color="rgb(255,0,0)"/>'
+            + '<stop offset="' + uniPct(bx, W) + '" stop-color="rgb(0,0,0)"/>'
+            + '<stop offset="' + uniPct(2 * bx, W) + '" stop-color="rgb(128,0,0)"/>'
+            + '<stop offset="' + uniPct(W - 2 * bx, W) + '" stop-color="rgb(128,0,0)"/>'
+            + '<stop offset="' + uniPct(W - bx, W) + '" stop-color="rgb(255,0,0)"/>'
             + '<stop offset="1" stop-color="rgb(255,0,0)"/>'
             + '</linearGradient>'
             + '<linearGradient id="v" x1="0" y1="0" x2="0" y2="1">'
             + '<stop offset="0" stop-color="rgb(0,0,0)"/>'
-            + '<stop offset="' + pct(by, H) + '" stop-color="rgb(0,0,0)"/>'
-            + '<stop offset="' + pct(2 * by, H) + '" stop-color="rgb(0,128,0)"/>'
-            + '<stop offset="' + pct(H - 2 * by, H) + '" stop-color="rgb(0,128,0)"/>'
-            + '<stop offset="' + pct(H - by, H) + '" stop-color="rgb(0,255,0)"/>'
+            + '<stop offset="' + uniPct(by, H) + '" stop-color="rgb(0,0,0)"/>'
+            + '<stop offset="' + uniPct(2 * by, H) + '" stop-color="rgb(0,128,0)"/>'
+            + '<stop offset="' + uniPct(H - 2 * by, H) + '" stop-color="rgb(0,128,0)"/>'
+            + '<stop offset="' + uniPct(H - by, H) + '" stop-color="rgb(0,255,0)"/>'
             + '<stop offset="1" stop-color="rgb(0,255,0)"/>'
             + '</linearGradient>'
             + '</defs>'
@@ -81,144 +75,24 @@
           return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
         }
 
-        var host = document.createElementNS(NS, 'svg')
-        host.setAttribute('id', 'uni-lg-defs')
-        host.setAttribute('aria-hidden', 'true')
-        host.setAttribute('focusable', 'false')
-        host.setAttribute('style',
-          'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none')
-
-        var states = []
-        for (var i = 0; i < targets.length; i += 1) {
-          var target = targets[i]
-          var filter = document.createElementNS(NS, 'filter')
-          filter.setAttribute('id', target.id)
-          /* sRGB, or the displacement maths happens in linear light and the bend
-             lands in the wrong place. */
-          filter.setAttribute('color-interpolation-filters', 'sRGB')
-          var image = document.createElementNS(NS, 'feImage')
-          image.setAttribute('preserveAspectRatio', 'none')
-          image.setAttribute('result', 'glass-map')
-          var shift = document.createElementNS(NS, 'feDisplacementMap')
-          shift.setAttribute('in', 'SourceGraphic')
-          shift.setAttribute('in2', 'glass-map')
-          shift.setAttribute('scale', String(target.scale))
-          shift.setAttribute('xChannelSelector', 'R')
-          shift.setAttribute('yChannelSelector', 'G')
-          filter.appendChild(image)
-          filter.appendChild(shift)
-          host.appendChild(filter)
-          states.push({ target: target, els: [], size: '', filter: filter, image: image })
-        }
-        root.appendChild(host)
-
-        /* Draw only when the pixel size actually changed: a sub-pixel reflow would
-           otherwise rebuild a ~1 KB data URL on every frame of a resize. The bevel may
-           not eat more than a third of the element, so a surface narrower than three
-           bevels still gets a (proportionally smaller) bend instead of a broken map.
-           els[0] is the map's geometry source: one filter id carries one map, and a
-           multi-element target is one geometry by construction (see targets). */
-        var paint = function (state) {
-          if (disposed || state.els.length === 0) return
-          var box = state.els[0].getBoundingClientRect()
-          var w = Math.round(box.width)
-          var h = Math.round(box.height)
-          if (w < 8 || h < 8) return
-          var key = w + 'x' + h
-          if (key === state.size) return
-          state.size = key
-          var bx = Math.max(2, Math.min(state.target.bezel, Math.round(w / 3)))
-          var by = Math.max(2, Math.min(state.target.bezel, Math.round(h / 3)))
-          state.filter.setAttribute('x', pct(-bx, w))
-          state.filter.setAttribute('y', pct(-by, h))
-          state.filter.setAttribute('width', pct(w + 2 * bx, w))
-          state.filter.setAttribute('height', pct(h + 2 * by, h))
-          state.image.setAttribute('href', glassMap(w, h, bx, by))
-        }
-
-        var watcher = typeof ResizeObserver === 'function' ? new ResizeObserver(function (entries) {
-          /* 一批里同一个 state 可能被多个 entry 命中（guide 的六行共用一张图）。
-             图只有一张、几何只认 els[0]，所以每个 state 本批只处理一次；Set 以
-             state 身份为准，局部变量，回调结束即丢，下一批照常重新处理。 */
-          var done = new Set()
-          for (var e = 0; e < entries.length; e += 1) {
-            for (var s = 0; s < states.length; s += 1) {
-              if (states[s].els.indexOf(entries[e].target) === -1) continue
-              if (done.has(states[s])) continue
-              done.add(states[s])
-              paint(states[s])
-            }
+        return uniMountDisplacement({
+          hostId: 'uni-lg-defs',
+          mapName: 'glass-map',
+          targets: targets,
+          /* glass 的 scale 由目标固定，建立时定一次，之后不随尺寸变。 */
+          init: function (state) { state.shift.setAttribute('scale', String(state.target.scale)) },
+          key: function (state, w, h) { return w + 'x' + h },
+          /* The bevel may not eat more than a third of the element, so a surface
+             narrower than three bevels still gets a (proportionally smaller) bend
+             instead of a broken map. */
+          draw: function (state, w, h) {
+            var bx = Math.max(2, Math.min(state.target.bezel, Math.round(w / 3)))
+            var by = Math.max(2, Math.min(state.target.bezel, Math.round(h / 3)))
+            state.filter.setAttribute('x', uniPct(-bx, w))
+            state.filter.setAttribute('y', uniPct(-by, h))
+            state.filter.setAttribute('width', uniPct(w + 2 * bx, w))
+            state.filter.setAttribute('height', uniPct(h + 2 * by, h))
+            state.image.setAttribute('href', glassMap(w, h, bx, by))
           }
-        }) : null
-
-        /* The app mounts its shell asynchronously, so a one-shot lookup would miss a
-           surface that is not there yet. Cheap re-scan, coalesced to one per frame.
-           A target may own several elements (the guide's six rows), so this walks the
-           whole match set: new nodes get observed, departing ones unobserved, and the
-           map is redrawn only when the set actually changed; clearing that size on every
-           scan would rebuild a ~1 KB data URL on every frame: the cached size survives
-           an unchanged set. */
-        var scan = function () {
-          if (disposed) return
-          for (var s = 0; s < states.length; s += 1) {
-            var state = states[s]
-            var found = document.querySelectorAll(state.target.selector)
-            var next = []
-            var changed = found.length !== state.els.length
-            for (var f = 0; f < found.length; f += 1) {
-              if (state.els.indexOf(found[f]) === -1) {
-                if (watcher !== null) watcher.observe(found[f])
-                changed = true
-              }
-              next.push(found[f])
-            }
-            for (var g = 0; g < state.els.length; g += 1) {
-              if (next.indexOf(state.els[g]) === -1) {
-                if (watcher !== null) watcher.unobserve(state.els[g])
-                changed = true
-              }
-            }
-            state.els = next
-            if (changed) {
-              /* The set is the trigger. An unchanged set means no geometry moved here, and
-                 the read inside paint() would force a layout to redraw a map nobody asked
-                 to redraw -- on a streaming reply that is a forced layout on every frame.
-                 A real resize is the ResizeObserver's business: it calls paint() itself. */
-              state.size = ''
-              paint(state)
-            }
-          }
-        }
-
-        /* The scan exists to catch a surface that has just been mounted, so it only has to
-           run when a batch could have mounted or unmounted one. The added/removed-node test
-           that decides this is shared with lens.js: see uniMutationTouches in
-           src/runtime/mutation-records.js. */
-        var mounted = function (records) {
-          for (var s = 0; s < states.length; s += 1) {
-            if (uniMutationTouches(records, states[s].target.selector)) return true
-          }
-          return false
-        }
-
-        var queued = false
-        var mounts = typeof MutationObserver === 'function' ? new MutationObserver(function (records) {
-          if (disposed || !mounted(records)) return
-          if (queued) return
-          queued = true
-          frame = window.requestAnimationFrame(function () { frame = null; queued = false; scan() })
-        }) : null
-        if (mounts !== null) {
-          mounts.observe(root, { childList: true, subtree: true })
-        }
-        scan()
-
-        return () => {
-          disposed = true
-          if (frame !== null) window.cancelAnimationFrame(frame)
-          frame = null
-          if (mounts !== null) mounts.disconnect()
-          if (watcher !== null) watcher.disconnect()
-          host.remove()
-        }
+        })
     }

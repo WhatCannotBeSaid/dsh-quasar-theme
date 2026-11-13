@@ -668,6 +668,17 @@ checks.check('css.10', 'the plugins row is hidden by name, not by position', () 
   return named.length >= 2 || `only ${named.length} of the row's two labels are named`
 })
 
+checks.check('css.nav-reduced', 'reduced motion disables navigation selection transitions on the button and title', () => {
+  const sheet = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const button = "body[data-uni-motion='reduced'] [data-slot='sidebar'] nav button[aria-current='page']"
+  const selectors = [button, `${button} > span:not(:has(svg))`]
+  const rules = [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  return selectors.every(selector => rules.some(([, head, declarations]) =>
+    head.split(',').some(entry => entry.trim() === selector) &&
+    /(?:^|;)\s*transition:\s*none(?:\s*!important)?\s*;/.test(declarations))) ||
+    'navigation selection needs a reduced-motion override on both button and title span'
+})
+
 checks.check('css.11', 'the workspace pin button is styled by contract, not by hash class', () => {
   /* Round 39 (2026-10-09). The button is injected by src/client.js, so the only thing this
    * sheet may key on is the theme's own data attribute -- a CSS-Modules class name would

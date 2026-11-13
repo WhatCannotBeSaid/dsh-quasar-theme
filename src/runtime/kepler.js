@@ -103,48 +103,19 @@
     }
 
     function mountKepler() {
-        if (typeof document === 'undefined' || typeof window === 'undefined') return undefined
-        if (typeof window.requestAnimationFrame !== 'function') return undefined
-
         /* 只认会话行前导格里的那一枚。会话行自带 data-row-key='session:<id>'，而悬停卡
            是 portal 出去的、没有这个祖先，所以卡片里那枚同样的 warning 点不会被接管。 */
         var SEL = "[data-row-key^='session:'] span[data-state='warning']"
-        var SVG_NS = 'http://www.w3.org/2000/svg'
-        var rows = []
-        var raf = 0
-        var ticks = 0
-        var dirty = true
-        var disposed = false
-        var observer = null
-        var pref = null
-
-        var nowMs = function () {
-            return typeof performance !== 'undefined' && typeof performance.now === 'function'
-                ? performance.now()
-                : Date.now()
-        }
-
         /* 全行共用的原点：第一帧定下来，之后不再变 —— 中途挂上来的行直接接进同一相位。 */
-        var origin = nowMs()
-
-        /* 与 theme.css 的兜底规则同源：一个属性决定跑还是停。 */
-        var isReduced = function () {
-            return document.body !== null && document.body.dataset !== undefined &&
-                document.body.dataset.uniMotion === 'reduced'
-        }
-
-        var make = function (name, attrs) {
-            var el = document.createElementNS(SVG_NS, name)
-            for (var key in attrs) {
-                if (Object.prototype.hasOwnProperty.call(attrs, key)) el.setAttribute(key, attrs[key])
-            }
-            return el
-        }
+        var origin = 0
 
         /* 一次装配：一枚静止的椭圆 + 一颗会走的光点。官方那枚 span 自己留作宿主 ——
            它的 ::after 是官方点，样式表在 :has(> svg.uni-kep) 成立时把它关掉，于是
            「我们挂上来了」和「官方点让位」是同一件事，中间没有空帧。 */
-        var attach = function (marker) {
+        var attach = function (marker, found, api) {
+            /* 宿主换了节点（虚拟列表复用行）：旧的那枚先摘掉，免得一个格子里塞两个。 */
+            if (found !== null && found.svg.parentNode !== null) found.svg.parentNode.removeChild(found.svg)
+            var make = api.make
             var svg = make('svg', {
                 class: 'uni-kep',
                 viewBox: '0 0 ' + (UNI_KEP_CX * 2) + ' ' + (UNI_KEP_CY * 2),
@@ -172,8 +143,8 @@
                 dot: dot
             }
             /* 先绘制再挂载：样式表关掉官方点的那一帧，光点已经在轨道上。 */
-            if (isReduced()) paintStill(row)
-            else paint(row, Math.max(0, nowMs() - origin) / UNI_KEP_PERIOD)
+            if (api.isReduced()) paintStill(row)
+            else paint(row, Math.max(0, api.nowMs() - origin) / UNI_KEP_PERIOD)
             marker.appendChild(svg)
             return row
         }
@@ -199,101 +170,40 @@
             paint(row, UNI_KEP_STILL)
         }
 
-        var sync = function () {
-            var live = document.querySelectorAll(SEL)
-            var next = []
-            for (var i = 0; i < live.length; i += 1) {
-                var marker = live[i]
-                var host = typeof marker.closest === 'function' ? marker.closest('[data-row-key]') : null
-                var key = host === null ? null : host.getAttribute('data-row-key')
-                var found = null
+        return uniStatusRowMount({
+            select: SEL,
+            init: function (api) { origin = api.nowMs() },
+            /* 只按 node、host、key 认行；宿主重建由 needsAttach 触发重新装配。 */
+            find: function (rows, node, host, key) {
                 for (var j = 0; j < rows.length; j += 1) {
-                    if (rows[j].marker === marker && rows[j].host === host && rows[j].key === key) { found = rows[j]; break }
+                    if (rows[j].marker === node && rows[j].host === host && rows[j].key === key) return rows[j]
                 }
-                if (found === null || found.svg.parentNode !== marker) {
-                    /* 宿主换了节点（虚拟列表复用行）：旧的那枚先摘掉，免得一个格子里塞两个。 */
-                    if (found !== null && found.svg.parentNode !== null) found.svg.parentNode.removeChild(found.svg)
-                    found = attach(marker)
-                }
-                next.push(found)
-            }
-            for (var n = 0; n < rows.length; n += 1) {
-                if (next.indexOf(rows[n]) === -1 && rows[n].svg.parentNode !== null) {
-                    rows[n].svg.parentNode.removeChild(rows[n].svg)
-                }
-            }
-            rows = next
-        }
-
-        var tick = function (now) {
-            raf = 0
-            if (disposed) return
-            ticks += 1
+                return null
+            },
+            needsAttach: function (found, node) {
+                return found === null || found.svg.parentNode !== node
+            },
+            attach: attach,
+            detach: function (row) {
+                if (row.svg.parentNode !== null) row.svg.parentNode.removeChild(row.svg)
+            },
             /* 每帧 querySelectorAll 太贵：变更由 observer 打脏，另外每 30 帧兜一次，
                防止有行是「没有 childList 变化」地被复用出来的。 */
-            if (dirty || ticks % 30 === 0) { dirty = false; sync() }
-            var still = isReduced()
-            var s = Math.max(0, now - origin) / UNI_KEP_PERIOD
-            var at = still ? null : formattedAt(s)
-            for (var i = 0; i < rows.length; i += 1) {
-                var row = rows[i]
-                if (row.svg.isConnected === false) continue
-                if (still) paintStill(row)
-                else paint(row, s, at)
+            frame: function (now, api) {
+                api.bumpTicks()
+                if (api.isDirty() || api.tickCount() % 30 === 0) { api.clearDirty(); api.sync() }
+                var rows = api.rows()
+                var still = api.isReduced()
+                var s = Math.max(0, now - origin) / UNI_KEP_PERIOD
+                var at = still ? null : formattedAt(s)
+                for (var i = 0; i < rows.length; i += 1) {
+                    var row = rows[i]
+                    if (row.svg.isConnected === false) continue
+                    if (still) paintStill(row)
+                    else paint(row, s, at)
+                }
+                /* 静态形态只需要一帧；动态形态一直排下去。 */
+                if (!still && rows.length > 0) api.nextFrame()
             }
-            /* 静态形态只需要一帧；动态形态一直排下去。 */
-            if (!still && rows.length > 0) raf = window.requestAnimationFrame(tick)
-        }
-
-        var kick = function () {
-            if (disposed) return
-            sync()
-            /* 同步刚做完，别让下一帧因为上一次的脏标再同步一遍。 */
-            dirty = false
-            if (raf === 0) raf = window.requestAnimationFrame(tick)
-        }
-
-        if (typeof MutationObserver === 'function') {
-            /* 只同步「可能改变 SEL 命中」的批次：纯新增且新增子树都不命中时跳过，省掉一次
-               querySelectorAll 与一次 RAF 唤醒。判定规则与边界见 uniStatusMutationTouches；
-               保守方向的错判只会多同步一次，不会漏同步。 */
-            observer = new MutationObserver(function (records) {
-                if (!disposed && uniStatusMutationTouches(records, SEL)) kick()
-            })
-            /* data-state 是属性不是子节点：只盯 childList 的话，warning → ongoing 这一次
-               翻动要等兜底那 30 帧才被看见，而这期间样式表已经把官方点关了 —— 那一格会
-               空半秒。所以同一个 observer 连这个属性一起盯。 */
-            observer.observe(document.documentElement, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['data-state', 'data-row-key']
-            })
-            /* 动效开关写在 body 的属性上：它决定跑不跑，必须能中途翻。 */
-            if (document.body !== null) {
-                pref = new MutationObserver(function () { kick() })
-                pref.observe(document.body, {
-                    attributes: true,
-                    attributeFilter: ['data-uni-motion']
-                })
-            }
-        }
-
-        /* kick 自己会同步，这里不再先同步一遍。 */
-        kick()
-
-        return function () {
-            disposed = true
-            if (raf !== 0) window.cancelAnimationFrame(raf)
-            raf = 0
-            if (observer !== null) observer.disconnect()
-            if (pref !== null) pref.disconnect()
-            observer = null
-            pref = null
-            for (var i = 0; i < rows.length; i += 1) {
-                var svg = rows[i].svg
-                if (svg.parentNode !== null) svg.parentNode.removeChild(svg)
-            }
-            rows = []
-        }
+        })
     }

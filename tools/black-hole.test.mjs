@@ -179,25 +179,32 @@ test('ASCII parameters clamp angle, cell budget and speed; glyph alphabet is pri
   assert.equal(api.options({maxCells:Infinity}).maxCells,16000)
   assert.match(api.glyphs,/^[\x20-\x7e]+$/)
 })
-test('light disc borrows dark copper depth with muted warm highlights, without a yellow wash or halo; dark palette and physical grid stay unchanged',async()=>{
+test('light disc keeps a single warm axis from deep rim to readable ochre core: the rim holds the outline and the hot core stays gold instead of a pale void; dark palette and physical grid stay unchanged',async()=>{
   const f=fixture(), disk=f.api.create(f.canvas)
   await f.settle()
   const g=f.gpu.instances[0], {dark,light}=g.palettes
   assert.deepEqual(dark,['#2a1a12','#3d2719','#4f321d','#623f22','#774c27','#8d5a2e','#a46a36','#bb7c40','#d0904b','#e3a65c','#f2bd75','#ffe0a8'])
   assert.equal(light.length,12)
-  let previous=0, lowest=0
-  for(const [i,hex] of light.entries()){
-    const [r,g,b]=hex.slice(1).match(/../g).map(n=>parseInt(n,16))
-    assert.ok(r>=g&&g>b,'warm copper-to-amber family')
-    assert.ok((g-b)/(r-b)<=.4,'all light buckets stay copper (hue <= 24 degrees), not yellow gold')
-    const luminance=[r,g,b].reduce((sum,c,i)=>sum+[.2126,.7152,.0722][i]*(c/255<=.04045?c/255/12.92:((c/255+.055)/1.055)**2.4),0)
-    assert.ok(luminance>.18&&luminance>previous,'never near-black; physical brightness still increases luminance')
-    if(i===0){lowest=luminance;assert.ok(r-g>g-b,'low buckets lean copper, not yellow gold')}
-    if(i===light.length-1)assert.ok((r-b)/r<.22,'soft, desaturated highlights rather than a yellow wash')
-    previous=luminance
-  }
-  assert.ok(previous>.45&&previous<.6,'highest bucket stays softly lit, not near-white')
-  assert.ok(previous-lowest>.3,'retain depth instead of a narrow, uniformly gold ramp')
+  const rgb=hex=>hex.slice(1).match(/../g).map(n=>parseInt(n,16))
+  const lum=hex=>rgb(hex).reduce((sum,c,i)=>sum+[.2126,.7152,.0722][i]*(c/255<=.04045?c/255/12.92:((c/255+.055)/1.055)**2.4),0)
+  const contrastToPage=hex=>(0.8672+.05)/(lum(hex)+.05)
+  const hsl=hex=>{const [r,g,b]=rgb(hex).map(v=>v/255),mx=Math.max(r,g,b),mn=Math.min(r,g,b),l=(mx+mn)/2,d=mx-mn
+    let h=0;if(d){h=mx===r?((g-b)/d)%6:mx===g?(b-r)/d+2:(r-g)/d+4;h*=60;if(h<0)h+=360}
+    return{h,s:d?d/(1-Math.abs(2*l-1)):0,l}}
+  /* 浅底上热区不能取暗档的金白（#ffe0a8 对 #edf0f4 只有 1.3:1，等于消失），
+     改用赭金：黄还在，但压住色相与饱和，避免整块盘在浅底上烧成一片黄。
+     外缘给足深褐，先把盘的轮廓立住——浅底上的「淡」会被读成空缺，不是淡出。 */
+  assert.ok(contrastToPage(light[0])>8,'cold rim sits deep enough to hold the outline')
+  assert.ok(contrastToPage(light.at(-1))>2.5&&contrastToPage(light.at(-1))<4,'hot core stays readable ochre on the pale page')
+  for(let i=1;i<light.length;i++)assert.ok(lum(light[i])>lum(light[i-1]),'light ramp rises from rim to core')
+  assert.ok(lum(light.at(-1))-lum(light[0])>.1,'retain depth instead of a narrow, uniformly dark ramp')
+  /* 只有一条暖色轴：参考暗色的温度结构（外冷内热、明度拉开），不是照搬色值。
+     全程 r≥g≥b，外缘是深暖褐而不是冷灰，避免浅底上出现蓝色调。 */
+  for(const hex of light){const [r1,g1,b1]=rgb(hex);assert.ok(r1>=g1&&g1>=b1,'every step stays on the warm brown axis')}
+  /* 热区色相收到 31°上下、饱和不过半：这是「不要太黄」的量化边界，改回饱和金会在这里翻车。 */
+  const core=hsl(light.at(-1))
+  assert.ok(core.h>25&&core.h<40,`hot core hue stays ochre, got ${core.h.toFixed(1)}`)
+  assert.ok(core.s>0.3&&core.s<0.55,`hot core stays muted, got ${(core.s*100).toFixed(0)}%`)
   const builds=g.requests.length, patches=JSON.stringify(g.draws.at(-1).frame.patches)
   disk.setMode('light');assert.equal(g.draws.at(-1).frame.light,true)
   disk.setMode('dark');assert.equal(g.draws.at(-1).frame.light,false)

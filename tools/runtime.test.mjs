@@ -168,12 +168,15 @@ test('S2: queued workspace moves cannot start after disposal', async () => {
 
 test('S5: keyboard group action retains raw provider ID', () => {
   const source = read('src/model-effort-picker.js')
-  const code = between(source.slice(source.indexOf('  function createModelSelect(')), '    function onKey(event)', '    searchInput.addEventListener')
+  /* onKey now delegates its common keys to the shared roveKeys helper; the slice below
+     stops before it, so prepend the production helper the way the fixtures slice them. */
+  const roveKeysSrc = source.slice(source.indexOf('  function roveKeys('), source.indexOf('  function createModelSelect('))
+  const code = roveKeysSrc + between(source.slice(source.indexOf('  function createModelSelect(')), '    function onKey(event)', '    searchInput.addEventListener')
   for (const id of ['a.b', 'a/b', '中文', 'a_b', 'x'.repeat(500)]) {
     let toggled
     const node = { getAttribute: () => 'slug-collision', uniGroupId: id }
     vm.runInNewContext(`${code}; onKey({key:'ArrowLeft', target:node, preventDefault(){}})`, {
-      node, toggleGroup(value) { toggled = value },
+      node, shell: { panel: {} }, rows: [], toggleGroup(value) { toggled = value },
     })
     assert.equal(toggled, id)
   }
@@ -1409,7 +1412,7 @@ test('B1: the three brand zones route to their own surface and every other click
   f.boxes.set(row, { mark: 40, name: 100 })
   const panelRow = { click() { f.clicks.push('panel') } }
   const launcher = { click() { f.clicks.push('settings') } }
-  const PANEL = "[data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='插件'], [data-slot='sidebar'] > div > nav[aria-label] > button:has([data-slot='sidebar.panellist'])[aria-label='Plugins']"
+  const PANEL = "[data-slot='sidebar'] nav[aria-label] button:has([data-slot='sidebar.panellist'])[aria-label='插件'], [data-slot='sidebar'] nav[aria-label] button:has([data-slot='sidebar.panellist'])[aria-label='Plugins']"
   f.found.set(PANEL, panelRow)
   f.found.set("[data-slot='settings.launcher'] > button", launcher)
   const dispose = f.mount()
@@ -1531,7 +1534,9 @@ function glassFixture({ guideCount = 1, composer = false } = {}) {
     MutationObserver: class { constructor() {} observe() {} disconnect() {} },
     ResizeObserver: class { constructor(fn) { resizes.push(fn) } observe() {} unobserve() {} disconnect() {} },
   }
-  const dispose = vm.runInNewContext(upTo('src/runtime/glass.js') + withFilterIds(read('src/runtime/glass.js')) + '\nmountLiquidGlass()', context)
+  /* The filter/image nodes are built by the shared mount in displacement-mount.js (part
+     of the prefix), so the id-injection has to cover the whole source, not just glass.js. */
+  const dispose = vm.runInNewContext(withFilterIds(upTo('src/runtime/glass.js') + read('src/runtime/glass.js')) + '\nmountLiquidGlass()', context)
   const reset = () => { reads.length = 0; attributes.length = 0 }
   const setBox = (width, height) => { box.width = width; box.height = height }
   const batch = targets => targets.map(target => ({ target }))

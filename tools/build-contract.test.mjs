@@ -14,16 +14,28 @@ test('S10: concatenation order puts each shared helper ahead of its readers', ()
      mutation test is read at mount time by glass and lens, and both extracted mounts
      are called by src/client.js. */
   const at = file => CLIENT_FILES.indexOf(file)
-  for (const file of ['src/runtime/mutation-records.js', 'src/runtime/glass.js', 'src/runtime/lens.js',
+  for (const file of ['src/runtime/mutation-records.js', 'src/runtime/displacement-mount.js',
+    'src/runtime/glass.js', 'src/runtime/lens.js',
+    'src/runtime/status-row-mount.js', 'src/runtime/accretion.js', 'src/runtime/kepler.js',
     'src/runtime/composer-typed.js', 'src/runtime/brand-routing.js', 'src/client.js']) {
     assert.ok(at(file) >= 0, file + ' is not in CLIENT_FILES')
   }
   assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/glass.js'))
   assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/lens.js'))
+  /* The extracted mount reads the shared mutation test and both effects read it, so it
+     must sit after mutation-records.js and before the two files that call it. */
+  assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/displacement-mount.js'))
+  assert.ok(at('src/runtime/displacement-mount.js') < at('src/runtime/glass.js'))
+  assert.ok(at('src/runtime/displacement-mount.js') < at('src/runtime/lens.js'))
   /* The status filter is looked up by accretion and kepler at their mount time, so the
      helper file must be read before both extract their observers. */
   assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/accretion.js'))
   assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/kepler.js'))
+  /* The shared row-mount skeleton both effects call reads the mutation test, so it must
+     sit after mutation-records.js and before the two mounts that call it. */
+  assert.ok(at('src/runtime/mutation-records.js') < at('src/runtime/status-row-mount.js'))
+  assert.ok(at('src/runtime/status-row-mount.js') < at('src/runtime/accretion.js'))
+  assert.ok(at('src/runtime/status-row-mount.js') < at('src/runtime/kepler.js'))
   assert.ok(at('src/runtime/composer-typed.js') < at('src/client.js'))
   assert.ok(at('src/runtime/brand-routing.js') < at('src/client.js'))
   /* One implementation position: the shipped bundle carries each of them exactly once,
@@ -44,7 +56,7 @@ test('S10: concatenation order puts each shared helper ahead of its readers', ()
 
 test('S10: source distribution includes build tools and all declared runtime modules', () => {
   const pkg=JSON.parse(readFileSync(join(root,'package.json'),'utf8'))
-  assert.ok(pkg.files.includes('tools/*.mjs'))
+  for (const tool of ['tools/build-client.mjs','tools/build-contract.mjs','tools/source-transforms.mjs']) assert.ok(pkg.files.includes(tool), tool+' must ship for prepare')
   assert.ok(pkg.files.includes('src'))
   assert.ok(pkg.files.includes('build'))
   assert.ok(pkg.files.includes('client.js'))

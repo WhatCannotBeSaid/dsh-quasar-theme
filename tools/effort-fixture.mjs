@@ -25,7 +25,10 @@ export function effortFixture() {
   const source = readFileSync(new URL('../src/model-effort-picker.js', import.meta.url), 'utf8')
   const start = source.indexOf('  function createEffortSelect('), end = source.indexOf('  function createPair(', start)
   if(start<0 || end<0) throw Error('missing effort constructor')
-  const create = vm.runInNewContext(source.slice(start,end)+'; createEffortSelect', {
+  // The shared popover helpers (rove/step/trapTab + the A4 extraction) live above the
+  // constructors; slice them in too so the fixture runs the production source, not copies.
+  const helpers = source.slice(source.indexOf('  function rove('), source.indexOf('  function createModelSelect('))
+  const create = vm.runInNewContext(helpers + source.slice(start,end)+'; createEffortSelect', {
     document, makeT:()=>key=>lang+':'+key,
     createShell:()=>shell,
     h(tag, cls, label) {if(cls==='uni-mep__option') created++; const n=node(); if(label)n.textContent=label; return n},

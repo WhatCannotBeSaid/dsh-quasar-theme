@@ -269,7 +269,7 @@ test('出画取景：圆心出画只剩左半弧，速度收到对话页的值',
   dispose()
 })
 
-test('两档盘字不透明度同为 0.341，位置与几何不变', async () => {
+test('暗档盘字 0.341、亮档盘字 0.341，位置与几何不变', async () => {
   const f = holeFixture()
   const dispose = f.api.mount()
   await f.settle()
@@ -289,7 +289,7 @@ test('两档盘字不透明度同为 0.341，位置与几何不变', async () =>
 
   const darkView = hole.view()
 
-  /* 亮档盘字使用柔和铜色，画布不透明度与暗档一致。 */
+  /* 亮档盘字走单一暖轴（外缘深褐 → 中段暖褐 → 热区赭金），画布不透明度按 ARC_INK_LIGHT 收到 0.341。 */
   hole.setMode('light')
   f.frameAt(400)
   f.draws.length = 0
@@ -481,7 +481,7 @@ test('运镜连续：位移交给合成器，内容只在两端各画一次', as
 test('转场途中切亮档：落地按当前档收墨，不被起飞时捕获的旧值压回去', async () => {
   /* 起飞那一帧 toAlpha 是暗档 0.341。飞到一半换成亮档，onMode 把内联和 live.alpha
      都改成了基准 0.252（盘字另外映射为 .341）。落地按当前档重算，
-     诊断基准仍保留亮档值，盘字保持与暗档相同的实际不透明度。 */
+     诊断基准仍保留亮档值，盘字保持亮档自己的实际不透明度。 */
   const f = holeFixture()
   const dispose = f.api.mount()
   await f.settle()

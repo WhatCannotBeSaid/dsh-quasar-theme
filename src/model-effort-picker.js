@@ -531,6 +531,51 @@ var UniModelEffortPicker = (function () {
     }
   }
 
+  /* Enable/disable a list's rows together, writing only on a real change. */
+  function setRowsDisabled(rows, pending) {
+    var want = pending === true
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].disabled !== want) rows[i].disabled = want
+    }
+  }
+
+  /* Shared choice tail: select, close, return focus. Each caller keeps its own guard. */
+  function commit(opts, instance, payload) {
+    opts.select(payload)
+    instance.setOpen(false)
+    instance.shell.trigger.focus()
+  }
+
+  /* Shared popover key grammar: Tab trap, Enter/Space activate, arrows walk the ring,
+   * Home/End jump its ends. Returns true when it consumed the event; a control with an
+   * extra key handles it after. skipActivate lets a focused search box pass through. */
+  function roveKeys(event, panel, rows, hooks) {
+    var active = event.target
+    if (event.key === 'Tab') {
+      trapTab(event, panel)
+      return true
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      if (hooks && hooks.skipActivate && hooks.skipActivate(active)) return true
+      if (active && active.click && rows.indexOf(active) >= 0) {
+        event.preventDefault()
+        active.click()
+      }
+      return true
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      rove(rows, step(rows, active, event.key === 'ArrowDown' ? 1 : -1))
+      return true
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      if (rows.length) rove(rows, event.key === 'Home' ? rows[0] : rows[rows.length - 1])
+      return true
+    }
+    return false
+  }
+
   /* ---------------------------------------------------------------- the model -- */
 
   function createModelSelect(options) {
@@ -642,9 +687,7 @@ var UniModelEffortPicker = (function () {
 
     function choose(provider, model) {
       if (typeof opts.select !== 'function' || (state && state.pending)) return
-      opts.select({ provider: provider, model: model })
-      instance.setOpen(false)
-      shell.trigger.focus()
+      commit(opts, instance, { provider: provider, model: model })
     }
 
     function toggleGroup(id) {
@@ -690,7 +733,7 @@ var UniModelEffortPicker = (function () {
       var want = !!(state && state.pending)
       if (want === rowsDisabled) return
       rowsDisabled = want
-      for (var i = 0; i < rows.length; i++) rows[i].disabled = want
+      setRowsDisabled(rows, want)
     }
 
     function paint() {
@@ -846,29 +889,13 @@ var UniModelEffortPicker = (function () {
     }
 
     function onKey(event) {
-      var active = event.target
-      if (event.key === 'Tab') {
-        trapTab(event, shell.panel)
-        return
-      }
-      if (event.key === 'Enter' || event.key === ' ') {
-        if (active && active.getAttribute && active.getAttribute('data-uni-mep-search') !== null) return
-        if (active && active.click && rows.indexOf(active) >= 0) {
-          event.preventDefault()
-          active.click()
+      var handled = roveKeys(event, shell.panel, rows, {
+        skipActivate: function (active) {
+          return !!(active && active.getAttribute && active.getAttribute('data-uni-mep-search') !== null)
         }
-        return
-      }
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault()
-        rove(rows, step(rows, active, event.key === 'ArrowDown' ? 1 : -1))
-        return
-      }
-      if (event.key === 'Home' || event.key === 'End') {
-        event.preventDefault()
-        if (rows.length) rove(rows, event.key === 'Home' ? rows[0] : rows[rows.length - 1])
-        return
-      }
+      })
+      if (handled) return
+      var active = event.target
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
         active && active.getAttribute && active.getAttribute('data-uni-mep-group-toggle') !== null) {
         event.preventDefault()
@@ -997,9 +1024,7 @@ var UniModelEffortPicker = (function () {
       if (typeof opts.select !== 'function' || !state || !state.current || state.pending) return
       var selection = { provider: state.current.provider, model: state.current.model }
       if (effort !== undefined) selection.reasoningEffort = effort
-      opts.select(selection)
-      instance.setOpen(false)
-      shell.trigger.focus()
+      commit(opts, instance, selection)
     }
 
     function paint() {
@@ -1017,9 +1042,7 @@ var UniModelEffortPicker = (function () {
       var i
       if (signature === listSignature) {
         /* Pending is independent of catalog content: keep focus and row identities. */
-        for (i = 0; i < rows.length; i++) {
-          if (rows[i].disabled !== !!state.pending) rows[i].disabled = !!state.pending
-        }
+        setRowsDisabled(rows, !!state.pending)
         return false
       }
       var hold = document.activeElement && shell.panel.contains(document.activeElement)
@@ -1064,25 +1087,7 @@ var UniModelEffortPicker = (function () {
     }
 
     function onKey(event) {
-      if (event.key === 'Tab') {
-        trapTab(event, shell.panel)
-        return
-      }
-      var active = event.target
-      if ((event.key === 'Enter' || event.key === ' ') && rows.indexOf(active) >= 0) {
-        event.preventDefault()
-        active.click()
-        return
-      }
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault()
-        rove(rows, step(rows, active, event.key === 'ArrowDown' ? 1 : -1))
-        return
-      }
-      if (event.key === 'Home' || event.key === 'End') {
-        event.preventDefault()
-        if (rows.length) rove(rows, event.key === 'Home' ? rows[0] : rows[rows.length - 1])
-      }
+      roveKeys(event, shell.panel, rows)
     }
 
     shell.panel.addEventListener('keydown', onKey)
