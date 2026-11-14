@@ -81,14 +81,13 @@ Drop the entry from `dsh.profile.bundles` too if you added it there.
 | Black hole | A canvas layer behind the app: a photon ring and shadow, a lensed accretion disk whose 24 patches have finite lifetimes and are sheared by their own differential orbit. Phenomenological, not an MHD solve |
 | Brand mark | The ink black hole supplied for this theme, drawn at 28×28 inside the sidebar's 36×36 slot |
 | Wordmark | `QUASAR` in Cinzel 700 (0.10em tracking) and a `CORE` chip in EB Garamond 500 / 12px, both embedded as data URLs |
-| Composer row | The merged model control becomes two independent buttons — model and reasoning effort — each with its own popover, neither with a disclosure chevron |
+| Composer row | Left as the host ships it — the merged model control and its panel stay official |
 | Also inside | A pin button on every workspace and session row; a session status rail; the four popovers that hang off the composer row centred on their triggers |
 | Language | All user-facing text goes through the official locale service (zh / en) |
 
 The theme installs one layer and can be removed as one. It ships **no settings
 panel of its own** — the look is fixed, not a preference — and the only thing it
-persists is the workspace pin set and the composer's collapsed-popover state,
-under `quasar-theme/workspace-pins` and `quasar-theme/model-groups-collapsed`.
+persists is the workspace pin set, under `quasar-theme/workspace-pins`.
 It does hide and move a few official entries, so read
 [What it changes in the interface](#what-it-changes-in-the-interface) before you
 install it.
@@ -97,9 +96,9 @@ install it.
 
 Removing the package takes the layer away again and every official element comes
 back. In between, the theme **hides seven official entries, rewrites the sidebar
-identity line, removes the new-session page's title row, and reshapes the
-composer's control row**. All of it is CSS plus a few client effects — the
-official DOM is never rewritten.
+identity line, removes the new-session page's title row, and centres the four
+popovers that hang off the composer's control row**. All of it is CSS plus a few
+client effects — the official DOM is never rewritten.
 
 ### The brand row is three click zones
 
@@ -169,17 +168,10 @@ used to be. Nothing is put in its place — the theme writes no copy there.
 
 ### The composer's control row
 
-The row above Send belongs to the host; the theme reshapes it and splits one of
-its controls.
+The row above Send belongs to the host. Every control in it is the one the host
+ships — the merged model button and its panel included; the theme stopped
+replacing that control on 2026-11-14.
 
-- The official merged model control becomes **two buttons**: the model and the
-  reasoning effort. Each has its own popover, and opening one closes the other;
-  neither carries a disclosure chevron, because the open state is already the
-  trigger's own highlight.
-- On a narrow row both triggers become 28×28 icon buttons — same box, same ink as
-  the add and dictation buttons beside them. A wide row keeps the text labels.
-- The whole row shares one seam — 6px when it has room, 3px when it does not — so
-  the controls read as one strip instead of drifting groups.
 - The four official popovers that hang off that row — permission, session stats,
   token usage and the context meter — are centred on their triggers instead of
   left-aligned with them. The sidebar's own view-options menu is left where the
@@ -217,7 +209,6 @@ src/client.js         service and effect orchestration
 src/theme.css         the token layer
 src/tokens.json       the token layer's source of truth for the build
 src/runtime/          glass, black hole, geodesic lens, pins, brand routing, panels
-src/model-effort-picker.js  the composer's two model/effort controls
 cordis.patch.yml      the bundle-patch mount declaration
 build/                shipped assets: the brand mark, the two OFL fonts, fonts.json
 build/wallpapers.json the TRACKED wallpaper manifest — empty in this repository

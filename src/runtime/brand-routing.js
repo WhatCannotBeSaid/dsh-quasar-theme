@@ -74,8 +74,8 @@
            open modal, and a scope other than settings refuses the invoke below.
            Round 69 (2026-10-24): walk back past matches with no layout box, so the
            scope returned is the modal a person could actually see. The composer's two
-           picker popovers used to claim role="menu" while closed and are fixed at the
-           source (src/model-effort-picker.js, setMenuRole); this guard covers the same
+           picker popovers used to claim role="menu" while closed; they were fixed at the
+           source and withdrawn with the model seat on 2026-11-14; this guard covers the same
            mistake made by any other mounted popover. Without it, SYSTEM is a dead
            click in a conversation and live everywhere else -- exactly the asymmetry
            that was reported. */

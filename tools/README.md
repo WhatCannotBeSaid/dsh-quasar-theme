@@ -14,7 +14,6 @@
 | `token-audit.mjs` | token 审计 |
 | `audit-evidence.mjs` | 证据输入校验，`token-audit` 与 `build-contract.test.mjs` 共用 |
 | `measure-resources.mjs` | 产物字节数、gzip/brotli、Node 内编译耗时 |
-| `effort-fixture.mjs` | `runtime.test.mjs` 的 picker 测试夹层 |
 
 ## 2. 测试（`node --test`）
 

@@ -250,29 +250,6 @@ const cssPaint = css.replace(/\/\*[\s\S]*?\*\//g, '')
  * the bulk of it; the two small sheets account for 1,542 of the 3,135. */
 // minifyCss is imported from source-transforms.mjs.
 
-/* Round 50 (2026-10-14): the composer's model seat. Two more inputs, still no fourth
- * stylesheet — the picker's paint rules ride in the SAME <style data-plugin-css> tag as
- * the paint layer, appended after it.
- *
- * They cannot go INTO src/theme.css: that sheet is scanned by selfcheck css.7, whose
- * selector regex is anchored on `(^|})\s*([^{}@][^{}]*?)\{` — it skips an at-block only
- * at the very start of the sheet, so the picker's four at-rules (@media hover, @media
- * 480px, @container 380px, @media reduced-motion) would each be read as a selector and
- * fail the check. Verbatim interpolation into src/client.js is the same door
- * src/model-effort-picker.js takes for its behaviour.
- *
- * Neither new file may carry a backtick or `${` (they are interpolated with ${…});
- * checked below before the template can be built, exactly as clientJs is. */
-const pickerCss = read('src/model-effort-picker.css')
-const pickerJs = read('src/model-effort-picker.js')
-
-const pickerVerbanned = /[`]|\$\{/.exec(pickerJs)
-if (pickerVerbanned !== null) {
-  throw new Error(
-    'src/model-effort-picker.js must stay free of backticks and template placeholders; '
-    + 'found ' + JSON.stringify(pickerVerbanned[0]) + ' at offset ' + pickerVerbanned.index)
-}
-
 /* The client half is a SET of files since 2026-10-27: the black-hole brand mark is the
  * component that boxes the raster artwork, concatenated in CLIENT_FILES order so every
  * part lands in one factory scope. Same verbatim rule for each of them. */
@@ -547,11 +524,8 @@ window.__ModuleLoader__.load({
 
     var CSS = ${JSON.stringify(minifyCss(cssPaint))}
 
-    var PICKER_CSS = ${JSON.stringify(minifyCss(stripBlockComments(pickerCss)))}
-
     var BRAND_LOGO_CSS = ${JSON.stringify(BRAND_LOGO_CSS)}
-${compressJs(pickerJs)}
-${compressJs(clientJs)}
+${compressJs(clientJs)}
   },
 })
 `

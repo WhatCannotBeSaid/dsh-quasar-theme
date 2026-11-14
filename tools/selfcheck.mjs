@@ -1000,12 +1000,12 @@ checks.check('cli.11', 'the plugin injects the theme service', () => {
   const names = match[1].split(',').map((part) => part.trim().replace(/['"]/g, '')).filter(Boolean)
   return names.includes('theme') || `exports.inject = [${match[1]}]`
 })
-/* Narrowed on 2026-10-14 (round 50). The check was written when the theme registered
-   no slot at all, so `slots.inject|slots.register` stood in for "the settings section
-   is gone". Round 50 registers the composer's model seat -- a deliberate, user-requested
-   contribution -- so the proxy no longer separates the two things it used to cover. What
-   the check is actually about is the settings section: the theme must not put itself
-   back in the settings panel. That is now asserted directly. */
+/* The check was written when the theme registered no slot at all, so
+   `slots.inject|slots.register` stood in for "the settings section is gone". Round 50
+   added the composer's model seat, which the user asked to withdraw on 2026-11-14, so
+   the proxy no longer separates the two things it used to cover. What the check is
+   actually about is the settings section: the theme must not put itself back in the
+   settings panel. That is now asserted directly. */
 checks.check('cli.11b', 'no settings.section registration any more', () =>
   !/settings\.section/.test(client) ||
   'client.js still registers a settings section')
@@ -1014,12 +1014,11 @@ checks.check('cli.11c', 'the client half writes browser storage only for the nam
      to live in the browser -- see the workspace-pins effect in src/client.js for why no
      host-side door exists (no node_modules of its own, no `@deepseek-ai/cordis` anywhere
      on this disk, no filesystem writes, no routes, no Config).
-     The third (the model picker's collapsed provider groups) is the same shape of fact:
-     which groups the user folded is a preference about the panel, not a property of one
-     conversation, so it has no host-side home either. All three are named here so that
-     any further write still fails this check. */
+     The third (the model picker's collapsed provider groups) went away with the model
+     seat on 2026-11-14, so the set is back to one. It is still named here so that any
+     further write fails this check. */
   const writes = [...client.matchAll(/localStorage\.setItem\(([A-Za-z_$][\w$]*)/g)].map((m) => m[1])
-  const allowed = ['PIN_KEY', 'MEP_KEY']
+  const allowed = ['PIN_KEY']
   const stray = writes.filter((name) => !allowed.includes(name))
   if (stray.length > 0) return 'client.js writes browser storage outside the named keys: ' + stray.join(', ')
   if (!writes.includes('PIN_KEY')) return 'the workspace pin set is never written'
@@ -1345,7 +1344,7 @@ checks.check('cli.13b', 'the shipped sheets carry no comments and no loose white
      property that has to hold — and it is checked on the BUNDLE, which is what the
      browser parses, not on the sources, which keep every comment a reviewer needs. */
   const bad = []
-  for (const name of ['CSS', 'PICKER_CSS']) {
+  for (const name of ['CSS']) {
     const found = client.match(new RegExp('var ' + name + ' = ("(?:[^"\\\\]|\\\\.)*")'))
     if (found === null) { bad.push(`${name}: block not found`); continue }
     const text = JSON.parse(found[1])

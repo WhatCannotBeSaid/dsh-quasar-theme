@@ -4,7 +4,6 @@ import vm from 'node:vm'
 import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { effortFixture } from './effort-fixture.mjs'
 import { CLIENT_FILES } from './build-contract.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -164,55 +163,6 @@ test('S2: queued workspace moves cannot start after disposal', async () => {
   assert.deepEqual(sent, ['one'])
   api.dispose(); release(); await chain
   assert.deepEqual(sent, ['one'])
-})
-
-test('S5: keyboard group action retains raw provider ID', () => {
-  const source = read('src/model-effort-picker.js')
-  /* onKey now delegates its common keys to the shared roveKeys helper; the slice below
-     stops before it, so prepend the production helper the way the fixtures slice them. */
-  const roveKeysSrc = source.slice(source.indexOf('  function roveKeys('), source.indexOf('  function createModelSelect('))
-  const code = roveKeysSrc + between(source.slice(source.indexOf('  function createModelSelect(')), '    function onKey(event)', '    searchInput.addEventListener')
-  for (const id of ['a.b', 'a/b', '中文', 'a_b', 'x'.repeat(500)]) {
-    let toggled
-    const node = { getAttribute: () => 'slug-collision', uniGroupId: id }
-    vm.runInNewContext(`${code}; onKey({key:'ArrowLeft', target:node, preventDefault(){}})`, {
-      node, shell: { panel: {} }, rows: [], toggleGroup(value) { toggled = value },
-    })
-    assert.equal(toggled, id)
-  }
-})
-
-test('S5/S8: identical effort notifications keep nodes and pending updates in place', () => {
-  const f = effortFixture(), rows = f.rows()
-  rows[1].focus()
-  for (let i = 0; i < 1000; i++) f.instance.sync()
-  assert.deepEqual(f.rows(), rows)
-  assert.equal(f.counts().created, 2)
-  assert.equal(f.document.activeElement, rows[1])
-  f.state().pending = true; f.instance.sync()
-  assert.equal(f.rows()[0].disabled, true)
-  assert.equal(f.rows()[1], rows[1])
-  f.state().pending = false; f.instance.sync()
-  assert.equal(rows[0].disabled, false)
-  assert.equal(f.counts().placements, 0)
-})
-
-test('S5/S8: changed effort content repositions once, including empty and translation', () => {
-  const f = effortFixture()
-  f.instance.open = true
-  f.rows()[1].focus()
-  f.state().current.reasoningEffort = 'high'; f.instance.sync()
-  assert.equal(f.rows()[1].getAttribute('aria-checked'), 'true')
-  assert.equal(f.document.activeElement, f.rows()[1])
-  assert.equal(f.counts().placements, 1)
-  f.language('zh'); f.instance.sync()
-  assert.equal(f.counts().placements, 2)
-  f.setState({current:null,groups:[],pending:false}); f.instance.sync()
-  assert.equal(f.rows().length, 0)
-  assert.equal(f.counts().placements, 3)
-  assert.equal(f.instance.paint(), false)
-  f.instance.destroyed=true; f.instance.sync()
-  assert.equal(f.counts().placements, 3)
 })
 
 test('S6: the pin fallback admits outside mutations until scoped rows return', () => {

@@ -16,12 +16,15 @@
 var UniverseHole = (function () {
   /* 与 geodesic.js 的相机常量、accretion-disk.js 的 radius 公式必须同源：radius 与它的 view().radius 是同一个数，
      否则阴影圆和盘的内缘会对不上。ratio 由那片提供，这里不复制公式。 */
-  var HORIZON_INK = '#101725'
+  /* 亮纸上的阴影（2026-11-14 压深）：旧值 #101725 是「压一档浅蓝灰」，按 Weber 0.25
+     反算出来的，目的是不遮字；用户当轮反馈「黑洞还是太淡」。新值 #0a0e16 只比暗档的
+     #030509 高一线，浅纸上读作真黑洞而不是灰蓝球。对话页靠画布 opacity 0.252 继续淡。 */
+  var HORIZON_INK = '#0a0e16'
   /* 亮纸上的阴影：不铺墨的阴影会被当成空白，所以压一档浅蓝灰。 */
   var SHADOW_INK = '#030509'
   /* 暗档的环是发光（接近高光但不到纯白），亮纸上的环是墨（深金铜）。 */
   var RING_INK_DARK = '#f3dcae'
-  var RING_INK_LIGHT = '#6b3f14'
+  var RING_INK_LIGHT = '#5a340c'
   /* 环包络的方位分档：盘字让位时按这个精度查表。 */
   var RING_BINS = 360
   /* 只把肉眼读得出来的像素记进包络。alpha 才 2、3 的边缘像素如果也参与，
@@ -203,7 +206,7 @@ var UniverseHole = (function () {
         var ringSize = bakedRing.size, scale = horizon / bakedRing.horizon
         var img = ringImage(light ? RING_INK_LIGHT : RING_INK_DARK)
         ctx.save()
-        ctx.globalAlpha = light ? .74 : .86
+        ctx.globalAlpha = light ? .82 : .86
         if (img) ctx.drawImage(img, baseX - ringSize / 2 * scale,
           baseY - ringSize / 2 * scale, ringSize * scale, ringSize * scale)
         ctx.restore()

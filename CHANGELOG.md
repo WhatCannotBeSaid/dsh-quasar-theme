@@ -211,6 +211,19 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
 
 ### Removed
 
+- **输入框「模型选择」恢复成官方默认控件（2026-11-14 第八十三轮）。** 用户逐字：「将 dsh-quasar-theme 输入框「模型选择」恢复成DSH官方默认样式。」
+  ① 停用 2026-10-14 第五十轮加的模型座遮蔽：`src/client.js` 删掉 `conversation.input.model` 的 priority −1 注册
+  与两个自建按钮（`UniModelSeat` / `UniModelSeatHost` / `mountModelSeat`），官方那个合并的模型控件
+  （模型与推理档位同住一个按钮、一个面板）原样显示，主题不再替换它。
+  ② 主题自建的 picker 整体移除：`src/model-effort-picker.js`、`src/model-effort-picker.css`、
+  `tools/effort-fixture.mjs` 移入回收站；`tools/build-client.mjs` 去掉这两个输入、反引号守卫与
+  `PICKER_CSS` 变量和 `${compressJs(pickerJs)}` 插值；`tools/selfcheck.mjs` 的 cli.13b 只查 `CSS`，
+  cli.11c 的允许写键回到 `['PIN_KEY']`；`tools/runtime.test.mjs` 删掉三条 picker 用例与它的 import；
+  两份 README、`tools/README.md` 同步，`src/theme.css` 三处指向该组件的注释改为历史。
+  ③ 门禁：`node tools/verify.mjs` 全绿（build-contract 59 通过、selfcheck 114 断言 0 失败、token 审计
+  53 个、`client.js check: OK`）；`node --test` **118 pass / 0 fail**；`client.js` **242,000 chars /
+  53 tokens / 2 fonts / 0 wallpapers**。主题自己的 localStorage 写只剩 `PIN_KEY`。
+
 - **主题的字体改动整份移除（2026-10-31 第六十三轮）。** 用户逐字：「去掉本主题的字体修改。」，
   随后确认「除了品牌字标先全部去掉」。① 令牌：`--dsw-font-family`（Tiempos 衬线栈）与
   `--ds-font-family-code`（Operator Mono 等宽栈）从 `tokens.json` / `src/tokens.json` 删除，
@@ -226,6 +239,23 @@ All notable changes to `eva-inspired-theme` are recorded here. The format follow
   OFL-1.1，两份 README 的字体声明同步。
 
 ### Changed
+
+- **亮色新会话页的黑洞与吸积盘恢复满浓度，白纱整层撤掉（2026-11-14 第八十四轮）。**
+  用户逐字：「亮色新新会话页的黑洞和吸积盘对比度有问题，现在太淡了。新会话页应该展现吸积盘和黑洞，
+  只有对话页才需要变淡以免影响观看长文对话。」→ 随后「不要盖白纱啊，谁让你盖白纱了？暗色的黑洞吸积盘
+  盖白纱了吗？」→「新会话页的黑洞和吸积盘还是太淡了。」
+  ① `src/theme.css` 的亮档 `body::after` 从两页恒定 `opacity: 0.28` 改成恒定 `0`：暗档那层吃的是暗色令牌
+  （`#1a1325` / α0.35），是深纱不是白纱；亮档同一令牌是浅色（`#e2e1ed` / α0.84），任何不透明度都是白纸，
+  所以整层不画。对话页的「淡」不靠这层纱，仍由 `src/runtime/accretion-disk.js` 的
+  `ARC_FADE_LIGHT = 0.252`（洞）与 `ARC_INK_LIGHT = 0.341`（盘字）随 `arcTo` 的运镜插值承担。
+  ② 亮档基础墨整体压深：盘字 12 档调色板从 `#342a23… #ad7f43` 换成 `#1a120d… #9c7247`（外缘对纸约 16:1，
+  热区约 3.7:1，贴住 `tools/black-hole.test.mjs` 的「热区 < 4:1」契约，再深就失去赭金温度）；
+  黑洞阴影墨 `#101725 → #0a0e16`；光子环 `#6b3f14 → #5a340c`，alpha `0.74 → 0.82`。
+  ③ 门禁：`node tools/verify.mjs` 全绿（build-contract 59 通过、selfcheck 114 断言 0 失败、token 审计 53 个、
+  `client.js check: OK`）；`node --test tools/runtime.test.mjs tools/dialog-arc.test.mjs tools/black-hole.test.mjs`
+  **107 pass / 0 fail**；`client.js` **242,006 chars / 53 tokens / 2 fonts / 0 wallpapers**。
+  已知代价：亮档 hero 外「工作区选择」「Agent 预设」两颗无背板控件（2026-11-01 用户点名撤过背板）静止态
+  0.55 幽灵会直接压在满浓度盘字上；输入卡仍有自己的纸色背板，不受影响。
 
 - **品牌三件套的 hover 彻底解耦：按钮不再整体缩，SYSTEM 只在指针越过字标右缘之后才响应（2026-10-31 第七十轮）。**
   用户逐字：「鼠标悬停在左栏顶部的三个品牌标识时仍存在区域使得悬停在某个范围时三个品牌标识同时缩小，
